@@ -204,6 +204,16 @@ function buildMemoryArgs(userMemoryDir: string): string[] {
   return ["--append-system-prompt", instruction];
 }
 
+/**
+ * 构建 pi JSONL 会话持久化参数。
+ *
+ * pi 将对话历史（含 compaction 摘要）保存到 userPiSessionsDir/{sessionId}.jsonl。
+ * 进程重启后加载同一文件，完整恢复 messages[]，实现短期记忆跨重启保留。
+ */
+function buildSessionArgs(userPiSessionsDir: string, sessionId: string): string[] {
+  return ["--session-dir", userPiSessionsDir, "--session", sessionId];
+}
+
 // ── 启动 pi 进程，返回多轮会话句柄 ───────────────────────────────────────────
 
 /**
@@ -221,8 +231,6 @@ export async function startPiSession(
 ): Promise<PiSessionHandle> {
   const piConfigDir = await setupPiConfigDir(sessionId, sandboxPaths.globalSkills, sandboxPaths.userSkills);
 
-  // pi 子进程只注入必要环境变量，不暴露 MongoDB/Redis 凭据
-  // OPENAI_BASE_URL/KEY 不再传入：pi 在沙盒内通过 127.0.0.1:9001 调用 llm-proxy 桥
   const piEnv: Record<string, string> = {
     PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
     HOME: sandboxPaths.home,
@@ -232,13 +240,13 @@ export async function startPiSession(
     PI_SANDBOX_HOME: sandboxPaths.home,
     PI_SANDBOX_TMP: sandboxPaths.sessionTmp,
     PI_CODING_AGENT_DIR: piConfigDir,
-    // 告知 bwrap 扩展当前已在外层沙盒内，跳过内层 bwrap（避免多余的嵌套）
     PI_OUTER_SANDBOX: "1",
   };
 
   const skillArgs = buildSkillArgs(skillIds, sandboxPaths.globalSkills, sandboxPaths.userSkills);
   const memoryArgs = buildMemoryArgs(sandboxPaths.userMemory);
-  const piArgs = ["--mode", "rpc", "--no-session", "--provider", "llm-proxy", "--model", "default", ...skillArgs, ...memoryArgs];
+  const sessionArgs = buildSessionArgs(sandboxPaths.userPiSessions, sessionId);
+  const piArgs = ["--mode", "rpc", "--provider", "llm-proxy", "--model", "default", ...sessionArgs, ...skillArgs, ...memoryArgs];
 
   // 外层 bwrap 参数：将 pi 进程整体置于网络隔离沙盒内
   const outerBwrapArgs = buildOuterSandboxArgs(sandboxPaths, piConfigDir);
