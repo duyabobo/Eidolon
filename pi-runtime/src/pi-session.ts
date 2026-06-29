@@ -186,6 +186,24 @@ function buildSkillArgs(skillIds: string[], globalSkillsRoot: string, userSkills
   return args;
 }
 
+/**
+ * 构建跨 session 长期记忆的 --append-system-prompt 参数。
+ *
+ * pi 通过它自己的 read/write 工具读写 MEMORY.md，无需平台层介入。
+ * 记忆目录在沙盒内可读写，跨 session 永久保留，不随 session 关闭销毁。
+ */
+function buildMemoryArgs(userMemoryDir: string): string[] {
+  const memoryFilePath = join(userMemoryDir, "MEMORY.md");
+  const instruction = [
+    `You have access to a persistent memory file at: ${memoryFilePath}`,
+    "This file preserves important context across different chat sessions.",
+    "At the start of a session: read the file to recall previous context (use the read tool).",
+    "During and after tasks: update the file with key decisions, findings, and context worth remembering.",
+    "Keep entries concise and structured. If the file doesn't exist yet, create it when you have something worth recording.",
+  ].join("\n");
+  return ["--append-system-prompt", instruction];
+}
+
 // ── 启动 pi 进程，返回多轮会话句柄 ───────────────────────────────────────────
 
 /**
@@ -219,7 +237,8 @@ export async function startPiSession(
   };
 
   const skillArgs = buildSkillArgs(skillIds, sandboxPaths.globalSkills, sandboxPaths.userSkills);
-  const piArgs = ["--mode", "rpc", "--no-session", "--provider", "llm-proxy", "--model", "default", ...skillArgs];
+  const memoryArgs = buildMemoryArgs(sandboxPaths.userMemory);
+  const piArgs = ["--mode", "rpc", "--no-session", "--provider", "llm-proxy", "--model", "default", ...skillArgs, ...memoryArgs];
 
   // 外层 bwrap 参数：将 pi 进程整体置于网络隔离沙盒内
   const outerBwrapArgs = buildOuterSandboxArgs(sandboxPaths, piConfigDir);
