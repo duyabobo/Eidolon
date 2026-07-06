@@ -6,57 +6,54 @@
 
 ## 整体架构
 
-```mermaid
-%%{init: {"flowchart": {"curve": "linear", "nodeSpacing": 80}}}%%
-flowchart TB
-    Browser["浏览器\n前端 :3000"]
+### 分层架构（概览）
 
-    subgraph mid [" "]
-        direction LR
-        subgraph api ["接口层"]
-            direction TB
-            Gateway["gateway\nFastAPI :8000\n会话管理 + SSE 流"]
-            Admin["admin\nFastAPI :9000\n配置管理"]
-        end
-        subgraph execution ["执行层"]
-            direction LR
-            subgraph proxies [" "]
-                direction TB
-                LLMProxy["llm-proxy\nFastAPI :9001\nLLM 代理"]
-                McpProxy["mcp-proxy\nFastAPI :8080\nMCP 代理"]
-            end
-            subgraph piruntime ["pi-runtime"]
-                Bwrap["bwrap 沙盒\nsession 级别 · 完全无网络\n（pi + pi-mcp-adapter）"]
-            end
-        end
-    end
+```text
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━┓              ┏━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃  用户层  frontend :3000 ┃              ┃  扩展层                 ┃
+    ┗━━━━━━━━━━━━┬━━━━━━━━━━━┛              ┃  llm-proxy :9001       ┃
+                 │ HTTP / SSE               ┃  mcp-proxy :8080       ┃
+                 ▼                          ┗━━━━━━━━━━━━▲━━━━━━━━━━━┛
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━┓                           │ Unix socket
+    ┃  接口层                 ┃              ┏━━━━━━━━━━━━┷━━━━━━━━━━━┓
+    ┃  gateway :8000         ┃              ┃  执行层                 ┃
+    ┃  admin   :9000         ┃              ┃  pi agent：bwrap 沙盒   ┃
+    ┗━━━━━━━━━━━━┬━━━━━━━━━━━┛              ┗━━━━━━━━━━━━┬━━━━━━━━━━━┛
+                 │ read/write                            │ read/write
+                 │                                       │
+                 └─────────────────┬─────────────────────┘
+                                   ▼
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃  持久化      Redis :6379  ·  MongoDB :27017  ·  NFS             ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
 
-    subgraph persist ["持久化层"]
-        direction LR
-        Redis[("Redis\n:6379")]
-        MongoDB[("MongoDB\n:27017")]
-        PadNode[ ]
-        NFS["NFS\n共享存储"]
-    end
+### 协作时序（发送消息 · 流式回复）
 
-    Browser --> Gateway
-    Browser --> Admin
+以用户发送一条 chat 消息为例，体现各层协作：**接口层**与**执行层**经**持久化层**解耦；**执行层**经 **Unix socket** 调用**扩展层**（扩展层不访问持久化层）：
 
-    Gateway -->|"订阅会话事件"| Redis
-    Gateway -->|"创建会话\n读取会话历史"| MongoDB
-    Admin -->|"LLM & MCP 配置"| MongoDB
-    Admin -->|"Skill 创建"| NFS
-
-    Bwrap -->|"LLM 推理\nUnix socket"| LLMProxy
-    Bwrap -->|"MCP 调用\nUnix socket"| McpProxy
-
-    execution -->|"推送会话事件"| Redis
-    execution -->|"读取 mcp/llm 配置\n写入会话历史"| MongoDB
-    execution -->|"workspace / Skill 挂靠"| NFS
-
-    style mid fill:none,stroke:none
-    style proxies fill:none,stroke:none
-    style PadNode fill:none,stroke:none,color:transparent
+```text
+ 用户层     接口层        持久化层         执行层           扩展层
+(frontend) (gateway)  (Redis/Mongo/NFS)  (bwrap·pi)   (llm/mcp-proxy)
+    │          │             │               │               │
+    │ ① POST   │             │               │               │
+    │─────────►│             │               │               │
+    │          │ ② 写 session│               │               │
+    │          │────────────►│ MongoDB       │               │
+    │          │ ③ 发任务    │               │               │
+    │          │────────────►│ Redis Pub/Sub │               │
+    │          │             │ ④ 订阅 ──────►│               │
+    │◄session──│             │               │ ⑤ 启动 bwrap  │
+    │          │             │◄── 读写 ──────│（NFS/状态/配置）│
+    │ ⑥ SSE    │             │               │               │
+    │─────────►│             │               │               │
+    │          │ ⑦ 读 Stream │               │               │
+    │          │────────────►│ Redis Stream  │               │
+    │          │             │◄─ ⑧ push ─────│               │
+    │◄─ token ─│◄────────────│               │               │
+    │          │             │               │ ⑨ Unix socket │
+    │          │             │               │──────────────►│► 外部 LLM/MCP
+    ▼          ▼             ▼               ▼               ▼
 ```
 
 ---
