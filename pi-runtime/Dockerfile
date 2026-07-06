@@ -5,18 +5,20 @@ FROM node:24-bookworm-slim
 #   iproute2    提供 ip 命令（沙盒启动脚本用 ip link set lo up 启用 loopback）
 #   python3     沙盒内 Python 环境
 #   ripgrep     pi 依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash \
-    bubblewrap \
-    ca-certificates \
-    curl \
-    git \
-    iproute2 \
-    python3 \
-    python3-pip \
-    python3-venv \
-    ripgrep \
-  && rm -rf /var/lib/apt/lists/*
+# Acquire::Retries 应对 deb.debian.org 偶发 502；外层循环应对 update/install 整段失败
+RUN set -eux; \
+    apt_pkgs="bash bubblewrap ca-certificates curl git iproute2 python3 python3-pip python3-venv ripgrep"; \
+    apt_opts="-o Acquire::Retries=5 -o Acquire::http::Timeout=120"; \
+    for attempt in 1 2 3 4 5; do \
+      if apt-get ${apt_opts} update \
+        && apt-get ${apt_opts} install -y --no-install-recommends ${apt_pkgs}; then \
+        break; \
+      fi; \
+      if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+      echo "apt failed (attempt ${attempt}), retry in 15s..."; \
+      sleep 15; \
+    done; \
+    rm -rf /var/lib/apt/lists/*
 
 # 全局安装 pi coding agent（锁定版本，升级前先在测试环境验证扩展兼容性）
 # 升级步骤：1.改版本号 2.本地 build 测试 3.确认 bwrap 扩展正常工作 4.部署
