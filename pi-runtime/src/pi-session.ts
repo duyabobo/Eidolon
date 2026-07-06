@@ -4,6 +4,7 @@ import { mkdir, writeFile, rm, access as fsAccess } from "fs/promises";
 import { join } from "path";
 import { SandboxPaths, buildOuterSandboxArgs } from "./sandbox";
 import { SessionOutputStream } from "./output-stream";
+import { sessionLlmSockForSandbox } from "./session-llm-bridge";
 
 // ── Pi RPC 协议类型 ───────────────────────────────────────────────────────────
 
@@ -241,6 +242,7 @@ export async function startPiSession(
     PI_SANDBOX_TMP: sandboxPaths.sessionTmp,
     PI_CODING_AGENT_DIR: piConfigDir,
     PI_OUTER_SANDBOX: "1",
+    PI_SOCKS_LLM: sessionLlmSockForSandbox(sessionId),
   };
 
   const skillArgs = buildSkillArgs(skillIds, sandboxPaths.globalSkills, sandboxPaths.userSkills);

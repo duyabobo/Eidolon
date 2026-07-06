@@ -19,6 +19,11 @@ import { connectRedis, disconnectRedis, getRedis, SessionOutputStream } from "./
 import { createSandbox, destroySandbox } from "./sandbox";
 import { startPiSession, PiSessionHandle } from "./pi-session";
 import { startSocketBridge } from "./socket-bridge";
+import {
+  registerSessionLlmBridge,
+  setSessionQuestionId,
+  unregisterSessionLlmBridge,
+} from "./session-llm-bridge";
 
 // ── 消息类型定义 ──────────────────────────────────────────────────────────────
 
@@ -99,6 +104,7 @@ async function closeSession(sessionId: string, reason: string): Promise<void> {
   await running.piHandle.close().catch((err) =>
     console.error(`[worker] 关闭 pi 进程失败: session=${sessionId}`, err)
   );
+  unregisterSessionLlmBridge(sessionId);
   await running.messageSubscriber.quit().catch(() => {});
   await running.closeSubscriber.quit().catch(() => {});
   await destroySandbox(running.userId, sessionId).catch((err) =>
@@ -124,6 +130,12 @@ async function startAndRegisterSession(
 
   const sandboxPaths = await createSandbox(userId, sessionId);
   console.log(`[worker] session=${sessionId}: 沙盒就绪 workspace=${sandboxPaths.workspace}`);
+
+  registerSessionLlmBridge(
+    sessionId,
+    process.env.LLM_PROXY_HOST ?? "llm-proxy",
+    Number(process.env.LLM_PROXY_PORT ?? 9001),
+  );
 
   const piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);
   console.log(`[worker] session=${sessionId}: pi 进程已启动`);
@@ -201,6 +213,7 @@ async function handleNewMessage(payload: NewMessagePayload): Promise<void> {
 
 async function sendTurnToSession(running: RunningSession, turnId: string, request: string): Promise<void> {
   const { sessionId, userId } = running;
+  setSessionQuestionId(sessionId, turnId);
   // 每个轮次有独立的 Redis Stream key，供前端 SSE 消费
   const turnStream = new SessionOutputStream(getRedis(), sessionId, turnId);
   const startAt = Date.now();
@@ -294,7 +307,7 @@ async function main(): Promise<void> {
     process.env.MCP_PROXY_HOST ?? "mcp-proxy",
     Number(process.env.MCP_PROXY_PORT ?? 8080)
   );
-  console.log(`[worker] socket bridge 已启动（llm.sock → llm-proxy, mcp.sock → mcp-proxy）`);
+  console.log(`[worker] socket bridge 已启动（mcp.sock → mcp-proxy，LLM 按 session 注册）`);
 
   const subscriber = await startSubscriber();
 

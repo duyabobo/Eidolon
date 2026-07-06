@@ -7,6 +7,7 @@ from logger import setup_logging
 from middleware import AccessLogMiddleware
 from routes import proxy
 from routes.llm_config import router as llm_config_router
+from routes.replay import router as replay_router
 from services import mongo_client
 from services.llm_config_store import load_from_db
 
@@ -25,6 +26,7 @@ app.add_middleware(AccessLogMiddleware)
 
 app.include_router(proxy.router)
 app.include_router(llm_config_router)
+app.include_router(replay_router)
 
 
 @app.on_event("startup")

@@ -13,6 +13,11 @@ LLM Proxy 是平台的**大模型统一接入层**，承担两类职责：
 **2. LLM 配置管理**
 - 通过 `/config/llm` 接口管理 LLM Provider 配置（持久化到 MongoDB）
 
+**3. LLM 调用记录与重放**
+- 每次 `/v1/chat/completions` 请求写入 MongoDB（`llm_calls` 集合）
+- 记录 `session_id`、`question_id`、`llm_id`、输入 `messages`、输出内容
+- 支持按记录重放（返回历史结果或重新调用上游）
+
 **不负责**：
 - MCP / Skill 配置管理（由 admin 负责）
 - session / user 管理（由 gateway 负责）
@@ -37,6 +42,26 @@ OpenAI 兼容格式，直接透传。
 - `model` 缺省时，自动注入当前生效的默认模型
 - `stream: true` 响应为 `text/event-stream`，逐 chunk 透传
 - LLM 配置从**内存**读取（零 DB IO），启动时从 MongoDB 加载，`PUT /config/llm` 时热更新
+- 可选追踪 Header（由 pi-runtime 注入）：
+  - `X-Session-Id` → 关联 chat session
+  - `X-Question-Id` → 关联用户轮次（turn_id）
+- 响应 Header `X-Llm-Id` 为本次调用唯一 ID
+
+---
+
+### `GET /v1/records` — 查询 LLM 调用记录
+
+Query 参数：`session_id`、`question_id`、`limit`（默认 50）
+
+### `GET /v1/records/{llm_id}` — 获取单条记录
+
+返回完整记录，含 `messages`、`output`、`request_body` 等。
+
+### `POST /v1/records/{llm_id}/replay` — 重放
+
+Query 参数 `mode`：
+- `stored`（默认）：返回已存储的输出，不调用上游
+- `live`：用记录的 `request_body` 重新调用上游 LLM
 
 ---
 
@@ -71,13 +96,15 @@ OpenAI 兼容格式，直接透传。
 
 ```
 LLM 代理链路：
-  pi-runtime（OPENAI_BASE_URL=http://llm-proxy:9001/v1）
+  pi-runtime session-llm-bridge（注入 X-Session-Id / X-Question-Id）
     │ POST /v1/chat/completions
     ▼
   routes/proxy.py
+    ├── llm_record_store.create_record()     → MongoDB llm_calls（请求入库）
     ├── llm_config_store.get_effective_config()  ← 内存读，零 IO
     ├── 注入默认 model（若请求未指定）
-    └── 透传到 cfg.base_url + Bearer cfg.api_key
+    ├── 透传到 cfg.base_url + Bearer cfg.api_key
+    └── finalize_record()                      → 写入 output / status / latency
 
 配置更新链路：
   前端 PUT /config/llm
@@ -94,7 +121,7 @@ LLM 代理链路：
 
 | 依赖 | 用途 |
 |------|------|
-| MongoDB | 持久化 LLM 配置 |
+| MongoDB | 持久化 LLM 配置 + LLM 调用记录（`configs` / `llm_calls`） |
 | 外部 LLM Provider | 实际推理 |
 
 **不依赖**：Redis、gateway、admin、pi-runtime
