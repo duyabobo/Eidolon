@@ -100,7 +100,7 @@ export interface WikiNodeDetailResponse {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const resp = await fetch(url, options);
+  const resp = await fetch(url, { cache: "no-store", ...options });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
@@ -154,7 +154,7 @@ export const knowledgeApi = {
     form.append("file", file);
     const resp = await fetch(
       `/config/knowledge/bases/${encodeURIComponent(kbId)}/documents`,
-      { method: "POST", body: form },
+      { method: "POST", body: form, cache: "no-store" },
     );
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));

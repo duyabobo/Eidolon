@@ -32,7 +32,7 @@ function KnowledgeServiceSection({ onSaved }: { onSaved: () => void }) {
       setMsg({
         type: "ok",
         text: saved.base_url
-          ? "知识库服务地址已保存（新增配置记录），后续操作将转发至远程服务。"
+          ? "配置已保存，knowledge_key 将按新 Scene UID 重新获取，知识库列表已刷新。"
           : "已切换为本地模式（新增配置记录）。",
       });
       onSaved();
@@ -334,6 +334,12 @@ export default function KnowledgePanel() {
 
   useEffect(() => { load(); }, [load]);
 
+  const handleServiceConfigSaved = useCallback(() => {
+    setSelectedId(null);
+    setEditingId(null);
+    load();
+  }, [load]);
+
   const selected = bases.find((b) => b.id === selectedId) ?? null;
 
   const handleCreate = async (name: string, description: string) => {
@@ -371,7 +377,7 @@ export default function KnowledgePanel() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <KnowledgeServiceSection onSaved={load} />
+        <KnowledgeServiceSection onSaved={handleServiceConfigSaved} />
         <div className="text-sm text-ink-400">加载知识库…</div>
       </div>
     );
@@ -380,7 +386,7 @@ export default function KnowledgePanel() {
   if (selected) {
     return (
       <div className="space-y-4">
-        <KnowledgeServiceSection onSaved={load} />
+        <KnowledgeServiceSection onSaved={handleServiceConfigSaved} />
         <button
           type="button"
           onClick={() => setSelectedId(null)}
@@ -406,7 +412,7 @@ export default function KnowledgePanel() {
 
   return (
     <div className="space-y-4">
-      <KnowledgeServiceSection onSaved={load} />
+      <KnowledgeServiceSection onSaved={handleServiceConfigSaved} />
 
       {msg && (
         <p className={`text-sm px-3 py-2 rounded-lg ${
