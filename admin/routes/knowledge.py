@@ -102,8 +102,8 @@ async def api_get_document(kb_id: str, doc_id: str) -> KnowledgeDocument:
     return await local_get_document(mongo_client.get_db(), kb_id, doc_id)
 
 
-@router.get("/bases/{kb_id}/documents/{doc_id}/download")
-async def api_download_document(kb_id: str, doc_id: str) -> FileResponse | Response:
+@router.get("/bases/{kb_id}/documents/{doc_id}/download", response_model=None)
+async def api_download_document(kb_id: str, doc_id: str):
     if await knowledge_config_store.is_remote_mode():
         return await knowledge_client.download_document(kb_id, doc_id)
 
