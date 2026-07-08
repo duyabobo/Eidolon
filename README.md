@@ -1,12 +1,12 @@
 # Pi Agent Platform
 
-基于 [Pi Coding Agent](https://pi.dev/) 构建的多租户 Agent 执行平台，支持会话管理、SSE 流式输出、bwrap 沙盒隔离、MCP 工具扩展、Skill 渐进式披露、本地知识库（Knowledge 文档上传与管理）和动态配置管理。
+基于 [Pi Coding Agent](https://pi.dev/) 构建的多租户 Agent 执行平台，支持会话管理、SSE 流式输出、bwrap 沙盒隔离、MCP 工具扩展、Skill 渐进式披露、本地知识库管理。
 
 ---
 
 ## 整体架构
 
-### 分层架构（概览）
+### 分层架构
 
 ```text
     ┏━━━━━━━━━━━━━━━━━━━━━━━━┓              ┏━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -30,30 +30,29 @@
 
 ### 协作时序（发送消息 · 流式回复）
 
-以用户发送一条 chat 消息为例，体现各层协作：**接口层**与**执行层**经**持久化层**解耦；**执行层**经 **Unix socket** 调用**扩展层**（扩展层不访问持久化层）：
-
 ```text
- 用户层     接口层        持久化层         执行层           扩展层
-(frontend) (gateway)  (Redis/Mongo/NFS)  (bwrap·pi)   (llm/mcp-proxy)
-    │          │             │               │               │
-    │ ① POST   │             │               │               │
-    │─────────►│             │               │               │
-    │          │ ② 写 session│               │               │
-    │          │────────────►│ MongoDB       │               │
-    │          │ ③ 发任务    │               │               │
-    │          │────────────►│ Redis Pub/Sub │               │
-    │          │             │ ④ 订阅 ──────►│               │
-    │◄session──│             │               │ ⑤ 启动 bwrap  │
-    │          │             │◄── 读写 ──────│（NFS/状态/配置）│
-    │ ⑥ SSE    │             │               │               │
-    │─────────►│             │               │               │
-    │          │ ⑦ 读 Stream │               │               │
-    │          │────────────►│ Redis Stream  │               │
-    │          │             │◄─ ⑧ push ─────│               │
-    │◄─ token ─│◄────────────│               │               │
-    │          │             │               │ ⑨ Unix socket │
-    │          │             │               │──────────────►│► 外部 LLM/MCP
-    ▼          ▼             ▼               ▼               ▼
+  用户层             接口层            持久化层            执行层             扩展层
+(frontend)        (gateway)     (Redis/Mongo/NFS)     (bwrap·pi)       (llm/mcp-proxy)
+    │                 │                 │                 │                 │
+    │1.POST /sessions►│                 │                 │                 │
+    │                 │                 │                 │                 │
+    │                 │2.Write session─►│MongoDB          │                 │
+    │                 │                 │                 │                 │
+    │                 │─3.PUBLISH task─►│Redis            │                 │
+    │                 │                 │                 │                 │
+    │                 │                 │─4.deliver task─►│                 │
+    │◄─────session────│                 │                 │                 │
+    │                 │                 │                 │5.start bwrap    │
+    │                 │      MongoDB/NFS│◄──────Read──────│                 │
+    │                 │                 │                 │                 │
+    │─6.SSE /stream──►│                 │                 │                 │
+    │                 │                 │                 │                 │
+    │                 │─7.Read Stream──►│Redis            │                 │
+    │                 │                 │                 │                 │
+    │                 │            Redis│◄─────8.push─────│                 │
+    │◄──────token─────│                 │                 │                 │
+    │                 │                 │                 │─9.Unix socket──►│► 外部 LLM/MCP
+    ▼                 ▼                 ▼                 ▼                 ▼
 ```
 
 ---
