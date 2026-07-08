@@ -1,7 +1,7 @@
 const KEY_STORAGE = "pi_knowledge_key";
 const FP_STORAGE = "pi_knowledge_config_fp";
 export function buildConfigFingerprint(cfg) {
-    return `${(cfg.base_url || "").trim()}|${(cfg.scene_uid || "").trim()}`;
+    return `${cfg.environment || "local"}|${(cfg.base_url || "").trim()}|${(cfg.scene_uid || "").trim()}`;
 }
 export function readCachedKnowledgeKey(cfg) {
     const fp = buildConfigFingerprint(cfg);

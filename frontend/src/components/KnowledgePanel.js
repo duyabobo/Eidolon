@@ -2,44 +2,86 @@ import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-run
 import { useCallback, useEffect, useRef, useState } from "react";
 import { knowledgeApi, ensureKnowledgeKey, formatFileSize, docStatusLabel, } from "../api/knowledge";
 import DocumentWikiExplorer from "./knowledge/DocumentWikiExplorer";
-const EMPTY_SERVICE = { base_url: "", scene_uid: "" };
+const EMPTY_SERVICE = { base_url: "", environment: "local", scene_uid: "" };
+const ENV_LABELS = { local: "本地", prod: "线上", test: "测试" };
 function KnowledgeServiceSection({ onSaved }) {
     const [form, setForm] = useState(EMPTY_SERVICE);
+    const [envOptions, setEnvOptions] = useState([]);
+    const [history, setHistory] = useState([]);
+    const [sceneUidInput, setSceneUidInput] = useState("");
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [savingUid, setSavingUid] = useState(false);
     const [msg, setMsg] = useState(null);
+    const [showHistory, setShowHistory] = useState(false);
+    const loadConfig = useCallback(async () => {
+        const [cfg, envs, hist] = await Promise.all([
+            knowledgeApi.getServiceConfig(),
+            knowledgeApi.listServiceEnvironments(),
+            knowledgeApi.listServiceHistory(20),
+        ]);
+        setForm(cfg);
+        setEnvOptions(envs.items);
+        setHistory(hist.items);
+        setSceneUidInput(cfg.scene_uid ?? "");
+    }, []);
     useEffect(() => {
-        knowledgeApi.getServiceConfig()
-            .then(setForm)
+        loadConfig()
             .catch(() => setForm(EMPTY_SERVICE))
             .finally(() => setLoading(false));
-    }, []);
-    const handleSave = async () => {
+    }, [loadConfig]);
+    const handleEnvironmentChange = async (environment) => {
+        if (!environment || environment === form.environment)
+            return;
         setSaving(true);
         setMsg(null);
         try {
             const saved = await knowledgeApi.saveServiceConfig({
-                base_url: form.base_url.trim(),
-                scene_uid: (form.scene_uid ?? "").trim(),
+                environment,
+                base_url: "",
+                scene_uid: form.scene_uid ?? "",
             });
             setForm(saved);
-            setMsg({
-                type: "ok",
-                text: saved.base_url
-                    ? "配置已保存，已重新获取 knowledge_key 并刷新知识库列表。"
-                    : "已切换为本地模式（新增配置记录）。",
+            setSceneUidInput(saved.scene_uid ?? "");
+            await loadConfig();
+            setMsg({ type: "ok", text: `已切换至${ENV_LABELS[environment] ?? environment}，正在重新获取 knowledge_key…` });
+            await onSaved(saved);
+        }
+        catch (e) {
+            setMsg({ type: "err", text: e instanceof Error ? e.message : "切换失败" });
+        }
+        finally {
+            setSaving(false);
+        }
+    };
+    const handleSaveSceneUid = async () => {
+        setSavingUid(true);
+        setMsg(null);
+        try {
+            const saved = await knowledgeApi.saveServiceConfig({
+                environment: form.environment ?? "local",
+                base_url: form.base_url,
+                scene_uid: sceneUidInput.trim(),
             });
+            setForm(saved);
+            await loadConfig();
+            setMsg({ type: "ok", text: "Scene UID 已保存，已重新获取 knowledge_key。" });
             await onSaved(saved);
         }
         catch (e) {
             setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
         }
         finally {
-            setSaving(false);
+            setSavingUid(false);
         }
     };
-    const isRemote = Boolean(form.base_url.trim());
-    return (_jsxs("div", { className: "border border-ink-200/60 rounded-xl p-4 space-y-3 bg-ink-50/40", children: [_jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsxs("div", { children: [_jsx("p", { className: "text-sm font-medium text-ink-800", children: "\u77E5\u8BC6\u5E93\u670D\u52A1" }), _jsxs("p", { className: "text-xs text-ink-400 mt-0.5", children: [isRemote ? "远程模式：请求转发至下方地址" : "本地模式：数据存 MongoDB + global/knowledge/", form.created_at && (_jsxs(_Fragment, { children: [" \u00B7 \u5F53\u524D\u914D\u7F6E\u4E8E ", new Date(form.created_at).toLocaleString("zh-CN")] }))] })] }), _jsx("span", { className: `text-[10px] px-2 py-0.5 rounded-full font-medium ${isRemote ? "bg-violet-50 text-violet-700" : "bg-ink-100 text-ink-600"}`, children: isRemote ? "远程" : "本地" })] }), loading ? (_jsx("p", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u914D\u7F6E\u2026" })) : (_jsxs(_Fragment, { children: [_jsxs("div", { children: [_jsx("label", { className: "block text-xs font-medium text-ink-600 mb-1", children: "\u670D\u52A1\u5730\u5740\uFF08Base URL\uFF09" }), _jsx("input", { type: "url", value: form.base_url, onChange: (e) => setForm({ ...form, base_url: e.target.value }), placeholder: "\u7559\u7A7A\u4F7F\u7528\u672C\u5730\u5B58\u50A8\uFF0C\u5982 http://host:9621 \u6216 host:9621/mrag-knowledge", className: "ui-field w-full" })] }), _jsxs("div", { children: [_jsx("label", { className: "block text-xs font-medium text-ink-600 mb-1", children: "Scene UID" }), _jsx("input", { type: "text", value: form.scene_uid ?? "", onChange: (e) => setForm({ ...form, scene_uid: e.target.value }), placeholder: "mRAG \u7528\u6237 scene_uid\uFF0C\u5982 llm_wiki_pi", className: "ui-field w-full" }), _jsx("p", { className: "text-[11px] text-ink-400 mt-1", children: "\u8FDC\u7A0B mRAG\uFF1Ascene_type=LLM_WIKI_PI\uFF0C\u6587\u6863\u5904\u7406 batch_process process_type=1" })] }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), _jsx("button", { type: "button", disabled: saving, onClick: handleSave, className: "ui-btn-primary text-sm", children: saving ? "保存中…" : "保存服务地址" })] }))] }));
+    const isRemote = Boolean(form.base_url?.trim());
+    const currentEnv = form.environment ?? "local";
+    return (_jsxs("div", { className: "border border-ink-200/60 rounded-xl p-4 space-y-3 bg-ink-50/40", children: [_jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsxs("div", { children: [_jsx("p", { className: "text-sm font-medium text-ink-800", children: "\u77E5\u8BC6\u5E93\u670D\u52A1" }), _jsxs("p", { className: "text-xs text-ink-400 mt-0.5", children: [isRemote ? `远程模式 · ${ENV_LABELS[currentEnv]}` : "本地模式：MongoDB + global/knowledge/", form.created_at && (_jsxs(_Fragment, { children: [" \u00B7 \u5F53\u524D\u914D\u7F6E\u4E8E ", new Date(form.created_at).toLocaleString("zh-CN")] }))] })] }), _jsx("span", { className: `text-[10px] px-2 py-0.5 rounded-full font-medium ${isRemote ? "bg-violet-50 text-violet-700" : "bg-ink-100 text-ink-600"}`, children: isRemote ? "远程" : "本地" })] }), loading ? (_jsx("p", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u914D\u7F6E\u2026" })) : (_jsxs(_Fragment, { children: [_jsxs("div", { children: [_jsx("label", { className: "block text-xs font-medium text-ink-600 mb-1", children: "\u670D\u52A1\u73AF\u5883" }), _jsx("select", { value: currentEnv, disabled: saving, onChange: (e) => void handleEnvironmentChange(e.target.value), className: "ui-field w-full", children: (envOptions.length ? envOptions : [
+                                    { id: "local", label: "本地", base_url: "" },
+                                    { id: "prod", label: "线上", base_url: "" },
+                                    { id: "test", label: "测试", base_url: "" },
+                                ]).map((opt) => (_jsx("option", { value: opt.id, children: opt.label }, opt.id))) }), isRemote && (_jsx("p", { className: "text-[11px] text-ink-400 mt-1 truncate", children: form.base_url }))] }), _jsxs("div", { children: [_jsx("button", { type: "button", onClick: () => setShowHistory((v) => !v), className: "text-xs text-brand-600 hover:text-brand-700", children: showHistory ? "收起配置历史" : "配置历史（编辑 Scene UID）" }), showHistory && (_jsxs("div", { className: "mt-2 space-y-3 border border-ink-200/60 rounded-lg p-3 bg-white/70", children: [_jsxs("div", { children: [_jsx("label", { className: "block text-xs font-medium text-ink-600 mb-1", children: "Scene UID" }), _jsxs("div", { className: "flex gap-2", children: [_jsx("input", { value: sceneUidInput, onChange: (e) => setSceneUidInput(e.target.value), placeholder: "\u5982 llm_wiki_pi", className: "ui-field flex-1" }), _jsx("button", { type: "button", disabled: savingUid, onClick: () => void handleSaveSceneUid(), className: "ui-btn-primary text-sm shrink-0", children: savingUid ? "保存中…" : "保存 UID" })] }), _jsx("p", { className: "text-[11px] text-ink-400 mt-1", children: "\u540C\u4E00\u7528\u6237 UID\uFF0C\u5207\u6362\u73AF\u5883\u65F6\u81EA\u52A8\u6CBF\u7528" })] }), history.length > 0 && (_jsx("div", { className: "space-y-1 max-h-40 overflow-y-auto", children: history.map((item) => (_jsxs("div", { className: "text-[11px] text-ink-500 flex gap-2", children: [_jsx("span", { className: "shrink-0", children: new Date(item.created_at).toLocaleString("zh-CN") }), _jsx("span", { children: ENV_LABELS[item.environment] ?? item.environment }), _jsxs("span", { className: "truncate", children: ["uid=", item.scene_uid || "(默认)"] })] }, item.id))) }))] }))] }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text }))] }))] }));
 }
 function StatusBadge({ status }) {
     const cls = {

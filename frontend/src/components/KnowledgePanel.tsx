@@ -5,45 +5,83 @@ import {
 } from "../api/knowledge";
 import DocumentWikiExplorer from "./knowledge/DocumentWikiExplorer";
 
-const EMPTY_SERVICE: KnowledgeServiceConfig = { base_url: "", scene_uid: "" };
+const EMPTY_SERVICE: KnowledgeServiceConfig = { base_url: "", environment: "local", scene_uid: "" };
+
+const ENV_LABELS: Record<string, string> = { local: "本地", prod: "线上", test: "测试" };
 
 function KnowledgeServiceSection({ onSaved }: { onSaved: (saved: KnowledgeServiceConfig) => void | Promise<void> }) {
   const [form, setForm] = useState<KnowledgeServiceConfig>(EMPTY_SERVICE);
+  const [envOptions, setEnvOptions] = useState<Array<{ id: KnowledgeServiceConfig["environment"]; label: string; base_url: string }>>([]);
+  const [history, setHistory] = useState<Array<{ id: string; environment: string; scene_uid: string; created_at: string }>>([]);
+  const [sceneUidInput, setSceneUidInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingUid, setSavingUid] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
-  useEffect(() => {
-    knowledgeApi.getServiceConfig()
-      .then(setForm)
-      .catch(() => setForm(EMPTY_SERVICE))
-      .finally(() => setLoading(false));
+  const loadConfig = useCallback(async () => {
+    const [cfg, envs, hist] = await Promise.all([
+      knowledgeApi.getServiceConfig(),
+      knowledgeApi.listServiceEnvironments(),
+      knowledgeApi.listServiceHistory(20),
+    ]);
+    setForm(cfg);
+    setEnvOptions(envs.items);
+    setHistory(hist.items);
+    setSceneUidInput(cfg.scene_uid ?? "");
   }, []);
 
-  const handleSave = async () => {
+  useEffect(() => {
+    loadConfig()
+      .catch(() => setForm(EMPTY_SERVICE))
+      .finally(() => setLoading(false));
+  }, [loadConfig]);
+
+  const handleEnvironmentChange = async (environment: KnowledgeServiceConfig["environment"]) => {
+    if (!environment || environment === form.environment) return;
     setSaving(true);
     setMsg(null);
     try {
       const saved = await knowledgeApi.saveServiceConfig({
-        base_url: form.base_url.trim(),
-        scene_uid: (form.scene_uid ?? "").trim(),
+        environment,
+        base_url: "",
+        scene_uid: form.scene_uid ?? "",
       });
       setForm(saved);
-      setMsg({
-        type: "ok",
-        text: saved.base_url
-          ? "配置已保存，已重新获取 knowledge_key 并刷新知识库列表。"
-          : "已切换为本地模式（新增配置记录）。",
-      });
+      setSceneUidInput(saved.scene_uid ?? "");
+      await loadConfig();
+      setMsg({ type: "ok", text: `已切换至${ENV_LABELS[environment] ?? environment}，正在重新获取 knowledge_key…` });
       await onSaved(saved);
     } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
+      setMsg({ type: "err", text: e instanceof Error ? e.message : "切换失败" });
     } finally {
       setSaving(false);
     }
   };
 
-  const isRemote = Boolean(form.base_url.trim());
+  const handleSaveSceneUid = async () => {
+    setSavingUid(true);
+    setMsg(null);
+    try {
+      const saved = await knowledgeApi.saveServiceConfig({
+        environment: form.environment ?? "local",
+        base_url: form.base_url,
+        scene_uid: sceneUidInput.trim(),
+      });
+      setForm(saved);
+      await loadConfig();
+      setMsg({ type: "ok", text: "Scene UID 已保存，已重新获取 knowledge_key。" });
+      await onSaved(saved);
+    } catch (e) {
+      setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
+    } finally {
+      setSavingUid(false);
+    }
+  };
+
+  const isRemote = Boolean(form.base_url?.trim());
+  const currentEnv = form.environment ?? "local";
 
   return (
     <div className="border border-ink-200/60 rounded-xl p-4 space-y-3 bg-ink-50/40">
@@ -51,7 +89,7 @@ function KnowledgeServiceSection({ onSaved }: { onSaved: (saved: KnowledgeServic
         <div>
           <p className="text-sm font-medium text-ink-800">知识库服务</p>
           <p className="text-xs text-ink-400 mt-0.5">
-            {isRemote ? "远程模式：请求转发至下方地址" : "本地模式：数据存 MongoDB + global/knowledge/"}
+            {isRemote ? `远程模式 · ${ENV_LABELS[currentEnv]}` : "本地模式：MongoDB + global/knowledge/"}
             {form.created_at && (
               <> · 当前配置于 {new Date(form.created_at).toLocaleString("zh-CN")}</>
             )}
@@ -69,27 +107,69 @@ function KnowledgeServiceSection({ onSaved }: { onSaved: (saved: KnowledgeServic
       ) : (
         <>
           <div>
-            <label className="block text-xs font-medium text-ink-600 mb-1">服务地址（Base URL）</label>
-            <input
-              type="url"
-              value={form.base_url}
-              onChange={(e) => setForm({ ...form, base_url: e.target.value })}
-              placeholder="留空使用本地存储，如 http://host:9621 或 host:9621/mrag-knowledge"
+            <label className="block text-xs font-medium text-ink-600 mb-1">服务环境</label>
+            <select
+              value={currentEnv}
+              disabled={saving}
+              onChange={(e) => void handleEnvironmentChange(e.target.value as KnowledgeServiceConfig["environment"])}
               className="ui-field w-full"
-            />
+            >
+              {(envOptions.length ? envOptions : [
+                { id: "local" as const, label: "本地", base_url: "" },
+                { id: "prod" as const, label: "线上", base_url: "" },
+                { id: "test" as const, label: "测试", base_url: "" },
+              ]).map((opt) => (
+                <option key={opt.id} value={opt.id}>{opt.label}</option>
+              ))}
+            </select>
+            {isRemote && (
+              <p className="text-[11px] text-ink-400 mt-1 truncate">{form.base_url}</p>
+            )}
           </div>
+
           <div>
-            <label className="block text-xs font-medium text-ink-600 mb-1">Scene UID</label>
-            <input
-              type="text"
-              value={form.scene_uid ?? ""}
-              onChange={(e) => setForm({ ...form, scene_uid: e.target.value })}
-              placeholder="mRAG 用户 scene_uid，如 llm_wiki_pi"
-              className="ui-field w-full"
-            />
-            <p className="text-[11px] text-ink-400 mt-1">
-              远程 mRAG：scene_type=LLM_WIKI_PI，文档处理 batch_process process_type=1
-            </p>
+            <button
+              type="button"
+              onClick={() => setShowHistory((v) => !v)}
+              className="text-xs text-brand-600 hover:text-brand-700"
+            >
+              {showHistory ? "收起配置历史" : "配置历史（编辑 Scene UID）"}
+            </button>
+            {showHistory && (
+              <div className="mt-2 space-y-3 border border-ink-200/60 rounded-lg p-3 bg-white/70">
+                <div>
+                  <label className="block text-xs font-medium text-ink-600 mb-1">Scene UID</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={sceneUidInput}
+                      onChange={(e) => setSceneUidInput(e.target.value)}
+                      placeholder="如 llm_wiki_pi"
+                      className="ui-field flex-1"
+                    />
+                    <button
+                      type="button"
+                      disabled={savingUid}
+                      onClick={() => void handleSaveSceneUid()}
+                      className="ui-btn-primary text-sm shrink-0"
+                    >
+                      {savingUid ? "保存中…" : "保存 UID"}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-ink-400 mt-1">同一用户 UID，切换环境时自动沿用</p>
+                </div>
+                {history.length > 0 && (
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {history.map((item) => (
+                      <div key={item.id} className="text-[11px] text-ink-500 flex gap-2">
+                        <span className="shrink-0">{new Date(item.created_at).toLocaleString("zh-CN")}</span>
+                        <span>{ENV_LABELS[item.environment] ?? item.environment}</span>
+                        <span className="truncate">uid={item.scene_uid || "(默认)"}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {msg && (
@@ -99,15 +179,6 @@ function KnowledgeServiceSection({ onSaved }: { onSaved: (saved: KnowledgeServic
               {msg.text}
             </p>
           )}
-
-          <button
-            type="button"
-            disabled={saving}
-            onClick={handleSave}
-            className="ui-btn-primary text-sm"
-          >
-            {saving ? "保存中…" : "保存服务地址"}
-          </button>
         </>
       )}
     </div>

@@ -48,8 +48,23 @@ export interface KnowledgeDocumentList {
 
 export interface KnowledgeServiceConfig {
   base_url: string;
+  environment?: "local" | "prod" | "test";
   scene_uid?: string;
   created_at?: string | null;
+}
+
+export interface KnowledgeEnvironmentOption {
+  id: "local" | "prod" | "test";
+  label: string;
+  base_url: string;
+}
+
+export interface KnowledgeServiceConfigHistoryItem {
+  id: string;
+  base_url: string;
+  environment: "local" | "prod" | "test";
+  scene_uid: string;
+  created_at: string;
 }
 
 export interface KnowledgeKeyResponse {
@@ -152,6 +167,14 @@ export async function ensureKnowledgeKey(
 
 export const knowledgeApi = {
   getServiceConfig: () => request<KnowledgeServiceConfig>("/config/knowledge/service"),
+
+  listServiceEnvironments: () =>
+    request<{ items: KnowledgeEnvironmentOption[] }>("/config/knowledge/service/environments"),
+
+  listServiceHistory: (limit = 20) =>
+    request<{ items: KnowledgeServiceConfigHistoryItem[] }>(
+      `/config/knowledge/service/history?limit=${limit}`,
+    ),
 
   saveServiceConfig: (cfg: KnowledgeServiceConfig) =>
     request<KnowledgeServiceConfig>("/config/knowledge/service", {

@@ -1,34 +1,89 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { configApi } from "../api/config";
-const EMPTY = { base_url: "", api_key: "", model: "", timeout: 120, protocol: "openai" };
-// 常用服务商预设，方便快速填写
+const EMPTY_FORM = {
+    name: "",
+    base_url: "",
+    api_key: "",
+    model: "",
+    timeout: 120,
+    protocol: "openai",
+};
 const PRESETS = {
     openai: { protocol: "openai", base_url: "https://api.openai.com/v1", model: "gpt-4o" },
     anthropic: { protocol: "anthropic", base_url: "https://api.anthropic.com", model: "claude-opus-4-5-20251101" },
     dashscope: { protocol: "openai", base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-max" },
     deepseek: { protocol: "openai", base_url: "https://api.deepseek.com/v1", model: "deepseek-chat" },
-    groq: { protocol: "openai", base_url: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
 };
 export default function LlmConfigPanel() {
-    const [form, setForm] = useState(EMPTY);
+    const [profiles, setProfiles] = useState([]);
+    const [activeId, setActiveId] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
     const [msg, setMsg] = useState(null);
-    const [showKey, setShowKey] = useState(false);
-    useEffect(() => {
-        configApi.getLlm()
-            .then((cfg) => { if (cfg)
-            setForm(cfg); })
-            .catch(() => { })
-            .finally(() => setLoading(false));
+    const [modal, setModal] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const load = useCallback(async () => {
+        setLoading(true);
+        try {
+            const res = await configApi.listLlmProfiles();
+            setProfiles(res.items);
+            setActiveId(res.active_id);
+        }
+        catch (e) {
+            setMsg({ type: "err", text: e instanceof Error ? e.message : "加载失败" });
+        }
+        finally {
+            setLoading(false);
+        }
     }, []);
-    const handleSave = async () => {
+    useEffect(() => { void load(); }, [load]);
+    const handleSelect = async (id) => {
+        if (id === activeId)
+            return;
+        setMsg(null);
+        try {
+            await configApi.activateLlmProfile(id);
+            setActiveId(id);
+            setMsg({ type: "ok", text: "已切换当前 LLM 配置，立即生效。" });
+        }
+        catch (e) {
+            setMsg({ type: "err", text: e instanceof Error ? e.message : "切换失败" });
+        }
+    };
+    const openCreate = () => {
+        setModal({ mode: "create", form: { ...EMPTY_FORM, name: `配置 ${profiles.length + 1}` } });
+    };
+    const openEdit = (profile) => {
+        setModal({
+            mode: "edit",
+            profile,
+            form: {
+                name: profile.name,
+                base_url: profile.base_url,
+                api_key: profile.api_key,
+                model: profile.model,
+                timeout: profile.timeout,
+                protocol: profile.protocol,
+            },
+        });
+    };
+    const handleModalSave = async () => {
+        if (!modal)
+            return;
         setSaving(true);
         setMsg(null);
         try {
-            await configApi.saveLlm(form);
-            setMsg({ type: "ok", text: "保存成功，立即生效（llm-proxy 热更新无需重启）。" });
+            if (modal.mode === "create") {
+                const created = await configApi.createLlmProfile(modal.form);
+                await configApi.activateLlmProfile(created.id);
+                setMsg({ type: "ok", text: `已添加并选中「${created.name}」` });
+            }
+            else {
+                await configApi.updateLlmProfile(modal.profile.id, modal.form);
+                setMsg({ type: "ok", text: `已更新「${modal.form.name}」` });
+            }
+            setModal(null);
+            await load();
         }
         catch (e) {
             setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
@@ -37,11 +92,26 @@ export default function LlmConfigPanel() {
             setSaving(false);
         }
     };
+    const handleDelete = async (profile) => {
+        if (!confirm(`确认删除 LLM 配置「${profile.name}」？`))
+            return;
+        setMsg(null);
+        try {
+            await configApi.deleteLlmProfile(profile.id);
+            setMsg({ type: "ok", text: `已删除「${profile.name}」` });
+            await load();
+        }
+        catch (e) {
+            setMsg({ type: "err", text: e instanceof Error ? e.message : "删除失败" });
+        }
+    };
     if (loading)
-        return _jsx("div", { className: "text-sm text-gray-400", children: "\u52A0\u8F7D\u4E2D\u2026" });
-    return (_jsxs("div", { className: "space-y-4", children: [_jsxs("div", { children: [_jsx("label", { className: "block text-sm font-medium text-gray-700 mb-1", children: "\u5FEB\u901F\u9009\u62E9\u670D\u52A1\u5546" }), _jsx("div", { className: "flex gap-2 flex-wrap", children: Object.entries(PRESETS).map(([key, preset]) => (_jsx("button", { onClick: () => setForm((f) => ({ ...f, ...preset })), className: "text-xs px-3 py-1 border border-gray-300 rounded-full hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-700 transition-colors", children: key }, key))) })] }), _jsx(Field, { label: "\u534F\u8BAE", children: _jsxs("select", { value: form.protocol, onChange: (e) => setForm({ ...form, protocol: e.target.value }), className: inputCls, children: [_jsx("option", { value: "openai", children: "OpenAI-compatible\uFF08OpenAI / \u767E\u70BC / DeepSeek / Groq \u7B49\uFF09" }), _jsx("option", { value: "anthropic", children: "Anthropic Messages API\uFF08Claude \u539F\u751F\u534F\u8BAE\uFF09" })] }) }), _jsx(Field, { label: "Base URL", children: _jsx("input", { type: "url", value: form.base_url, onChange: (e) => setForm({ ...form, base_url: e.target.value }), placeholder: form.protocol === "anthropic" ? "https://api.anthropic.com" : "https://api.openai.com/v1", className: inputCls }) }), _jsx(Field, { label: "API Key", children: _jsxs("div", { className: "flex gap-2", children: [_jsx("input", { type: showKey ? "text" : "password", value: form.api_key, onChange: (e) => setForm({ ...form, api_key: e.target.value }), placeholder: form.protocol === "anthropic" ? "sk-ant-..." : "sk-...", className: `${inputCls} flex-1` }), _jsx("button", { onClick: () => setShowKey((v) => !v), className: "text-xs text-gray-500 px-2 border border-gray-300 rounded-lg hover:bg-gray-50", children: showKey ? "隐藏" : "显示" })] }) }), _jsx(Field, { label: "\u6A21\u578B", children: _jsx("input", { value: form.model, onChange: (e) => setForm({ ...form, model: e.target.value }), placeholder: form.protocol === "anthropic" ? "claude-opus-4-5-20251101" : "gpt-4o", className: inputCls }) }), _jsx(Field, { label: "\u8D85\u65F6\uFF08\u79D2\uFF09", children: _jsx("input", { type: "number", value: form.timeout, onChange: (e) => setForm({ ...form, timeout: Number(e.target.value) }), min: 10, max: 600, className: inputCls }) }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`, children: msg.text })), _jsx("button", { onClick: handleSave, disabled: saving, className: "px-5 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors", children: saving ? "保存中…" : "保存" })] }));
+        return _jsx("p", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D LLM \u914D\u7F6E\u2026" });
+    return (_jsxs("div", { className: "space-y-4", children: [_jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsx("p", { className: "text-sm text-ink-600", children: "\u9009\u62E9\u5F53\u524D\u751F\u6548\u7684 LLM \u914D\u7F6E\uFF08\u5355\u9009\uFF09" }), _jsx("button", { type: "button", onClick: openCreate, className: "ui-btn-primary text-sm", children: "+ \u6DFB\u52A0" })] }), profiles.length === 0 ? (_jsx("p", { className: "text-sm text-ink-400 text-center py-8 border border-dashed border-ink-200 rounded-xl", children: "\u6682\u65E0 LLM \u914D\u7F6E\uFF0C\u70B9\u51FB\u300C\u6DFB\u52A0\u300D\u521B\u5EFA" })) : (_jsx("div", { className: "space-y-2", children: profiles.map((profile) => (_jsxs("div", { className: `flex items-center gap-3 border rounded-xl px-4 py-3 ${activeId === profile.id ? "border-brand-300 bg-brand-50/40" : "border-ink-200/60"}`, children: [_jsx("input", { type: "radio", name: "llm-profile", checked: activeId === profile.id, onChange: () => void handleSelect(profile.id), className: "accent-brand-600" }), _jsxs("div", { className: "flex-1 min-w-0", children: [_jsx("p", { className: "text-sm font-medium text-ink-800 truncate", children: profile.name }), _jsxs("p", { className: "text-xs text-ink-400 truncate", children: [profile.protocol, " \u00B7 ", profile.model, " \u00B7 ", profile.base_url] })] }), _jsxs("div", { className: "flex gap-2 shrink-0", children: [_jsx("button", { type: "button", onClick: () => openEdit(profile), className: "text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50", children: "\u7F16\u8F91" }), _jsx("button", { type: "button", onClick: () => void handleDelete(profile), disabled: profiles.length <= 1, className: "text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50 disabled:opacity-40", children: "\u5220\u9664" })] })] }, profile.id))) })), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), modal && (_jsx(LlmProfileModal, { modal: modal, saving: saving, onChange: (form) => setModal({ ...modal, form }), onSave: () => void handleModalSave(), onCancel: () => setModal(null) }))] }));
 }
-function Field({ label, children, placeholder: _p }) {
-    return (_jsxs("div", { children: [_jsx("label", { className: "block text-sm font-medium text-gray-700 mb-1", children: label }), children] }));
+function LlmProfileModal({ modal, saving, onChange, onSave, onCancel, }) {
+    const form = modal.form;
+    const [showKey, setShowKey] = useState(false);
+    const set = (patch) => onChange({ ...form, ...patch });
+    return (_jsx("div", { className: "fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4", children: _jsxs("div", { className: "bg-white rounded-2xl shadow-panel w-full max-w-lg border border-ink-200/60 max-h-[90vh] overflow-y-auto", children: [_jsx("div", { className: "px-6 py-4 border-b border-ink-200/60", children: _jsx("h2", { className: "font-semibold text-ink-900", children: modal.mode === "create" ? "添加 LLM 配置" : `编辑 · ${modal.profile.name}` }) }), _jsxs("div", { className: "px-6 py-4 space-y-3", children: [_jsx("div", { className: "flex gap-2 flex-wrap", children: Object.entries(PRESETS).map(([key, preset]) => (_jsx("button", { type: "button", onClick: () => onChange({ ...form, ...preset }), className: "text-xs px-3 py-1 border border-ink-200 rounded-full hover:bg-brand-50", children: key }, key))) }), _jsx("input", { value: form.name, onChange: (e) => set({ name: e.target.value }), placeholder: "\u914D\u7F6E\u540D\u79F0", className: "ui-field w-full" }), _jsxs("select", { value: form.protocol, onChange: (e) => set({ protocol: e.target.value }), className: "ui-field w-full", children: [_jsx("option", { value: "openai", children: "OpenAI-compatible" }), _jsx("option", { value: "anthropic", children: "Anthropic Messages API" })] }), _jsx("input", { type: "url", value: form.base_url, onChange: (e) => set({ base_url: e.target.value }), placeholder: "Base URL", className: "ui-field w-full" }), _jsxs("div", { className: "flex gap-2", children: [_jsx("input", { type: showKey ? "text" : "password", value: form.api_key, onChange: (e) => set({ api_key: e.target.value }), placeholder: "API Key", className: "ui-field flex-1" }), _jsx("button", { type: "button", onClick: () => setShowKey((v) => !v), className: "text-xs px-2 border border-ink-200 rounded-lg", children: showKey ? "隐藏" : "显示" })] }), _jsx("input", { value: form.model, onChange: (e) => set({ model: e.target.value }), placeholder: "\u6A21\u578B", className: "ui-field w-full" }), _jsx("input", { type: "number", value: form.timeout, onChange: (e) => set({ timeout: Number(e.target.value) }), min: 10, max: 600, placeholder: "\u8D85\u65F6\uFF08\u79D2\uFF09", className: "ui-field w-full" })] }), _jsxs("div", { className: "px-6 py-4 border-t border-ink-200/60 flex justify-end gap-2", children: [_jsx("button", { type: "button", onClick: onCancel, className: "px-4 py-2 text-sm border border-ink-200 rounded-xl", children: "\u53D6\u6D88" }), _jsx("button", { type: "button", disabled: saving || !form.name.trim() || !form.base_url.trim() || !form.model.trim(), onClick: onSave, className: "ui-btn-primary", children: saving ? "保存中…" : "保存" })] })] }) }));
 }
-const inputCls = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400";

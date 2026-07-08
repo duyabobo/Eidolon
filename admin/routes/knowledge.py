@@ -12,8 +12,10 @@ from models.knowledge import (
     KnowledgeBaseUpdate,
     KnowledgeDocument,
     KnowledgeDocumentList,
+    KnowledgeEnvironmentList,
     KnowledgeKeyResponse,
     KnowledgeServiceConfig,
+    KnowledgeServiceConfigHistoryList,
 )
 from routes.knowledge_deps import require_knowledge_key
 from services import knowledge_client, knowledge_config_store, mongo_client
@@ -40,6 +42,18 @@ async def api_get_service_config() -> KnowledgeServiceConfig:
 @router.put("/service", response_model=KnowledgeServiceConfig)
 async def api_save_service_config(body: KnowledgeServiceConfig) -> KnowledgeServiceConfig:
     return await knowledge_config_store.save_service_config(body)
+
+
+@router.get("/service/environments", response_model=KnowledgeEnvironmentList)
+async def api_list_knowledge_environments() -> KnowledgeEnvironmentList:
+    return knowledge_config_store.list_environment_options()
+
+
+@router.get("/service/history", response_model=KnowledgeServiceConfigHistoryList)
+async def api_list_service_config_history(
+    limit: int = Query(default=20, ge=1, le=100),
+) -> KnowledgeServiceConfigHistoryList:
+    return await knowledge_config_store.list_service_config_history(limit)
 
 
 @router.post("/service/key", response_model=KnowledgeKeyResponse)

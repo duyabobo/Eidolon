@@ -6,6 +6,34 @@ export interface LlmConfig {
   protocol: "openai" | "anthropic";
 }
 
+export interface LlmProfile extends LlmConfig {
+  id: string;
+  name: string;
+}
+
+export interface LlmProfileCreate {
+  name: string;
+  base_url: string;
+  api_key: string;
+  model: string;
+  timeout: number;
+  protocol: "openai" | "anthropic";
+}
+
+export interface LlmProfileUpdate {
+  name?: string;
+  base_url?: string;
+  api_key?: string;
+  model?: string;
+  timeout?: number;
+  protocol?: "openai" | "anthropic";
+}
+
+export interface LlmProfileListResponse {
+  items: LlmProfile[];
+  active_id: string | null;
+}
+
 export interface McpServerConfig {
   url: string;
   description?: string;
@@ -25,15 +53,29 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     const err = await resp.json().catch(() => ({}));
     throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
   }
+  if (resp.status === 204) return undefined as T;
   return resp.json();
 }
 
-// /config/llm → llm-proxy:9001（由 llm-proxy 持久化并热更新内存）
-// /config/mcp、/config/skills → admin:9000
 export const configApi = {
-  getLlm: () => request<LlmConfig | null>("/config/llm"),
-  saveLlm: (cfg: LlmConfig) =>
-    request<LlmConfig>("/config/llm", { method: "PUT", body: JSON.stringify(cfg) }),
+  getLlm: () => request<LlmConfig>("/config/llm"),
+
+  listLlmProfiles: () => request<LlmProfileListResponse>("/config/llm/profiles"),
+
+  createLlmProfile: (body: LlmProfileCreate) =>
+    request<LlmProfile>("/config/llm/profiles", { method: "POST", body: JSON.stringify(body) }),
+
+  updateLlmProfile: (id: string, body: LlmProfileUpdate) =>
+    request<LlmProfile>(`/config/llm/profiles/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  deleteLlmProfile: (id: string) =>
+    request<void>(`/config/llm/profiles/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  activateLlmProfile: (id: string) =>
+    request<LlmConfig>(`/config/llm/profiles/${encodeURIComponent(id)}/activate`, { method: "PUT" }),
 
   getMcp: () => request<McpConfig>("/config/mcp"),
   saveMcp: (cfg: McpConfig) =>

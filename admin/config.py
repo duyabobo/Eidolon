@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # skill-creator 对话创建 Skill 时调用 llm-proxy
     llm_proxy_base_url: str = "http://llm-proxy:9001"
 
+    knowledge_prod_base_url: str = "http://1.92.211.130:38025/mrag-knowledge"
+    knowledge_test_base_url: str = "http://1.92.211.130:38026/mrag-knowledge"
+
     class Config:
         env_file = ".env"
         extra = "ignore"

@@ -37,6 +37,8 @@ export async function ensureKnowledgeKey(cfg, forceRefresh = false) {
 }
 export const knowledgeApi = {
     getServiceConfig: () => request("/config/knowledge/service"),
+    listServiceEnvironments: () => request("/config/knowledge/service/environments"),
+    listServiceHistory: (limit = 20) => request(`/config/knowledge/service/history?limit=${limit}`),
     saveServiceConfig: (cfg) => request("/config/knowledge/service", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
