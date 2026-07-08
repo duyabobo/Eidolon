@@ -18,6 +18,7 @@ class McpServerItem(BaseModel):
     url: str
     description: str = ""
     enabled: bool = True
+    has_api_key: bool = False
     scope: McpScope
     user_id: str | None = None
 
@@ -26,3 +27,4 @@ class McpServerCreateRequest(BaseModel):
     url: str
     description: str = ""
     enabled: bool = True
+    api_key: str = ""

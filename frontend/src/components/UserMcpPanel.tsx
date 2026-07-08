@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { mcpApi, McpServerConfig, McpServerItem } from "../api/mcp";
 
-const EMPTY: McpServerConfig = { url: "", description: "", enabled: true };
+const EMPTY: McpServerConfig = { url: "", description: "", enabled: true, api_key: "" };
 
 interface Props {
   userId: string;
@@ -90,6 +90,14 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
             placeholder="描述（可选）"
             className="ui-field w-full"
           />
+          <input
+            type="password"
+            value={editCfg.api_key ?? ""}
+            onChange={(e) => setEditCfg({ ...editCfg, api_key: e.target.value })}
+            placeholder="API Key（可选，付费 MCP 鉴权用）"
+            className="ui-field w-full"
+            autoComplete="off"
+          />
           <div className="flex gap-2">
             <button type="button" onClick={handleSave} className="ui-btn-primary flex-1">保存</button>
             <button type="button" onClick={() => setShowForm(false)} className="flex-1 py-2.5 text-sm border border-ink-200 rounded-xl">取消</button>
@@ -155,6 +163,7 @@ function Section({
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate text-ink-800">{s.name}</p>
                 <p className="text-xs text-ink-400 truncate">{s.description || s.url}</p>
+                {s.has_api_key && <p className="text-[10px] text-amber-700 mt-0.5">已配置 API Key</p>}
               </div>
               {onDelete && (
                 <button type="button" onClick={() => onDelete(s.name)} className="text-xs text-rose-500 shrink-0 hover:text-rose-700">删除</button>

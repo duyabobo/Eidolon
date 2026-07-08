@@ -47,6 +47,7 @@ async def migrate_legacy_config(db: AsyncIOMotorDatabase) -> None:
             "url": cfg["url"],
             "description": cfg.get("description", ""),
             "enabled": cfg.get("enabled", True),
+            "api_key": cfg.get("api_key", ""),
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
         }
@@ -65,6 +66,7 @@ async def list_system_config(db: AsyncIOMotorDatabase) -> McpConfig:
             url=str(raw["url"]),
             description=str(raw.get("description") or ""),
             enabled=bool(raw.get("enabled", True)),
+            api_key=str(raw.get("api_key") or ""),
         )
     return McpConfig(servers=servers)
 
@@ -76,6 +78,11 @@ async def upsert_server(
     user_id: str | None,
 ) -> None:
     now = datetime.utcnow()
+    existing = await db[_COLLECTION].find_one(_meta_key(name, user_id))
+    api_key = cfg.api_key.strip()
+    if not api_key and existing and existing.get("api_key"):
+        api_key = str(existing["api_key"])
+
     await db[_COLLECTION].update_one(
         _meta_key(name, user_id),
         {
@@ -85,6 +92,7 @@ async def upsert_server(
                 "url": cfg.url,
                 "description": cfg.description,
                 "enabled": cfg.enabled,
+                "api_key": api_key,
                 "updated_at": now,
             },
             "$setOnInsert": {"created_at": now},

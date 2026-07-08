@@ -43,6 +43,7 @@ async def disconnect() -> None:
 class McpServerEntry:
     name: str
     url: str
+    api_key: str = ""
     scope: str = "system"
 
 
@@ -59,7 +60,12 @@ async def read_enabled_mcp_servers(user_id: str | None = None) -> list[McpServer
         if not raw.get("url"):
             continue
         scope = "user" if raw.get("user_id") else "system"
-        result.append(McpServerEntry(name=str(raw["name"]), url=str(raw["url"]), scope=scope))
+        result.append(McpServerEntry(
+            name=str(raw["name"]),
+            url=str(raw["url"]),
+            api_key=str(raw.get("api_key") or ""),
+            scope=scope,
+        ))
 
     logger.info("MCP servers user=%s count=%d", user_id or "-", len(result))
     return result

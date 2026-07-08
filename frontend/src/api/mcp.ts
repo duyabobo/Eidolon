@@ -5,6 +5,7 @@ export interface McpServerItem {
   url: string;
   description?: string;
   enabled?: boolean;
+  has_api_key?: boolean;
   scope: McpScope;
   user_id?: string | null;
 }
@@ -13,6 +14,7 @@ export interface McpServerConfig {
   url: string;
   description?: string;
   enabled?: boolean;
+  api_key?: string;
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {

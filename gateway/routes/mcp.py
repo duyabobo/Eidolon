@@ -29,7 +29,7 @@ async def add_user_mcp_server(
     if not name.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="名称不能为空")
     return await mcp_mongo.upsert_user_server(
-        uid, name.strip(), body.url.strip(), body.description, body.enabled
+        uid, name.strip(), body.url.strip(), body.description, body.enabled, body.api_key
     )
 
 

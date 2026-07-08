@@ -17,6 +17,7 @@ from typing import Any
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.types import Tool
 
 from services.mongo_client import McpServerEntry
@@ -73,9 +74,17 @@ class McpAggregator:
 
     async def _connect_and_load_tools(self, server: McpServerEntry) -> None:
         try:
-            # 通过 ExitStack 持有连接，直到下次 refresh 或服务关闭才释放
+            headers = {"Authorization": f"Bearer {server.api_key.strip()}"} if server.api_key.strip() else None
+            http_client = create_mcp_http_client(headers=headers) if headers else None
+            if http_client is not None:
+                await self._exit_stack.enter_async_context(http_client)
+
+            client_kwargs: dict[str, Any] = {"url": server.url}
+            if http_client is not None:
+                client_kwargs["http_client"] = http_client
+
             read, write, _ = await self._exit_stack.enter_async_context(
-                streamable_http_client(server.url)
+                streamable_http_client(**client_kwargs)
             )
             session: ClientSession = await self._exit_stack.enter_async_context(
                 ClientSession(read, write)

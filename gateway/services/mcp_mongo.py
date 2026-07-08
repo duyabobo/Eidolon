@@ -25,6 +25,7 @@ def _to_item(raw: dict[str, Any]) -> McpServerItem:
         url=str(raw["url"]),
         description=str(raw.get("description") or ""),
         enabled=bool(raw.get("enabled", True)),
+        has_api_key=bool(str(raw.get("api_key") or "").strip()),
         scope=McpScope.USER if user_id else McpScope.SYSTEM,
         user_id=str(user_id) if user_id else None,
     )
@@ -58,14 +59,21 @@ async def upsert_user_server(
     url: str,
     description: str,
     enabled: bool,
+    api_key: str = "",
 ) -> McpServerItem:
     now = datetime.utcnow()
+    existing = await get_db()[_COLLECTION].find_one(_meta_key(name, user_id))
+    resolved_key = api_key.strip()
+    if not resolved_key and existing and existing.get("api_key"):
+        resolved_key = str(existing["api_key"])
+
     doc = {
         "name": name,
         "user_id": user_id,
         "url": url,
         "description": description,
         "enabled": enabled,
+        "api_key": resolved_key,
         "updated_at": now,
     }
     await get_db()[_COLLECTION].update_one(
@@ -78,6 +86,7 @@ async def upsert_user_server(
         url=url,
         description=description,
         enabled=enabled,
+        has_api_key=bool(resolved_key),
         scope=McpScope.USER,
         user_id=user_id,
     )

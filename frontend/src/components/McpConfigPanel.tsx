@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { configApi, McpServerConfig } from "../api/config";
 import { mcpApi, McpServerItem } from "../api/mcp";
 
-const EMPTY_SERVER: McpServerConfig = { url: "", description: "", enabled: true };
+const EMPTY_SERVER: McpServerConfig = { url: "", description: "", enabled: true, api_key: "" };
 
 interface SystemEditState {
   name: string;
@@ -128,6 +128,9 @@ export default function McpConfigPanel({ userId }: Props) {
                 {s.enabled === false && (
                   <span className="text-xs bg-ink-100 text-ink-500 px-1.5 py-0.5 rounded">已禁用</span>
                 )}
+                {s.has_api_key && (
+                  <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">已配置 API Key</span>
+                )}
               </div>
               <p className="text-xs text-ink-400 truncate mt-0.5">{s.url}</p>
               {s.description && <p className="text-xs text-ink-400 mt-0.5">{s.description}</p>}
@@ -137,7 +140,23 @@ export default function McpConfigPanel({ userId }: Props) {
                 <>
                   <button
                     type="button"
-                    onClick={() => setSystemEdit({ name: s.name, config: { url: s.url, description: s.description, enabled: s.enabled } })}
+                    onClick={async () => {
+                      try {
+                        const full = await configApi.getMcp();
+                        const cfg = full.servers[s.name] ?? {
+                          url: s.url,
+                          description: s.description,
+                          enabled: s.enabled,
+                          api_key: "",
+                        };
+                        setSystemEdit({ name: s.name, config: { ...cfg, api_key: cfg.api_key ?? "" } });
+                      } catch {
+                        setSystemEdit({
+                          name: s.name,
+                          config: { url: s.url, description: s.description, enabled: s.enabled, api_key: "" },
+                        });
+                      }
+                    }}
                     className="text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50"
                   >
                     编辑
@@ -175,6 +194,14 @@ export default function McpConfigPanel({ userId }: Props) {
             onChange={(e) => setUserCfg({ ...userCfg, description: e.target.value })}
             placeholder="描述（可选）"
             className="ui-field w-full"
+          />
+          <input
+            type="password"
+            value={userCfg.api_key ?? ""}
+            onChange={(e) => setUserCfg({ ...userCfg, api_key: e.target.value })}
+            placeholder="API Key（可选，付费 MCP 鉴权用）"
+            className="ui-field w-full"
+            autoComplete="off"
           />
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={handleSaveUser} className="ui-btn-primary flex-1">保存</button>
@@ -233,6 +260,14 @@ function SystemEditModal({
         <div className="px-6 py-4 space-y-3">
           <input value={cfg.url} onChange={(e) => set({ url: e.target.value })} placeholder="URL" className="ui-field w-full" />
           <input value={cfg.description ?? ""} onChange={(e) => set({ description: e.target.value })} placeholder="描述" className="ui-field w-full" />
+          <input
+            type="password"
+            value={cfg.api_key ?? ""}
+            onChange={(e) => set({ api_key: e.target.value })}
+            placeholder="API Key（可选，留空则不修改已保存的 Key）"
+            className="ui-field w-full"
+            autoComplete="off"
+          />
           <label className="flex items-center gap-2 text-sm text-ink-700">
             <input type="checkbox" checked={cfg.enabled !== false} onChange={(e) => set({ enabled: e.target.checked })} />
             启用

@@ -13,6 +13,7 @@ class McpServerConfig(BaseModel):
     url: str
     description: str = ""
     enabled: bool = True
+    api_key: str = ""
 
     @model_validator(mode="before")
     @classmethod

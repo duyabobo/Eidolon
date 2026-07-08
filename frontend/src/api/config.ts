@@ -38,6 +38,7 @@ export interface McpServerConfig {
   url: string;
   description?: string;
   enabled?: boolean;
+  api_key?: string;
 }
 
 export interface McpConfig {
