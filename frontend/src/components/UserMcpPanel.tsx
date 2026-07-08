@@ -15,7 +15,7 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
   const [editName, setEditName] = useState("");
   const [editCfg, setEditCfg] = useState<McpServerConfig>({ ...EMPTY });
   const [showForm, setShowForm] = useState(false);
-  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
   const load = () =>
     mcpApi.listForChat(userId)
@@ -30,19 +30,18 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
 
   const handleSave = async () => {
     if (!editName.trim() || !editCfg.url?.trim()) {
-      setMsg({ type: "err", text: "名称和 URL 不能为空" });
+      setErrMsg("名称和 URL 不能为空");
       return;
     }
-    setMsg(null);
+    setErrMsg(null);
     try {
       await mcpApi.addUserServer(userId, editName.trim(), editCfg);
       await load();
       setShowForm(false);
       setEditName("");
       setEditCfg({ ...EMPTY });
-      setMsg({ type: "ok", text: "个人 MCP 已保存，新 session 生效" });
     } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
+      setErrMsg(e instanceof Error ? e.message : "保存失败");
     }
   };
 
@@ -50,14 +49,13 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
     if (!confirm(`确认删除个人 MCP "${name}"？`)) return;
     await mcpApi.deleteUserServer(userId, name);
     await load();
-    setMsg({ type: "ok", text: `已删除 ${name}` });
   };
 
   const content = (
     <div className="space-y-4">
-      {msg && (
-        <p className={`text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
-          {msg.text}
+      {errMsg && (
+        <p className="text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700">
+          {errMsg}
         </p>
       )}
 

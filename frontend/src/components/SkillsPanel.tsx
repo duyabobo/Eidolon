@@ -21,7 +21,7 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreator, setShowCreator] = useState(false);
-  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
   const load = () =>
     skillsApi.listForChat(userId.trim() || undefined)
@@ -36,18 +36,15 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
     if (!confirm(`确认删除系统 Skill "${skill.name}"？`)) return;
     await skillsApi.delete(skill.name);
     setSkills((prev) => prev.filter((s) => s.name !== skill.name || s.scope === "user"));
-    setMsg({ type: "ok", text: `已删除 ${skill.name}` });
   };
 
   if (loading) return <div className="text-sm text-ink-400">加载中…</div>;
 
   return (
     <div className="space-y-4">
-      {msg && (
-        <p className={`text-sm px-3 py-2 rounded-lg ${
-          msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
-        }`}>
-          {msg.text}
+      {errMsg && (
+        <p className="text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700">
+          {errMsg}
         </p>
       )}
 
@@ -90,7 +87,7 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
         <button
           type="button"
           onClick={() => {
-            if (!userId.trim()) { setMsg({ type: "err", text: "请先在「历史」页设置用户 ID" }); return; }
+            if (!userId.trim()) { setErrMsg("请先在「历史」页设置用户 ID"); return; }
             setShowCreator(true);
           }}
           className="w-full py-2.5 border-2 border-dashed border-emerald-300/80 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50/50 transition-colors"
@@ -109,7 +106,6 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
               return idx >= 0 ? prev.map((s, i) => (i === idx ? skill : s)) : [...prev, { ...skill, scope: "user" }];
             });
             setShowCreator(false);
-            setMsg({ type: "ok", text: `${skill.name} 已创建，可在对话中输入 / 使用` });
             onSkillsChanged?.();
           }}
         />

@@ -19,7 +19,7 @@ export default function LlmConfigPanel() {
     const [profiles, setProfiles] = useState([]);
     const [activeId, setActiveId] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [msg, setMsg] = useState(null);
+    const [errMsg, setErrMsg] = useState(null);
     const [modal, setModal] = useState(null);
     const [saving, setSaving] = useState(false);
     const load = useCallback(async () => {
@@ -30,7 +30,7 @@ export default function LlmConfigPanel() {
             setActiveId(res.active_id);
         }
         catch (e) {
-            setMsg({ type: "err", text: e instanceof Error ? e.message : "加载失败" });
+            setErrMsg(e instanceof Error ? e.message : "加载失败");
         }
         finally {
             setLoading(false);
@@ -40,14 +40,13 @@ export default function LlmConfigPanel() {
     const handleSelect = async (id) => {
         if (id === activeId)
             return;
-        setMsg(null);
+        setErrMsg(null);
         try {
             await configApi.activateLlmProfile(id);
             setActiveId(id);
-            setMsg({ type: "ok", text: "已切换当前 LLM 配置，立即生效。" });
         }
         catch (e) {
-            setMsg({ type: "err", text: e instanceof Error ? e.message : "切换失败" });
+            setErrMsg(e instanceof Error ? e.message : "切换失败");
         }
     };
     const openCreate = () => {
@@ -71,22 +70,20 @@ export default function LlmConfigPanel() {
         if (!modal)
             return;
         setSaving(true);
-        setMsg(null);
+        setErrMsg(null);
         try {
             if (modal.mode === "create") {
                 const created = await configApi.createLlmProfile(modal.form);
                 await configApi.activateLlmProfile(created.id);
-                setMsg({ type: "ok", text: `已添加并选中「${created.name}」` });
             }
             else {
                 await configApi.updateLlmProfile(modal.profile.id, modal.form);
-                setMsg({ type: "ok", text: `已更新「${modal.form.name}」` });
             }
             setModal(null);
             await load();
         }
         catch (e) {
-            setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
+            setErrMsg(e instanceof Error ? e.message : "保存失败");
         }
         finally {
             setSaving(false);
@@ -95,19 +92,18 @@ export default function LlmConfigPanel() {
     const handleDelete = async (profile) => {
         if (!confirm(`确认删除 LLM 配置「${profile.name}」？`))
             return;
-        setMsg(null);
+        setErrMsg(null);
         try {
             await configApi.deleteLlmProfile(profile.id);
-            setMsg({ type: "ok", text: `已删除「${profile.name}」` });
             await load();
         }
         catch (e) {
-            setMsg({ type: "err", text: e instanceof Error ? e.message : "删除失败" });
+            setErrMsg(e instanceof Error ? e.message : "删除失败");
         }
     };
     if (loading)
         return _jsx("p", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D LLM \u914D\u7F6E\u2026" });
-    return (_jsxs("div", { className: "space-y-4", children: [_jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsx("p", { className: "text-sm text-ink-600", children: "\u9009\u62E9\u5F53\u524D\u751F\u6548\u7684 LLM \u914D\u7F6E\uFF08\u5355\u9009\uFF09" }), _jsx("button", { type: "button", onClick: openCreate, className: "ui-btn-primary text-sm", children: "+ \u6DFB\u52A0" })] }), profiles.length === 0 ? (_jsx("p", { className: "text-sm text-ink-400 text-center py-8 border border-dashed border-ink-200 rounded-xl", children: "\u6682\u65E0 LLM \u914D\u7F6E\uFF0C\u70B9\u51FB\u300C\u6DFB\u52A0\u300D\u521B\u5EFA" })) : (_jsx("div", { className: "space-y-2", children: profiles.map((profile) => (_jsxs("div", { className: `flex items-center gap-3 border rounded-xl px-4 py-3 ${activeId === profile.id ? "border-brand-300 bg-brand-50/40" : "border-ink-200/60"}`, children: [_jsx("input", { type: "radio", name: "llm-profile", checked: activeId === profile.id, onChange: () => void handleSelect(profile.id), className: "accent-brand-600" }), _jsxs("div", { className: "flex-1 min-w-0", children: [_jsx("p", { className: "text-sm font-medium text-ink-800 truncate", children: profile.name }), _jsxs("p", { className: "text-xs text-ink-400 truncate", children: [profile.protocol, " \u00B7 ", profile.model, " \u00B7 ", profile.base_url] })] }), _jsxs("div", { className: "flex gap-2 shrink-0", children: [_jsx("button", { type: "button", onClick: () => openEdit(profile), className: "text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50", children: "\u7F16\u8F91" }), _jsx("button", { type: "button", onClick: () => void handleDelete(profile), disabled: profiles.length <= 1, className: "text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50 disabled:opacity-40", children: "\u5220\u9664" })] })] }, profile.id))) })), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), modal && (_jsx(LlmProfileModal, { modal: modal, saving: saving, onChange: (form) => setModal({ ...modal, form }), onSave: () => void handleModalSave(), onCancel: () => setModal(null) }))] }));
+    return (_jsxs("div", { className: "space-y-4", children: [_jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsx("p", { className: "text-sm text-ink-600", children: "\u9009\u62E9\u5F53\u524D\u751F\u6548\u7684 LLM \u914D\u7F6E\uFF08\u5355\u9009\uFF09" }), _jsx("button", { type: "button", onClick: openCreate, className: "ui-btn-primary text-sm", children: "+ \u6DFB\u52A0" })] }), profiles.length === 0 ? (_jsx("p", { className: "text-sm text-ink-400 text-center py-8 border border-dashed border-ink-200 rounded-xl", children: "\u6682\u65E0 LLM \u914D\u7F6E\uFF0C\u70B9\u51FB\u300C\u6DFB\u52A0\u300D\u521B\u5EFA" })) : (_jsx("div", { className: "space-y-2", children: profiles.map((profile) => (_jsxs("div", { className: `flex items-center gap-3 border rounded-xl px-4 py-3 ${activeId === profile.id ? "border-brand-300 bg-brand-50/40" : "border-ink-200/60"}`, children: [_jsx("input", { type: "radio", name: "llm-profile", checked: activeId === profile.id, onChange: () => void handleSelect(profile.id), className: "accent-brand-600" }), _jsxs("div", { className: "flex-1 min-w-0", children: [_jsx("p", { className: "text-sm font-medium text-ink-800 truncate", children: profile.name }), _jsxs("p", { className: "text-xs text-ink-400 truncate", children: [profile.protocol, " \u00B7 ", profile.model, " \u00B7 ", profile.base_url] })] }), _jsxs("div", { className: "flex gap-2 shrink-0", children: [_jsx("button", { type: "button", onClick: () => openEdit(profile), className: "text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50", children: "\u7F16\u8F91" }), _jsx("button", { type: "button", onClick: () => void handleDelete(profile), disabled: profiles.length <= 1, className: "text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50 disabled:opacity-40", children: "\u5220\u9664" })] })] }, profile.id))) })), errMsg && (_jsx("p", { className: "text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700", children: errMsg })), modal && (_jsx(LlmProfileModal, { modal: modal, saving: saving, onChange: (form) => setModal({ ...modal, form }), onSave: () => void handleModalSave(), onCancel: () => setModal(null) }))] }));
 }
 function LlmProfileModal({ modal, saving, onChange, onSave, onCancel, }) {
     const form = modal.form;

@@ -25,7 +25,7 @@ export default function LlmConfigPanel() {
   const [profiles, setProfiles] = useState<LlmProfile[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -36,7 +36,7 @@ export default function LlmConfigPanel() {
       setProfiles(res.items);
       setActiveId(res.active_id);
     } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "加载失败" });
+      setErrMsg(e instanceof Error ? e.message : "加载失败");
     } finally {
       setLoading(false);
     }
@@ -46,13 +46,12 @@ export default function LlmConfigPanel() {
 
   const handleSelect = async (id: string) => {
     if (id === activeId) return;
-    setMsg(null);
+    setErrMsg(null);
     try {
       await configApi.activateLlmProfile(id);
       setActiveId(id);
-      setMsg({ type: "ok", text: "已切换当前 LLM 配置，立即生效。" });
     } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "切换失败" });
+      setErrMsg(e instanceof Error ? e.message : "切换失败");
     }
   };
 
@@ -78,20 +77,18 @@ export default function LlmConfigPanel() {
   const handleModalSave = async () => {
     if (!modal) return;
     setSaving(true);
-    setMsg(null);
+    setErrMsg(null);
     try {
       if (modal.mode === "create") {
         const created = await configApi.createLlmProfile(modal.form);
         await configApi.activateLlmProfile(created.id);
-        setMsg({ type: "ok", text: `已添加并选中「${created.name}」` });
       } else {
         await configApi.updateLlmProfile(modal.profile.id, modal.form);
-        setMsg({ type: "ok", text: `已更新「${modal.form.name}」` });
       }
       setModal(null);
       await load();
     } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
+      setErrMsg(e instanceof Error ? e.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -99,13 +96,12 @@ export default function LlmConfigPanel() {
 
   const handleDelete = async (profile: LlmProfile) => {
     if (!confirm(`确认删除 LLM 配置「${profile.name}」？`)) return;
-    setMsg(null);
+    setErrMsg(null);
     try {
       await configApi.deleteLlmProfile(profile.id);
-      setMsg({ type: "ok", text: `已删除「${profile.name}」` });
       await load();
     } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "删除失败" });
+      setErrMsg(e instanceof Error ? e.message : "删除失败");
     }
   };
 
@@ -168,11 +164,9 @@ export default function LlmConfigPanel() {
         </div>
       )}
 
-      {msg && (
-        <p className={`text-sm px-3 py-2 rounded-lg ${
-          msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
-        }`}>
-          {msg.text}
+      {errMsg && (
+        <p className="text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700">
+          {errMsg}
         </p>
       )}
 
