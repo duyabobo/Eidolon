@@ -134,14 +134,20 @@ export function ChatSessionProvider({ children }) {
         closeStreamRef.current = null;
         activeTurnIdRef.current = null;
     }, []);
+    /** 写入 session 消息缓存；当前可见 session 同步更新 ref，避免 SSE 高频事件丢字 */
+    const commitSessionMessages = useCallback((sid, next) => {
+        const cached = sessionRuntimeRef.current.get(sid) ?? emptyRuntime();
+        sessionRuntimeRef.current.set(sid, { ...cached, messages: next });
+        if (sid === sessionIdRef.current) {
+            messagesRef.current = next;
+            setMessages(next);
+        }
+    }, []);
     const updateSessionMessages = useCallback((sid, updater) => {
         const cached = sessionRuntimeRef.current.get(sid);
         const base = sid === sessionIdRef.current ? messagesRef.current : (cached?.messages ?? []);
-        const next = updater(base);
-        sessionRuntimeRef.current.set(sid, { ...(cached ?? emptyRuntime()), messages: next });
-        if (sid === sessionIdRef.current)
-            setMessages(next);
-    }, []);
+        commitSessionMessages(sid, updater(base));
+    }, [commitSessionMessages]);
     const loadSkills = useCallback(async () => {
         try {
             const list = await skillsApi.listForChat(userId);
@@ -164,23 +170,36 @@ export function ChatSessionProvider({ children }) {
     useEffect(() => { loadSessions(); }, [loadSessions]);
     const attachTurnStream = useCallback((sid, turnId, lastSeq = "0") => {
         const onDone = () => {
-            const runtime = sessionRuntimeRef.current.get(sid) ?? emptyRuntime();
-            const doneMessages = markAllStreamingDone(runtime.messages);
-            sessionRuntimeRef.current.set(sid, {
-                ...runtime,
-                messages: doneMessages,
-                activeTurnId: null,
-                isLoading: false,
-                closeStream: null,
-            });
-            if (sessionIdRef.current === sid) {
-                activeTurnIdRef.current = null;
-                closeStreamRef.current = null;
-                setIsLoading(false);
-                setMessages(doneMessages);
-            }
-            notifyRuntimeChange();
-            loadSessions();
+            void (async () => {
+                const runtime = sessionRuntimeRef.current.get(sid) ?? emptyRuntime();
+                let doneMessages = markAllStreamingDone(runtime.messages);
+                // 与刷新一致：turn 结束后用 snapshot 重建，修正流式拼接期间可能丢掉的 token
+                try {
+                    const detail = await getSessionDetail(sid);
+                    if (detail) {
+                        doneMessages = buildMessagesFromSnapshot(detail.request, detail.events_snapshot);
+                    }
+                }
+                catch {
+                    // 保留内存中的消息
+                }
+                sessionRuntimeRef.current.set(sid, {
+                    ...runtime,
+                    messages: doneMessages,
+                    activeTurnId: null,
+                    isLoading: false,
+                    closeStream: null,
+                });
+                if (sessionIdRef.current === sid) {
+                    activeTurnIdRef.current = null;
+                    closeStreamRef.current = null;
+                    messagesRef.current = doneMessages;
+                    setIsLoading(false);
+                    setMessages(doneMessages);
+                }
+                notifyRuntimeChange();
+                loadSessions();
+            })();
         };
         const onError = (msg) => {
             const runtime = sessionRuntimeRef.current.get(sid) ?? emptyRuntime();
@@ -240,6 +259,7 @@ export function ChatSessionProvider({ children }) {
             return;
         }
         const msgs = buildMessagesFromSnapshot(detail.request, detail.events_snapshot);
+        messagesRef.current = msgs;
         setMessages(msgs);
         sessionRuntimeRef.current.set(savedSessionId, emptyRuntime(msgs));
         const activeTurnId = await getActiveTurn(savedSessionId);
@@ -265,6 +285,7 @@ export function ChatSessionProvider({ children }) {
         sessionIdRef.current = null;
         setCurrentSessionId(null);
         localStorage.removeItem("pi_session_id");
+        messagesRef.current = [];
         setMessages([]);
         syncVisibleSessionState(null);
         setError("");
@@ -280,14 +301,17 @@ export function ChatSessionProvider({ children }) {
         localStorage.setItem("pi_session_id", s.session_id);
         const cached = sessionRuntimeRef.current.get(s.session_id);
         if (cached) {
+            messagesRef.current = cached.messages;
             setMessages(cached.messages);
             syncVisibleSessionState(s.session_id);
             return;
         }
         syncVisibleSessionState(s.session_id);
+        messagesRef.current = [];
         setMessages([]);
         const detail = await getSessionDetail(s.session_id);
         const msgs = detail ? buildMessagesFromSnapshot(detail.request, detail.events_snapshot) : [];
+        messagesRef.current = msgs;
         setMessages(msgs);
         const activeTurnId = await getActiveTurn(s.session_id);
         if (activeTurnId) {
@@ -321,17 +345,23 @@ export function ChatSessionProvider({ children }) {
             isLoading: false,
             closeStream: null,
         });
+        messagesRef.current = interruptedMessages;
         setMessages(interruptedMessages);
         setIsLoading(false);
         notifyRuntimeChange();
         try {
             await cancelTurn(sessionId, turnId);
+            const detail = await getSessionDetail(sessionId);
+            if (detail) {
+                const rebuilt = buildMessagesFromSnapshot(detail.request, detail.events_snapshot);
+                commitSessionMessages(sessionId, rebuilt);
+            }
             loadSessions();
         }
         catch (e) {
             setError(e instanceof Error ? e.message : "中断失败");
         }
-    }, [isLoading, loadSessions, notifyRuntimeChange]);
+    }, [isLoading, loadSessions, notifyRuntimeChange, commitSessionMessages]);
     const send = useCallback(async (text) => {
         const trimmed = text.trim();
         if (!trimmed || isLoading)
