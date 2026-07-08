@@ -91,6 +91,22 @@ def _unwrap_data(resp: httpx.Response) -> Any:
     return payload
 
 
+def _paginated_payload(data: Any) -> tuple[list[Any], int]:
+    """兼容 mRAG 分页字段：documents/list + total_count/total。"""
+    if not isinstance(data, dict):
+        return [], 0
+    items = data.get("documents")
+    if items is None:
+        items = data.get("list")
+    if not isinstance(items, list):
+        items = []
+    total_raw = data.get("total_count")
+    if total_raw is None:
+        total_raw = data.get("total")
+    total = int(total_raw) if total_raw is not None else len(items)
+    return items, total
+
+
 def _parse_dt(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -309,8 +325,8 @@ async def list_documents(kb_id: str, page: int, page_size: int) -> KnowledgeDocu
             headers=_knowledge_headers(knowledge_key),
         )
     data = _unwrap_data(resp) or {}
-    items = [_map_document(kb_id, item) for item in data.get("list", [])]
-    total = int(data.get("total") or len(items))
+    items_raw, total = _paginated_payload(data)
+    items = [_map_document(kb_id, item) for item in items_raw]
     return KnowledgeDocumentList(items=items, total=total, page=page, page_size=page_size)
 
 
