@@ -4,7 +4,8 @@ import {
   streamTurn, getRecentSessions, getSessionDetail,
   SessionSummary,
 } from "../api/session";
-import { skillsApi, Skill } from "../api/skills";
+import { skillsApi, Skill, SkillScope, toSkillRef } from "../api/skills";
+import SkillCreatorChat from "../components/SkillCreatorChat";
 
 // ── 消息结构 ────────────────────────────────────────────────────────────────
 
@@ -129,6 +130,27 @@ function MessageBubble({ msg }: { msg: Message }) {
   );
 }
 
+function SkillScopeBadge({ scope }: { scope: SkillScope }) {
+  const isUser = scope === "user";
+  return (
+    <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${isUser ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700"}`}>
+      {isUser ? "我的" : "系统"}
+    </span>
+  );
+}
+
+function SkillOptionGroup({ label, scope, skills }: { label: string; scope: SkillScope; skills: Skill[] }) {
+  if (skills.length === 0) return null;
+  return (
+    <optgroup label={label}>
+      {skills.map((s) => {
+        const value = toSkillRef(scope, s.name);
+        return <option key={value} value={value} title={s.description}>{s.name}</option>;
+      })}
+    </optgroup>
+  );
+}
+
 // ── 主页面 ───────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
@@ -138,9 +160,10 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [selectedSkillId, setSelectedSkillId] = useState("");
+  const [selectedSkillRef, setSelectedSkillRef] = useState("");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSkillCreator, setShowSkillCreator] = useState(false);
 
   // session_id：当前 chat 窗口的 session，null 表示尚未创建
   const sessionIdRef = useRef<string | null>(null);
@@ -169,9 +192,21 @@ export default function ChatPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    skillsApi.list().then((list) => setSkills(list.filter((s) => !s.hidden))).catch(() => {});
+  const loadSkills = useCallback(async (uid: string) => {
+    try {
+      const list = await skillsApi.listForChat(uid);
+      setSkills(list);
+      setSelectedSkillRef((prev) =>
+        prev && list.some((s) => toSkillRef(s.scope ?? "system", s.name) === prev) ? prev : ""
+      );
+    } catch {
+      setSkills([]);
+    }
   }, []);
+
+  useEffect(() => {
+    loadSkills(userId);
+  }, [userId, loadSkills]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -246,7 +281,7 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: "user", type: "text", content: trimmed }]);
 
     const turnId = crypto.randomUUID();
-    const skillIds = selectedSkillId ? [selectedSkillId] : [];
+    const skillIds = selectedSkillRef ? [selectedSkillRef] : [];
 
     try {
       let sessionId = sessionIdRef.current;
@@ -282,7 +317,7 @@ export default function ChatPage() {
       setError(e instanceof Error ? e.message : "请求失败");
       setIsLoading(false);
     }
-  }, [input, userId, isLoading, selectedSkillId, appendToLastOfType, addDiscreteMessage, markStreamingDone, loadSessions]);
+  }, [input, userId, isLoading, selectedSkillRef, appendToLastOfType, addDiscreteMessage, markStreamingDone, loadSessions]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -366,20 +401,35 @@ export default function ChatPage() {
 
           <label className="text-sm text-gray-500 whitespace-nowrap">Skill</label>
           <select
-            value={selectedSkillId}
-            onChange={(e) => setSelectedSkillId(e.target.value)}
-            className="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            value={selectedSkillRef}
+            onChange={(e) => setSelectedSkillRef(e.target.value)}
+            className="text-sm border border-gray-300 rounded px-2 py-1 max-w-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
           >
             <option value="">默认（不指定）</option>
-            {skills.map((s) => (
-              <option key={s.name} value={s.name} title={s.description}>{s.name}</option>
-            ))}
+            <SkillOptionGroup label="系统 Skill" scope="system" skills={skills.filter((s) => (s.scope ?? "system") === "system")} />
+            <SkillOptionGroup label="我的 Skill" scope="user" skills={skills.filter((s) => s.scope === "user")} />
           </select>
-          {selectedSkillId && (
-            <span className="text-xs text-indigo-500">
-              {skills.find((s) => s.name === selectedSkillId)?.description ?? ""}
-            </span>
-          )}
+          {selectedSkillRef && (() => {
+            const item = skills.find((s) => toSkillRef(s.scope ?? "system", s.name) === selectedSkillRef);
+            if (!item) return null;
+            return (
+              <span className="text-xs text-indigo-500 flex items-center gap-1">
+                <SkillScopeBadge scope={item.scope ?? "system"} />
+                {item.description}
+              </span>
+            );
+          })()}
+
+          <button
+            onClick={() => {
+              if (!userId.trim()) { setError("请先填写用户 ID"); return; }
+              setShowSkillCreator(true);
+            }}
+            title="对话创建我的 Skill"
+            className="text-xs px-2 py-1 border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 whitespace-nowrap"
+          >
+            + 创建 Skill
+          </button>
 
           {isLoading && <span className="ml-auto text-xs text-indigo-500 animate-pulse">Pi 正在执行…</span>}
           {error && <span className="ml-auto text-xs text-red-500">{error}</span>}
@@ -415,6 +465,19 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+
+      {showSkillCreator && userId.trim() && (
+        <SkillCreatorChat
+          userId={userId.trim()}
+          scope="user"
+          onClose={() => setShowSkillCreator(false)}
+          onPublished={(skill) => {
+            loadSkills(userId);
+            setSelectedSkillRef(toSkillRef("user", skill.name));
+            setError("");
+          }}
+        />
+      )}
     </div>
   );
 }

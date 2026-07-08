@@ -19,6 +19,7 @@ class SkillCreatorMessage(BaseModel):
 
 class SkillCreatorSession(BaseModel):
     id: str
+    user_id: str | None = None
     messages: list[SkillCreatorMessage] = Field(default_factory=list)
     draft: SkillDraft | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

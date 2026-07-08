@@ -33,12 +33,13 @@ class McpConfig(BaseModel):
 
 class SkillMeta(BaseModel):
     """
-    MongoDB 中只存储 Skill 的元数据（供前端下拉查询，不含正文内容）。
-    Skill 正文（SKILL.md）存储在文件系统 /data/sandboxes/global/skills/{name}/SKILL.md。
-    pi 直接读取文件系统，实现原生渐进式披露。
+    MongoDB 存储 Skill 元数据（列表/下拉用，不含正文）。
+    user_id 为空表示系统 Skill；否则为用户私有 Skill。
+    正文在 NFS：global/skills/{name}/ 或 users/{user_id}/skills/{name}/。
     """
     name: str
     description: str
+    user_id: str | None = None
     tags: list[str] = []
     hidden: bool = False
     created_at: datetime = None  # type: ignore[assignment]

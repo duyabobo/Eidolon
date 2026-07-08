@@ -1,6 +1,10 @@
+export type SkillScope = "system" | "user";
+
 export interface Skill {
   name: string;
   description: string;
+  scope?: SkillScope;
+  user_id?: string | null;
   content?: string;
   tags?: string[];
   hidden?: boolean;
@@ -18,17 +22,23 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return resp.json();
 }
 
-export const skillsApi = {
-  // 列表接口走 gateway（前端用于下拉选择）
-  list: () => request<Skill[]>("/skills"),
+export function toSkillRef(scope: SkillScope, name: string): string {
+  return scope === "system" ? `global:${name}` : `user:${name}`;
+}
 
-  // CRUD 接口走 admin（管理页面）
-  get: (name: string) => request<Skill>(`/config/skills/${encodeURIComponent(name)}`),
-  save: (name: string, skill: Skill) =>
-    request<Skill>(`/config/skills/${encodeURIComponent(name)}`, {
-      method: "POST",
-      body: JSON.stringify(skill),
-    }),
+export const skillsApi = {
+  listForChat: (userId?: string) => {
+    const qs = userId?.trim() ? `?user_id=${encodeURIComponent(userId.trim())}` : "";
+    return request<Skill[]>(`/skills${qs}`);
+  },
+
+  listAdmin: () => request<Skill[]>("/config/skills"),
+
+  getContent: (name: string, userId?: string) => {
+    const qs = userId?.trim() ? `?user_id=${encodeURIComponent(userId.trim())}` : "";
+    return request<{ name: string; raw: string }>(`/skills/${encodeURIComponent(name)}/content${qs}`);
+  },
+
   delete: (name: string) =>
     fetch(`/config/skills/${encodeURIComponent(name)}`, { method: "DELETE" }),
 };

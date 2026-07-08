@@ -1,21 +1,31 @@
 import logging
-from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query, status
 
-from services.mongo_client import get_db
+from models.skill import SkillListItem
+from services import skill_store
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
 
-@router.get("", response_model=list[dict[str, Any]])
-async def list_skills() -> list[dict[str, Any]]:
-    """
-    列出所有可用 skill（不含 content 正文），供前端下拉展示。
-    数据来源：与 admin 共享同一 MongoDB 的 skills 集合。
-    """
-    db = get_db()
-    cursor = db.skills.find({}, {"content": 0, "_id": 0})
-    return [doc async for doc in cursor]
+@router.get("", response_model=list[SkillListItem])
+async def list_skills(
+    user_id: str | None = Query(None, description="用户 ID，合并展示系统 Skill 与该用户的 Skill"),
+) -> list[SkillListItem]:
+    """Skill 列表：元数据来自 MongoDB（系统 + 用户）。"""
+    return await skill_store.list_skills_for_user(user_id)
+
+
+@router.get("/{name}/content")
+async def get_skill_content(
+    name: str,
+    user_id: str | None = Query(None, description="用户 ID；不传则读取系统 Skill 正文"),
+) -> dict:
+    """读取 Skill 正文（SKILL.md），按需访问 NFS。"""
+    try:
+        raw = await skill_store.read_skill_content(name, user_id.strip() if user_id else None)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return {"name": name, "user_id": user_id, "raw": raw}

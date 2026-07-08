@@ -1,8 +1,8 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
-from models.config import SkillCreateRequest, SkillMeta
+from models.config import SkillMeta
 from models.skill_creator import (
     CreateSessionResponse,
     PublishSkillRequest,
@@ -18,10 +18,13 @@ router = APIRouter(prefix="/config/skills/creator", tags=["skill-creator"])
 
 
 @router.post("/sessions", response_model=CreateSessionResponse)
-async def create_session() -> CreateSessionResponse:
-    """创建 skill-creator 对话会话并返回首条助手消息。"""
+async def create_session(
+    user_id: str | None = Query(None, description="用户 ID；不传则创建系统 Skill"),
+) -> CreateSessionResponse:
+    """创建 skill-creator 对话会话。发布时同步写入 MongoDB 元数据 + NFS 正文。"""
+    uid = user_id.strip() if user_id else None
     try:
-        return await skill_creator_service.start_session()
+        return await skill_creator_service.start_session(uid)
     except RuntimeError as exc:
         logger.exception("创建 skill-creator 会话失败")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
@@ -51,7 +54,7 @@ async def send_message(session_id: str, body: SendMessageRequest) -> SendMessage
 
 @router.post("/sessions/{session_id}/publish", response_model=SkillMeta)
 async def publish_skill(session_id: str, body: PublishSkillRequest) -> SkillMeta:
-    """将对话草稿（或用户覆盖字段）发布为 global skill。"""
+    """发布 Skill：MongoDB 元数据 + NFS 正文同步写入。"""
     try:
         return await skill_creator_service.publish_session(session_id, body)
     except LookupError as exc:

@@ -45,11 +45,11 @@ MCP 配置变更后，**下一个新建 session** 的 pi-runtime 会读取最新
 
 ---
 
-### `GET /config/skills` — 列出所有 global Skill 元数据
+### `GET /config/skills` — 列出系统 Skill 元数据（MongoDB，`user_id` 为空）
 
-### `GET /config/skills/{name}/content` — 读取 Skill 正文
+### `GET /config/skills/{name}/content` — 读取系统 Skill 正文（NFS）
 
-### `POST /config/skills/{name}` — 创建或更新 Skill
+### `POST /config/skills/{name}` — 创建或更新系统 Skill（MongoDB + NFS 同步）
 
 ```json
 {
@@ -70,10 +70,10 @@ MCP 配置变更后，**下一个新建 session** 的 pi-runtime 会读取最新
 
 | 接口 | 说明 |
 |------|------|
-| `POST /config/skills/creator/sessions` | 创建对话会话，返回首条助手消息 |
+| `POST /config/skills/creator/sessions?user_id=` | 创建对话（无 user_id=系统 Skill，有=用户 Skill） |
 | `GET /config/skills/creator/sessions/{id}` | 获取会话历史与当前草稿 |
 | `POST /config/skills/creator/sessions/{id}/messages` | 发送用户消息，返回助手回复与可选草稿 |
-| `POST /config/skills/creator/sessions/{id}/publish` | 将草稿发布为 global Skill（写入文件系统 + MongoDB） |
+| `POST /config/skills/creator/sessions/{id}/publish` | 发布 Skill（MongoDB 元数据 + NFS 正文同步） |
 
 **前置条件**：llm-proxy 已配置可用 LLM Provider（Admin 前端「LLM 配置」页）。
 

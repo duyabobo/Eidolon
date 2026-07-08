@@ -6,8 +6,7 @@ Skill 文件系统管理。
     SKILL.md      ← pi 直接读取（frontmatter + 正文）
 
 全局 skill（admin 管理的公共 skill）放在 global/skills/。
-用户专属 skill 放在 users/{user_id}/skills/，由用户自己通过 pi 管理，
-admin 不直接写用户专属 skill 目录（用户自主管理）。
+用户 skill 放在 users/{user_id}/skills/，仅通过 skill-creator 对话创建。
 
 SKILL.md 格式（Agent Skills 标准）：
   ---
@@ -27,6 +26,10 @@ logger = logging.getLogger(__name__)
 _GLOBAL_SKILLS_ROOT = Path(settings.sandbox_root) / "global" / "skills"
 
 
+def _user_skills_root(user_id: str) -> Path:
+    return Path(settings.sandbox_root) / "users" / user_id / "skills"
+
+
 def _skill_dir(name: str) -> Path:
     return _GLOBAL_SKILLS_ROOT / name
 
@@ -42,12 +45,22 @@ def _build_skill_md(name: str, description: str, content: str) -> str:
 
 
 def write_skill(name: str, description: str, content: str) -> None:
-    """将 skill 写入文件系统（global/skills/{name}/SKILL.md）"""
+    """将系统 skill 写入 global/skills/{name}/SKILL.md"""
     skill_dir = _skill_dir(name)
     skill_dir.mkdir(parents=True, exist_ok=True)
     skill_file = _skill_file(name)
     skill_file.write_text(_build_skill_md(name, description, content), encoding="utf-8")
-    logger.info("skill 文件已写入: %s", skill_file)
+    logger.info("系统 skill 文件已写入: %s", skill_file)
+
+
+def write_user_skill(user_id: str, name: str, description: str, content: str) -> None:
+    """将用户 skill 写入 users/{user_id}/skills/{name}/SKILL.md"""
+    root = _user_skills_root(user_id)
+    skill_dir = root / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text(_build_skill_md(name, description, content), encoding="utf-8")
+    logger.info("用户 skill 文件已写入 user=%s path=%s", user_id, skill_file)
 
 
 def read_skill_content(name: str) -> str | None:

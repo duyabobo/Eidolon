@@ -9,32 +9,36 @@ from models.skill_creator import (
     SkillCreatorMessage,
     SkillDraft,
 )
-from services import mongo_client, skill_creator_store
+from services import skill_creator_store
 from services.skill_creator_llm import chat_completion
 from services.skill_creator_parser import extract_skill_draft, strip_skill_draft_blocks
 from services.skill_creator_prompt import load_system_prompt
-from services.skills_fs import write_skill
+from services import mongo_client
+from services.skills_fs import write_skill, write_user_skill
 
 logger = logging.getLogger(__name__)
 
-_WELCOME_USER_PROMPT = (
+_WELCOME_SYSTEM = (
     "管理员刚打开 Skill 创建助手。请用简短友好的语气欢迎，"
-    "说明你会通过对话帮助创建 Skill，并询问他们想创建什么能力/场景。"
+    "说明你会通过对话帮助创建系统级 Skill，并询问他们想创建什么能力/场景。"
+)
+_WELCOME_USER = (
+    "用户刚打开 Skill 创建助手。请用简短友好的语气欢迎，"
+    "说明你会通过对话帮助创建属于该用户的私有 Skill，并询问他们想创建什么能力/场景。"
 )
 
 
-async def start_session() -> CreateSessionResponse:
-    session = await skill_creator_store.create_session()
-    system_prompt = load_system_prompt()
+async def start_session(user_id: str | None = None) -> CreateSessionResponse:
+    session = await skill_creator_store.create_session(user_id)
+    welcome = _WELCOME_USER if user_id else _WELCOME_SYSTEM
     raw_reply = await chat_completion(
-        system_prompt,
-        [{"role": "user", "content": _WELCOME_USER_PROMPT}],
+        load_system_prompt(),
+        [{"role": "user", "content": welcome}],
     )
     draft = extract_skill_draft(raw_reply)
     display = strip_skill_draft_blocks(raw_reply)
     assistant = SkillCreatorMessage(role="assistant", content=display, created_at=datetime.utcnow())
     await skill_creator_store.set_initial_message(session.id, assistant, draft)
-
     return CreateSessionResponse(session_id=session.id, message=assistant)
 
 
@@ -65,7 +69,7 @@ async def send_user_message(session_id: str, content: str) -> SendMessageRespons
 
 def _merge_draft(session_draft: SkillDraft | None, body: PublishSkillRequest) -> SkillDraft:
     if session_draft is None and not body.name:
-        raise ValueError("尚无 Skill 草稿，请继续对话或手动填写名称与内容")
+        raise ValueError("尚无 Skill 草稿，请继续对话完善后再保存")
     base = session_draft or SkillDraft(name="", description="", content="", tags=[])
     return SkillDraft(
         name=(body.name or base.name).strip(),
@@ -88,13 +92,24 @@ async def publish_session(session_id: str, body: PublishSkillRequest) -> SkillMe
     if not draft.content:
         raise ValueError("Skill 正文不能为空")
 
-    write_skill(draft.name, draft.description, draft.content)
+    user_id = session.user_id
+    if user_id:
+        write_user_skill(user_id, draft.name, draft.description, draft.content)
+    else:
+        write_skill(draft.name, draft.description, draft.content)
+
     meta = SkillMeta(
         name=draft.name,
         description=draft.description,
+        user_id=user_id,
         tags=draft.tags,
-        hidden=body.hidden,
+        hidden=body.hidden if not user_id else False,
     )
     saved = await mongo_client.save_skill_meta(meta)
-    logger.info("skill-creator 已发布 skill: %s (session=%s)", draft.name, session_id)
+    logger.info(
+        "skill-creator 已发布 skill: %s user_id=%s session=%s",
+        draft.name,
+        user_id,
+        session_id,
+    )
     return saved

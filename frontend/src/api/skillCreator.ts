@@ -13,6 +13,7 @@ export interface SkillCreatorMessage {
 
 export interface SkillCreatorSession {
   id: string;
+  user_id?: string | null;
   messages: SkillCreatorMessage[];
   draft: SkillDraft | null;
 }
@@ -29,11 +30,16 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return resp.json();
 }
 
+function withUserQuery(userId?: string) {
+  return userId?.trim() ? `?user_id=${encodeURIComponent(userId.trim())}` : "";
+}
+
 export const skillCreatorApi = {
-  createSession: () =>
-    request<{ session_id: string; message: SkillCreatorMessage }>("/config/skills/creator/sessions", {
-      method: "POST",
-    }),
+  createSession: (userId?: string) =>
+    request<{ session_id: string; message: SkillCreatorMessage }>(
+      `/config/skills/creator/sessions${withUserQuery(userId)}`,
+      { method: "POST" },
+    ),
 
   getSession: (sessionId: string) =>
     request<SkillCreatorSession>(`/config/skills/creator/sessions/${encodeURIComponent(sessionId)}`),
@@ -44,11 +50,8 @@ export const skillCreatorApi = {
       { method: "POST", body: JSON.stringify({ content }) },
     ),
 
-  publish: (
-    sessionId: string,
-    payload: Partial<SkillDraft> & { hidden?: boolean },
-  ) =>
-    request<{ name: string; description: string; tags?: string[]; hidden?: boolean }>(
+  publish: (sessionId: string, payload: Partial<SkillDraft> & { hidden?: boolean } = {}) =>
+    request<{ name: string; description: string; tags?: string[]; hidden?: boolean; user_id?: string | null }>(
       `/config/skills/creator/sessions/${encodeURIComponent(sessionId)}/publish`,
       { method: "POST", body: JSON.stringify(payload) },
     ),

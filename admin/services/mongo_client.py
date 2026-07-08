@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
@@ -12,6 +13,7 @@ _client: AsyncIOMotorClient | None = None
 
 _CONFIG_COLLECTION = "configs"
 _MCP_DOC_ID = "mcp"
+_SKILL_COLLECTION = "skills"
 
 
 def get_db() -> AsyncIOMotorDatabase:
@@ -20,9 +22,22 @@ def get_db() -> AsyncIOMotorDatabase:
     return _client[settings.mongo_db]
 
 
+def _system_user_filter() -> dict[str, Any]:
+    return {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}]}
+
+
+def _meta_key(name: str, user_id: str | None = None) -> dict[str, Any]:
+    return {"name": name, "user_id": user_id}
+
+
 async def connect() -> None:
     global _client
     _client = AsyncIOMotorClient(settings.mongo_uri)
+    await _client[settings.mongo_db][_SKILL_COLLECTION].create_index(
+        [("user_id", 1), ("name", 1)],
+        unique=True,
+        name="skill_user_name_unique",
+    )
     logger.info("admin MongoDB 已连接: %s", settings.mongo_uri)
 
 
@@ -50,14 +65,10 @@ async def save_mcp_config(cfg: McpConfig) -> None:
     logger.info("MCP 配置已保存，共 %d 个 server", len(cfg.servers))
 
 
-# ── Skill 管理 ────────────────────────────────────────────────────────────────
-
-_SKILL_COLLECTION = "skills"
-
+# ── Skill 管理（系统 Skill，user_id 为空）────────────────────────────────────
 
 async def list_skill_metas() -> list[SkillMeta]:
-    """列出所有 skill 元数据（不含正文，内容在文件系统）"""
-    cursor = get_db()[_SKILL_COLLECTION].find({})
+    cursor = get_db()[_SKILL_COLLECTION].find(_system_user_filter())
     docs = []
     async for raw in cursor:
         raw.pop("_id", None)
@@ -66,20 +77,19 @@ async def list_skill_metas() -> list[SkillMeta]:
 
 
 async def save_skill_meta(meta: SkillMeta) -> SkillMeta:
-    """保存/更新 skill 元数据到 MongoDB"""
     meta.updated_at = datetime.utcnow()
     await get_db()[_SKILL_COLLECTION].update_one(
-        {"name": meta.name},
+        _meta_key(meta.name, meta.user_id),
         {"$set": meta.model_dump(), "$setOnInsert": {"created_at": meta.created_at}},
         upsert=True,
     )
-    logger.info("skill 元数据已保存: %s", meta.name)
+    logger.info("skill 元数据已保存 name=%s user_id=%s", meta.name, meta.user_id)
     return meta
 
 
 async def delete_skill_meta(name: str) -> bool:
-    result = await get_db()[_SKILL_COLLECTION].delete_one({"name": name})
+    result = await get_db()[_SKILL_COLLECTION].delete_one(_meta_key(name, None))
     if result.deleted_count:
-        logger.info("skill 元数据已删除: %s", name)
+        logger.info("skill 元数据已删除 name=%s (system)", name)
         return True
     return False

@@ -177,12 +177,19 @@ async function cleanupPiConfigDir(sessionId: string): Promise<void> {
   await rm(`/tmp/pi-config/${sessionId}`, { recursive: true, force: true });
 }
 
+function parseSkillRef(id: string): { scope: "global" | "user" | "both"; name: string } {
+  if (id.startsWith("global:")) return { scope: "global", name: id.slice("global:".length) };
+  if (id.startsWith("user:")) return { scope: "user", name: id.slice("user:".length) };
+  return { scope: "both", name: id };
+}
+
 function buildSkillArgs(skillIds: string[], globalSkillsRoot: string, userSkillsRoot: string): string[] {
   if (skillIds.length === 0) return [];
   const args: string[] = ["--no-skills"];
   for (const id of skillIds) {
-    args.push("--skill", join(globalSkillsRoot, id));
-    args.push("--skill", join(userSkillsRoot, id));
+    const { scope, name } = parseSkillRef(id);
+    if (scope === "global" || scope === "both") args.push("--skill", join(globalSkillsRoot, name));
+    if (scope === "user" || scope === "both") args.push("--skill", join(userSkillsRoot, name));
   }
   return args;
 }

@@ -104,12 +104,28 @@ gateway/routes/stream.py
 
 ---
 
+## Skill API
+
+元数据统一存 MongoDB `skills` 集合（`user_id` 为空=系统，有值=用户）；正文按需读 NFS。
+
+| 接口 | 说明 |
+|------|------|
+| `GET /skills?user_id=` | 列表（MongoDB） |
+| `GET /skills/{name}/content?user_id=` | 读正文（NFS，按需） |
+
+用户/系统 Skill 的创建均通过 admin `POST /config/skills/creator/...`（传 `user_id` 创建用户 Skill），发布时 Mongo + NFS 同步。
+
+系统 Skill CRUD（除创建外）由 admin `/config/skills` 管理。
+
+---
+
 ## 依赖关系
 
 | 依赖 | 用途 | 连接方式 |
 |------|------|---------|
-| MongoDB | 存储 session 文档 | motor（async）|
+| MongoDB | session 文档、Skill 元数据 | motor（async）|
 | Redis | 发布任务 / 读取输出流 | redis[asyncio] |
+| 共享文件系统 | Skill 正文读写 | 挂载 `SANDBOX_ROOT` |
 
 **不依赖**：admin、pi-runtime（单向依赖，gateway 不调用这两个服务）
 
@@ -124,4 +140,5 @@ gateway/routes/stream.py
 | `REDIS_URL` | Redis 连接串 | `redis://redis:6379` |
 | `GATEWAY_HOST` | 监听地址 | `0.0.0.0` |
 | `GATEWAY_PORT` | 监听端口 | `8000` |
+| `SANDBOX_ROOT` | 共享文件系统（Skill 正文） | `/data/sandboxes` |
 | `SSE_BLOCK_MS` | SSE 拉取阻塞超时（心跳间隔）| `5000` |

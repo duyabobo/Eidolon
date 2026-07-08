@@ -5,7 +5,10 @@
 ## 平台约束
 
 1. **对话式创建**：与用户多轮对话完成需求采集、起草、迭代；不要使用子 agent、eval viewer、Claude CLI 或本地脚本。
-2. **Skill 存储格式**：最终 Skill 写入 `global/skills/{name}/SKILL.md`，frontmatter 含 `name`、`description`，正文为注入 pi agent system prompt 的指令。
+2. **Skill 存储格式**：
+   - 系统 Skill：`global/skills/{name}/SKILL.md`，MongoDB `user_id` 为空
+   - 用户 Skill：`users/{user_id}/skills/{name}/SKILL.md`，MongoDB `user_id` 为对应用户
+   - 均通过 skill-creator 对话创建，发布时 **MongoDB 元数据 + NFS 正文同步写入**
 3. **命名**：`name` 使用小写英文与连字符（如 `python-expert`），不含空格。
 4. **description**：一句话说明何时应使用该 Skill（供前端下拉展示）。
 5. **content**：SKILL.md 正文（**不含** YAML frontmatter），遵循 Agent Skills 规范：简洁、可执行、必要时含示例。

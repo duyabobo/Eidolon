@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 
 from models.skill_creator import SkillCreatorMessage, SkillCreatorSession, SkillDraft
-from services import mongo_client
+from services.mongo_client import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -14,15 +14,15 @@ def _now() -> datetime:
     return datetime.utcnow()
 
 
-async def create_session() -> SkillCreatorSession:
-    session = SkillCreatorSession(id=str(uuid.uuid4()))
-    await mongo_client.db[_COLLECTION].insert_one(session.model_dump())
-    logger.info("skill-creator 会话已创建: %s", session.id)
+async def create_session(user_id: str | None = None) -> SkillCreatorSession:
+    session = SkillCreatorSession(id=str(uuid.uuid4()), user_id=user_id)
+    await get_db()[_COLLECTION].insert_one(session.model_dump())
+    logger.info("skill-creator 会话已创建: %s user_id=%s", session.id, user_id)
     return session
 
 
 async def get_session(session_id: str) -> SkillCreatorSession | None:
-    doc = await mongo_client.db[_COLLECTION].find_one({"id": session_id})
+    doc = await get_db()[_COLLECTION].find_one({"id": session_id})
     if not doc:
         return None
     doc.pop("_id", None)
@@ -42,7 +42,7 @@ async def append_messages(
     if draft is not None:
         update["$set"]["draft"] = draft.model_dump()
 
-    result = await mongo_client.db[_COLLECTION].update_one({"id": session_id}, update)
+    result = await get_db()[_COLLECTION].update_one({"id": session_id}, update)
     if result.matched_count == 0:
         return None
     return await get_session(session_id)
@@ -59,4 +59,4 @@ async def set_initial_message(
     }
     if draft is not None:
         update["$set"]["draft"] = draft.model_dump()
-    await mongo_client.db[_COLLECTION].update_one({"id": session_id}, update)
+    await get_db()[_COLLECTION].update_one({"id": session_id}, update)
