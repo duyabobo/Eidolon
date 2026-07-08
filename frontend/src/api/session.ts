@@ -91,11 +91,25 @@ export async function closeSession(sessionId: string): Promise<void> {
   await fetch(`/sessions/${sessionId}`, { method: "DELETE" });
 }
 
+/** 中断指定轮次的生成任务（已产出内容会立即入库） */
+export async function cancelTurn(sessionId: string, turnId: string): Promise<void> {
+  const resp = await fetch(`/sessions/${sessionId}/turns/${turnId}/cancel`, { method: "POST" });
+  await throwIfNotOk(resp);
+}
+
 /** 获取用户最近的 session 列表（每条 = 一个 chat 窗口） */
 export async function getRecentSessions(userId: string, limit = 20): Promise<SessionSummary[]> {
   const resp = await fetch(`/sessions?user_id=${encodeURIComponent(userId)}&limit=${limit}`);
   if (!resp.ok) return [];
   return resp.json();
+}
+
+/** 获取 session 当前进行中的 turn_id（无则 null） */
+export async function getActiveTurn(sessionId: string): Promise<string | null> {
+  const resp = await fetch(`/sessions/${sessionId}/active_turn`);
+  if (!resp.ok) return null;
+  const body = (await resp.json()) as { turn_id: string | null };
+  return body.turn_id;
 }
 
 /** 获取 session 详情（含 events_snapshot，用于重建消息） */
@@ -117,8 +131,10 @@ export function streamTurn(
   onEvent: (event: StreamEvent) => void,
   onDone: () => void,
   onError: (msg: string) => void,
+  lastSeq = "0",
 ): () => void {
-  const es = new EventSource(`/sessions/${sessionId}/turns/${turnId}/stream`);
+  const qs = lastSeq !== "0" ? `?last_seq=${encodeURIComponent(lastSeq)}` : "";
+  const es = new EventSource(`/sessions/${sessionId}/turns/${turnId}/stream${qs}`);
   let closed = false;
 
   const close = () => {
@@ -133,6 +149,7 @@ export function streamTurn(
     tool_call:   (e) => onEvent({ event: "tool_call",   data: e.data }),
     tool_result: (e) => onEvent({ event: "tool_result", data: e.data }),
     done:        ()  => { onDone(); close(); },
+    cancelled:   ()  => { onDone(); close(); },
     error:       (e) => { onError(e.data || "执行出错"); close(); },
     heartbeat:   ()  => {},
   };

@@ -44,7 +44,7 @@ async def stream_turn(
             event_type = item.get("event_type", "token")
             yield {"event": event_type, "id": item.get("id"), "data": item.get("content", "")}
 
-            if event_type == "done":
+            if event_type in ("done", "cancelled"):
                 return
 
     return EventSourceResponse(event_generator())
@@ -98,7 +98,7 @@ async def pull_session_stream_resp(
             event_type = item.get("event_type", "token")
             event_count += 1
 
-            if event_type in ("done", "error"):
+            if event_type in ("done", "error", "cancelled"):
                 logger.info("session %s: 收到终止事件 event_type=%s，累计推送 %d 条",
                             session_id, event_type, event_count)
             elif event_count == 1:

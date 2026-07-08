@@ -55,8 +55,11 @@ interface RunningSession {
   piHandle: PiSessionHandle;
   messageSubscriber: Redis;     // 订阅 sessions:{sessionId}:message
   closeSubscriber: Redis;       // 订阅 sessions:{sessionId}:close
+  cancelSubscriber: Redis;      // 订阅 sessions:{sessionId}:cancel
   inactivityTimer: NodeJS.Timeout;
   startedAt: number;
+  activeTurnId?: string;
+  activeTurnStream?: SessionOutputStream;
 }
 
 // session 闲置超时（30 分钟无新消息自动关闭）
@@ -112,6 +115,7 @@ async function closeSession(sessionId: string, reason: string): Promise<void> {
   unregisterSessionMcpBridge(sessionId);
   await running.messageSubscriber.quit().catch(() => {});
   await running.closeSubscriber.quit().catch(() => {});
+  await running.cancelSubscriber.quit().catch(() => {});
   await destroySandbox(running.userId, sessionId).catch((err) =>
     console.error(`[worker] 释放沙盒失败: session=${sessionId}`, err)
   );
@@ -153,8 +157,10 @@ async function startAndRegisterSession(
 
   const messageSubscriber = new Redis(config.redis.url);
   const closeSubscriber = new Redis(config.redis.url);
+  const cancelSubscriber = new Redis(config.redis.url);
   const messageChannel = `sessions:${sessionId}:message`;
   const closeChannel = `sessions:${sessionId}:close`;
+  const cancelChannel = `sessions:${sessionId}:cancel`;
 
   const running: RunningSession = {
     sessionId,
@@ -162,6 +168,7 @@ async function startAndRegisterSession(
     piHandle,
     messageSubscriber,
     closeSubscriber,
+    cancelSubscriber,
     inactivityTimer: setTimeout(() => {}, 0), // 占位，立即被 resetInactivityTimer 覆盖
     startedAt: Date.now(),
   };
@@ -183,9 +190,19 @@ async function startAndRegisterSession(
     );
   });
 
+  cancelSubscriber.on("message", (_channel, msg) => {
+    let payload: { turn_id: string };
+    try { payload = JSON.parse(msg) as { turn_id: string }; }
+    catch { console.error(`[worker] 无法解析 cancel 消息: ${msg}`); return; }
+    handleCancelTurn(sessionId, payload.turn_id).catch((err) =>
+      console.error(`[worker] 处理中断失败: session=${sessionId} turn=${payload.turn_id}`, err)
+    );
+  });
+
   await messageSubscriber.subscribe(messageChannel);
   await closeSubscriber.subscribe(closeChannel);
-  console.log(`[worker] session=${sessionId}: 已订阅消息频道 [${messageChannel}] 和关闭频道 [${closeChannel}]`);
+  await cancelSubscriber.subscribe(cancelChannel);
+  console.log(`[worker] session=${sessionId}: 已订阅消息频道 [${messageChannel}]、关闭频道 [${closeChannel}]、中断频道 [${cancelChannel}]`);
 
   return running;
 }
@@ -254,9 +271,11 @@ async function handleNewMessage(payload: NewMessagePayload): Promise<void> {
 async function sendTurnToSession(running: RunningSession, turnId: string, request: string): Promise<void> {
   const { sessionId, userId } = running;
   setSessionQuestionId(sessionId, turnId);
-  // 每个轮次有独立的 Redis Stream key，供前端 SSE 消费
   const turnStream = new SessionOutputStream(getRedis(), sessionId, turnId);
   const startAt = Date.now();
+
+  running.activeTurnId = turnId;
+  running.activeTurnStream = turnStream;
 
   console.log(`[worker] session=${sessionId} turn=${turnId}: 开始执行，request='${request.slice(0, 80).replace(/\n/g, " ")}'`);
 
@@ -270,8 +289,28 @@ async function sendTurnToSession(running: RunningSession, turnId: string, reques
     console.error(`[worker] session=${sessionId} turn=${turnId}: 执行失败:`, message);
     await turnStream.pushError(message).catch(() => {});
     await turnStream.pushDone().catch(() => {});
-    // 轮次失败不关闭整个 session，继续等待下一条消息
+  } finally {
+    if (running.activeTurnId === turnId) {
+      running.activeTurnId = undefined;
+      running.activeTurnStream = undefined;
+    }
   }
+}
+
+async function handleCancelTurn(sessionId: string, turnId: string): Promise<void> {
+  const running = runningSessions.get(sessionId);
+  if (!running) {
+    console.warn(`[worker] session=${sessionId} turn=${turnId}: 中断请求忽略（session 不在运行）`);
+    return;
+  }
+  if (running.activeTurnId !== turnId) {
+    console.warn(`[worker] session=${sessionId} turn=${turnId}: 中断请求忽略（当前活跃 turn=${running.activeTurnId ?? "无"}）`);
+    return;
+  }
+
+  console.log(`[worker] session=${sessionId} turn=${turnId}: 用户中断，取消 pi 任务`);
+  await running.piHandle.cancelTurn();
+  await running.activeTurnStream?.expire(3600).catch(() => {});
 }
 
 // ── 全局频道消息处理 ──────────────────────────────────────────────────────────

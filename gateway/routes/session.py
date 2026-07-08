@@ -74,6 +74,28 @@ async def send_message(session_id: str, body: SendMessageRequest) -> SendMessage
     return SendMessageResponse(turn_id=body.turn_id, session_id=session_id)
 
 
+@router.post("/{session_id}/turns/{turn_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_turn(session_id: str, turn_id: str) -> None:
+    """中断指定轮次的生成任务，已产出内容立即入库。"""
+    session = await mongo_client.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session 不存在")
+
+    await redis_client.publish_cancel(session_id, turn_id)
+    await redis_client.clear_active_turn(session_id)
+    logger.info("中断请求: session_id=%s turn_id=%s", session_id, turn_id)
+
+
+@router.get("/{session_id}/active_turn")
+async def get_session_active_turn(session_id: str) -> dict[str, str | None]:
+    """查询 session 当前进行中的 turn_id（无则返回 null）。"""
+    session = await mongo_client.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session 不存在")
+    turn_id = await redis_client.get_active_turn(session_id)
+    return {"turn_id": turn_id}
+
+
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def close_session(session_id: str) -> None:
     """关闭 session（用户关闭 chat 窗口），通知 pi-runtime 销毁 pi 进程和沙盒。"""

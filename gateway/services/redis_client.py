@@ -103,6 +103,7 @@ async def publish_task(
         logger.info("全局路由（新用户或实例未知）: session=%s user=%s", session_id, user_id)
 
     await client.publish(channel, payload)
+    await set_active_turn(session_id, turn_id)
 
 
 async def publish_message(
@@ -123,6 +124,28 @@ async def publish_message(
     channel = f"sessions:{session_id}:message"
     await get_redis().publish(channel, payload)
     logger.info("消息已发布: session=%s turn=%s channel=%s", session_id, turn_id, channel)
+    await set_active_turn(session_id, turn_id)
+
+
+async def set_active_turn(session_id: str, turn_id: str) -> None:
+    """记录 session 当前进行中的 turn，供切换会话后重连 SSE。"""
+    await get_redis().setex(f"session:{session_id}:active_turn", 3600, turn_id)
+
+
+async def get_active_turn(session_id: str) -> str | None:
+    return await get_redis().get(f"session:{session_id}:active_turn")
+
+
+async def clear_active_turn(session_id: str) -> None:
+    await get_redis().delete(f"session:{session_id}:active_turn")
+
+
+async def publish_cancel(session_id: str, turn_id: str) -> None:
+    """通知 pi-runtime 中断指定轮次的生成任务。"""
+    channel = f"sessions:{session_id}:cancel"
+    payload = json.dumps({"turn_id": turn_id})
+    await get_redis().publish(channel, payload)
+    logger.info("中断信号已发布: session=%s turn=%s channel=%s", session_id, turn_id, channel)
 
 
 async def bind_user_to_instance(user_id: str, instance_id: str) -> None:
@@ -190,7 +213,7 @@ async def stream_session_output(
                 last_id = msg_id
                 event_type = fields.get("event_type", "unknown")
 
-                if event_type in ("done", "error"):
+                if event_type in ("done", "error", "cancelled"):
                     logger.info("session %s: Redis Stream 终止事件 event_type=%s msg_id=%s",
                                 session_id, event_type, msg_id)
 

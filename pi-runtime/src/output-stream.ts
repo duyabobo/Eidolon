@@ -15,7 +15,7 @@ function buildStreamKey(sessionId: string, turnId?: string): string {
   return STREAM_KEY_TPL.replace("{sessionId}", sessionId);
 }
 
-export type EventType = "token" | "thinking" | "tool_call" | "tool_result" | "done" | "error";
+export type EventType = "token" | "thinking" | "tool_call" | "tool_result" | "done" | "error" | "cancelled";
 
 export interface OutputEvent {
   event_type: EventType;
@@ -58,14 +58,25 @@ export class SessionOutputStream {
   async pushDone(): Promise<void> {
     await this.push({ event_type: "done", content: "" });
     console.log(`[stream] session ${this.sessionId}: done 事件已推送，累计 ${this.pushCount} 条`);
-    // 一次性将所有事件批量写入 MongoDB snapshot（不在 for 循环里逐条写 DB）
     await this._flushSnapshot();
+    await this.redis.del(`session:${this.sessionId}:active_turn`).catch(() => {});
   }
 
   async pushError(message: string): Promise<void> {
     await this.push({ event_type: "error", content: message });
     console.error(`[stream] session ${this.sessionId}: error 事件已推送: ${message}`);
     await this._flushSnapshot();
+    await this.redis.del(`session:${this.sessionId}:active_turn`).catch(() => {});
+  }
+
+  /** 用户中断：立即将已生成内容写入 MongoDB，并通知前端结束 */
+  async pushCancelled(): Promise<void> {
+    await this._flushSnapshot();
+    await this.redis.xadd(this.streamKey, "*", "event_type", "cancelled", "content", "");
+    await this.redis.xadd(this.streamKey, "*", "event_type", "done", "content", "");
+    this.pushCount += 2;
+    console.log(`[stream] session ${this.sessionId}: 用户中断，partial snapshot 已入库`);
+    await this.redis.del(`session:${this.sessionId}:active_turn`).catch(() => {});
   }
 
   /**

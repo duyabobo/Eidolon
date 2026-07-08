@@ -14,6 +14,10 @@ interface PiPromptCommand {
   message: string;
 }
 
+interface PiAbortCommand {
+  type: "abort" | "abort_bash";
+}
+
 interface PiCommandResponse {
   type: "response";
   command: string;
@@ -70,6 +74,8 @@ export interface PiSessionHandle {
   close(): Promise<void>;
   /** pi 子进程是否仍在运行 */
   isAlive(): boolean;
+  /** 中断当前轮次（发送 pi RPC abort，超时后强制结束并保存 partial snapshot） */
+  cancelTurn(): Promise<void>;
 }
 
 // ── 内部：当前轮次状态 ────────────────────────────────────────────────────────
@@ -226,7 +232,8 @@ function buildSessionArgs(userPiSessionsDir: string, sessionId: string): string[
   return ["--session-dir", userPiSessionsDir, "--session-id", sessionId];
 }
 
-// ── 启动 pi 进程，返回多轮会话句柄 ───────────────────────────────────────────
+// 等待 pi abort 响应的最长时间，超时后强制结束轮次
+const CANCEL_ABORT_WAIT_MS = 3000;
 
 /**
  * 启动 pi 进程，等待扩展加载完成，返回 PiSessionHandle。
@@ -394,6 +401,28 @@ export async function startPiSession(
 
     isAlive(): boolean {
       return piProcess.exitCode === null && piProcess.signalCode === null;
+    },
+
+    async cancelTurn(): Promise<void> {
+      if (!activeTurn) {
+        console.warn(`[pi-session] session=${sessionId}: 无活跃轮次，跳过中断`);
+        return;
+      }
+      const turn = activeTurn;
+      console.log(`[pi-session] session=${sessionId} turn=${turn.turnId}: 发送 abort`);
+
+      const abortPayload: PiAbortCommand = { type: "abort" };
+      const abortBashPayload: PiAbortCommand = { type: "abort_bash" };
+      piProcess.stdin!.write(JSON.stringify(abortPayload) + "\n");
+      piProcess.stdin!.write(JSON.stringify(abortBashPayload) + "\n");
+
+      await new Promise<void>((res) => setTimeout(res, CANCEL_ABORT_WAIT_MS));
+      if (activeTurn !== turn) return;
+
+      console.warn(`[pi-session] session=${sessionId} turn=${turn.turnId}: abort 超时，强制结束`);
+      await turn.outputStream.pushCancelled();
+      turn.resolve();
+      activeTurn = null;
     },
   };
 }
