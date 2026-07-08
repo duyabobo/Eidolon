@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect } from "react";
-import { formatDuration, messageDuration, toolStepDuration, isStepLive, } from "./stepTiming";
+import { formatStepSeconds, messageDuration, toolStepDuration, isStepLive, stepGroupDuration, } from "./stepTiming";
 export function groupSteps(steps) {
     const groups = [];
     let i = 0;
@@ -101,9 +101,10 @@ function useLiveClock(active) {
     return now;
 }
 function DurationBadge({ ms, live }) {
-    if (ms === null)
+    const label = formatStepSeconds(ms);
+    if (!label)
         return null;
-    return (_jsxs("span", { className: `inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums shrink-0 ${live ? "bg-brand-50 text-brand-600 ring-1 ring-brand-200/60" : "bg-ink-100/90 text-ink-500"}`, children: [_jsx("svg", { className: "w-2.5 h-2.5 opacity-70", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: _jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" }) }), formatDuration(ms)] }));
+    return (_jsxs("span", { className: `inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums shrink-0 ${live ? "bg-brand-50 text-brand-600 ring-1 ring-brand-200/60" : "bg-ink-100/90 text-ink-500"}`, children: [_jsx("svg", { className: "w-2.5 h-2.5 opacity-70", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: _jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" }) }), label] }));
 }
 function CollapseBody({ title, children, defaultOpen = false }) {
     const [open, setOpen] = useState(defaultOpen);
@@ -153,17 +154,18 @@ function TextStep({ msg, index, now }) {
     const live = isStepLive(msg);
     return (_jsxs("div", { className: "step-timeline-item", children: [_jsx("div", { className: "step-timeline-node", children: index }), _jsx("div", { className: "step-timeline-line" }), _jsxs("div", { className: "flex gap-3 flex-1 min-w-0 pb-4 step-timeline-body", children: [_jsx(StepIcon, { kind: "text" }), _jsxs("div", { className: "flex-1 rounded-xl border border-ink-200/70 bg-ink-50/50 overflow-hidden", children: [_jsxs("div", { className: "px-3 py-1.5 border-b border-ink-100 flex items-center justify-between gap-2", children: [_jsx("span", { className: "text-[10px] font-semibold uppercase tracking-wider text-ink-400", children: "\u4E2D\u95F4\u8F93\u51FA" }), _jsx(DurationBadge, { ms: durationMs, live: live })] }), _jsxs("div", { className: "px-3 py-2.5 text-xs text-ink-700 leading-relaxed whitespace-pre-wrap break-words", children: [msg.content ?? "", msg.isStreaming && _jsx("span", { className: "inline-block w-0.5 h-3 bg-brand-400 animate-pulse ml-0.5 align-middle" })] })] })] })] }));
 }
-function CollapsedBadges({ groups }) {
+function CollapsedBadges({ groups, now }) {
     return (_jsx("div", { className: "flex flex-wrap gap-1.5 min-w-0", children: groups.map((g, i) => {
+            const duration = formatStepSeconds(stepGroupDuration(g, now));
             if (g.kind === "thinking") {
-                return (_jsx("span", { className: "inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100/80 text-amber-800 text-[10px] font-medium", children: "\u601D\u8003" }, i));
+                return (_jsxs("span", { className: "inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100/80 text-amber-800 text-[10px] font-medium", children: ["\u601D\u8003", duration && _jsx("span", { className: "font-mono opacity-80", children: duration })] }, i));
             }
             if (g.kind === "tool") {
                 const { name } = parseToolCall(g.call.content ?? "");
                 const err = g.result ? parseToolResult(g.result.content ?? "").isError : false;
-                return (_jsxs("span", { className: `inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium ${err ? "bg-rose-100/80 text-rose-700" : "bg-brand-100/80 text-brand-800"}`, children: [name, g.result && (err ? " ✗" : " ✓")] }, i));
+                return (_jsxs("span", { className: `inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium ${err ? "bg-rose-100/80 text-rose-700" : "bg-brand-100/80 text-brand-800"}`, children: [name, g.result && (err ? " ✗" : " ✓"), duration && _jsx("span", { className: "font-mono opacity-80", children: duration })] }, i));
             }
-            return (_jsx("span", { className: "inline-flex px-2 py-0.5 rounded-md bg-ink-100 text-ink-600 text-[10px] font-medium", children: "\u8F93\u51FA" }, i));
+            return (_jsxs("span", { className: "inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-ink-100 text-ink-600 text-[10px] font-medium", children: ["\u8F93\u51FA", duration && _jsx("span", { className: "font-mono opacity-80", children: duration })] }, i));
         }) }));
 }
 export default function ExecutionSteps({ steps }) {
@@ -192,7 +194,7 @@ export default function ExecutionSteps({ steps }) {
             return isActive ? now - start : null;
         return Math.max(...ends) - start;
     })();
-    return (_jsx("div", { className: "max-w-[92%] mb-3", children: _jsxs("div", { className: "rounded-2xl border border-ink-200/70 bg-gradient-to-b from-white/95 to-ink-50/40 shadow-soft overflow-hidden", children: [_jsxs("button", { type: "button", onClick: () => setOpen((v) => !v), className: "w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-ink-50/50 transition-colors text-left", children: [_jsx("svg", { className: `w-4 h-4 shrink-0 text-ink-400 transition-transform ${open ? "rotate-90" : ""}`, fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: _jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M9 5l7 7-7 7" }) }), _jsxs("div", { className: "flex-1 min-w-0", children: [_jsxs("div", { className: "flex items-center gap-2 flex-wrap", children: [_jsx("span", { className: "text-xs font-semibold text-ink-700", children: isActive ? "正在执行" : "执行过程" }), _jsxs("span", { className: "text-[10px] text-ink-400", children: [groups.length, " \u6B65", thinkCount > 0 && ` · ${thinkCount} 次思考`, toolCount > 0 && ` · ${toolCount} 次工具`, totalMs != null && ` · 共 ${formatDuration(totalMs)}`] }), isActive && _jsx("span", { className: "w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" })] }), !open && _jsx("div", { className: "mt-1.5", children: _jsx(CollapsedBadges, { groups: groups }) })] })] }), open && (_jsx("div", { className: "px-4 pb-3 pt-1 border-t border-ink-100/80 step-timeline", children: groups.map((g, idx) => {
+    return (_jsx("div", { className: "max-w-[92%] mb-3", children: _jsxs("div", { className: "rounded-2xl border border-ink-200/70 bg-gradient-to-b from-white/95 to-ink-50/40 shadow-soft overflow-hidden", children: [_jsxs("button", { type: "button", onClick: () => setOpen((v) => !v), className: "w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-ink-50/50 transition-colors text-left", children: [_jsx("svg", { className: `w-4 h-4 shrink-0 text-ink-400 transition-transform ${open ? "rotate-90" : ""}`, fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: _jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M9 5l7 7-7 7" }) }), _jsxs("div", { className: "flex-1 min-w-0", children: [_jsxs("div", { className: "flex items-center gap-2 flex-wrap", children: [_jsx("span", { className: "text-xs font-semibold text-ink-700", children: isActive ? "正在执行" : "执行过程" }), _jsxs("span", { className: "text-[10px] text-ink-400", children: [groups.length, " \u6B65", thinkCount > 0 && ` · ${thinkCount} 次思考`, toolCount > 0 && ` · ${toolCount} 次工具`, totalMs != null && formatStepSeconds(totalMs) && ` · 共 ${formatStepSeconds(totalMs)}`] }), isActive && _jsx("span", { className: "w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" })] }), !open && _jsx("div", { className: "mt-1.5", children: _jsx(CollapsedBadges, { groups: groups, now: now }) })] })] }), open && (_jsx("div", { className: "px-4 pb-3 pt-1 border-t border-ink-100/80 step-timeline", children: groups.map((g, idx) => {
                         const n = idx + 1;
                         if (g.kind === "thinking")
                             return _jsx(ThinkingStep, { msg: g.msg, index: n, now: now }, idx);

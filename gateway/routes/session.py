@@ -1,4 +1,5 @@
 import logging
+import time
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -57,7 +58,7 @@ async def send_message(session_id: str, body: SendMessageRequest) -> SendMessage
     # 用户消息持久化到 events_snapshot，与第一条消息保持一致
     # 必须在 publish 之前写入，确保 AI 响应事件追加时用户消息已在前
     await mongo_client.append_event_snapshot(
-        session_id, {"event_type": "user_message", "content": body.request}
+        session_id, {"event_type": "user_message", "content": body.request, "ts": int(time.time() * 1000)}
     )
 
     if session.status in (SessionStatus.IDLE, SessionStatus.COMPLETED, SessionStatus.FAILED):

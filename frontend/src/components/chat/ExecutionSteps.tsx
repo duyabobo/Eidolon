@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Message } from "../../context/ChatSessionContext";
 import {
-  formatDuration, messageDuration, toolStepDuration, isStepLive,
+  formatStepSeconds, messageDuration, toolStepDuration, isStepLive, stepGroupDuration,
 } from "./stepTiming";
 
 export type StepGroup =
@@ -104,7 +104,8 @@ function useLiveClock(active: boolean): number {
 }
 
 function DurationBadge({ ms, live }: { ms: number | null; live?: boolean }) {
-  if (ms === null) return null;
+  const label = formatStepSeconds(ms);
+  if (!label) return null;
   return (
     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums shrink-0 ${
       live ? "bg-brand-50 text-brand-600 ring-1 ring-brand-200/60" : "bg-ink-100/90 text-ink-500"
@@ -112,7 +113,7 @@ function DurationBadge({ ms, live }: { ms: number | null; live?: boolean }) {
       <svg className="w-2.5 h-2.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      {formatDuration(ms)}
+      {label}
     </span>
   );
 }
@@ -341,14 +342,15 @@ function TextStep({ msg, index, now }: { msg: Message; index: number; now: numbe
   );
 }
 
-function CollapsedBadges({ groups }: { groups: StepGroup[] }) {
+function CollapsedBadges({ groups, now }: { groups: StepGroup[]; now: number }) {
   return (
     <div className="flex flex-wrap gap-1.5 min-w-0">
       {groups.map((g, i) => {
+        const duration = formatStepSeconds(stepGroupDuration(g, now));
         if (g.kind === "thinking") {
           return (
             <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100/80 text-amber-800 text-[10px] font-medium">
-              思考
+              思考{duration && <span className="font-mono opacity-80">{duration}</span>}
             </span>
           );
         }
@@ -361,12 +363,13 @@ function CollapsedBadges({ groups }: { groups: StepGroup[] }) {
             }`}>
               {name}
               {g.result && (err ? " ✗" : " ✓")}
+              {duration && <span className="font-mono opacity-80">{duration}</span>}
             </span>
           );
         }
         return (
-          <span key={i} className="inline-flex px-2 py-0.5 rounded-md bg-ink-100 text-ink-600 text-[10px] font-medium">
-            输出
+          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-ink-100 text-ink-600 text-[10px] font-medium">
+            输出{duration && <span className="font-mono opacity-80">{duration}</span>}
           </span>
         );
       })}
@@ -424,11 +427,11 @@ export default function ExecutionSteps({ steps }: Props) {
                 {groups.length} 步
                 {thinkCount > 0 && ` · ${thinkCount} 次思考`}
                 {toolCount > 0 && ` · ${toolCount} 次工具`}
-                {totalMs != null && ` · 共 ${formatDuration(totalMs)}`}
+                {totalMs != null && formatStepSeconds(totalMs) && ` · 共 ${formatStepSeconds(totalMs)}`}
               </span>
               {isActive && <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />}
             </div>
-            {!open && <div className="mt-1.5"><CollapsedBadges groups={groups} /></div>}
+            {!open && <div className="mt-1.5"><CollapsedBadges groups={groups} now={now} /></div>}
           </div>
         </button>
 

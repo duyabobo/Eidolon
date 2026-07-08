@@ -34,36 +34,88 @@ function emptyRuntime(messages: Message[] = []): SessionRuntime {
 
 export function buildMessagesFromSnapshot(
   request: string,
-  snapshot: Array<{ event_type: string; content: string }>,
+  snapshot: Array<{ event_type: string; content: string; ts?: number | string }>,
 ): Message[] {
   const hasUserMessages = snapshot.some((e) => e.event_type === "user_message");
-  const msgs: Message[] = hasUserMessages
+  let msgs: Message[] = hasUserMessages
     ? []
     : [{ role: "user", type: "text", content: request }];
 
+  let clock = Date.now();
+
+  const parseTs = (event: { ts?: number | string }): number => {
+    if (event.ts != null) {
+      const n = typeof event.ts === "number" ? event.ts : Number(event.ts);
+      if (Number.isFinite(n)) {
+        clock = Math.max(clock, n);
+        return n;
+      }
+    }
+    // 旧 snapshot 无 ts：按事件顺序递增，避免耗时全为 0
+    clock += 100;
+    return clock;
+  };
+
+  const closeLastAssistantAt = (list: Message[], endTs: number): Message[] => {
+    if (list.length === 0) return list;
+    const last = list[list.length - 1];
+    if (last.role !== "assistant" || last.endedAt != null) return list;
+    return [...list.slice(0, -1), { ...last, endedAt: endTs }];
+  };
+
   for (const event of snapshot) {
+    const ts = parseTs(event);
+    clock = ts;
+    const content = event.content ?? "";
     const last = msgs[msgs.length - 1];
+
     if (event.event_type === "user_message") {
-      msgs.push({ role: "user", type: "text", content: event.content });
-    } else if (event.event_type === "token") {
+      msgs.push({ role: "user", type: "text", content, startedAt: ts, endedAt: ts });
+      continue;
+    }
+
+    if (event.event_type === "token") {
       if (last?.role === "assistant" && last.type === "text") {
-        last.content += event.content;
+        msgs[msgs.length - 1] = { ...last, content: last.content + content, endedAt: ts };
       } else {
-        msgs.push({ role: "assistant", type: "text", content: event.content });
+        msgs = [
+          ...closeLastAssistantAt(msgs, ts),
+          { role: "assistant", type: "text", content, startedAt: ts, endedAt: ts },
+        ];
       }
-    } else if (event.event_type === "thinking") {
+      continue;
+    }
+
+    if (event.event_type === "thinking") {
       if (last?.role === "assistant" && last.type === "thinking") {
-        last.content += event.content;
+        msgs[msgs.length - 1] = { ...last, content: last.content + content, endedAt: ts };
       } else {
-        msgs.push({ role: "assistant", type: "thinking", content: event.content });
+        msgs = [
+          ...closeLastAssistantAt(msgs, ts),
+          { role: "assistant", type: "thinking", content, startedAt: ts, endedAt: ts },
+        ];
       }
-    } else if (event.event_type === "tool_call") {
-      msgs.push({ role: "assistant", type: "tool_call", content: event.content });
-    } else if (event.event_type === "tool_result") {
-      msgs.push({ role: "assistant", type: "tool_result", content: event.content });
+      continue;
+    }
+
+    if (event.event_type === "tool_call") {
+      msgs = [
+        ...closeLastAssistantAt(msgs, ts),
+        { role: "assistant", type: "tool_call", content, startedAt: ts },
+      ];
+      continue;
+    }
+
+    if (event.event_type === "tool_result") {
+      if (last?.role === "assistant" && last.type === "tool_call" && last.endedAt == null) {
+        msgs[msgs.length - 1] = { ...last, endedAt: ts };
+      }
+      msgs.push({ role: "assistant", type: "tool_result", content, startedAt: ts, endedAt: ts });
     }
   }
-  return msgs;
+
+  const sealed = closeLastAssistantAt(msgs, clock);
+  return sealed;
 }
 
 function closeLastAssistantStep(prev: Message[]): Message[] {

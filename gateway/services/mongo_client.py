@@ -50,7 +50,7 @@ async def create_session(
         conversation_id=conversation_id,
         request=request,
         skill_ids=skill_ids or [],
-        events_snapshot=[{"event_type": "user_message", "content": request}],
+        events_snapshot=[{"event_type": "user_message", "content": request, "ts": int(datetime.utcnow().timestamp() * 1000)}],
     )
     db = get_db()
     await db.sessions.insert_one(doc.model_dump(by_alias=True))

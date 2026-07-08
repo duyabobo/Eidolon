@@ -24,7 +24,7 @@ export interface SessionDetail {
   _id: string;
   status: string;
   request: string;
-  events_snapshot: Array<{ event_type: string; content: string }>;
+  events_snapshot: Array<{ event_type: string; content: string; ts?: number | string }>;
   created_at: string;
 }
 

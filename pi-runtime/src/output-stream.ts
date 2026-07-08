@@ -51,7 +51,11 @@ export class SessionOutputStream {
     // 将用户可见的事件（token/tool_call/tool_result）加入 snapshot 缓冲
     // done/error 由 pushDone/pushError 单独处理，避免重复写入
     if (event.event_type !== "done" && event.event_type !== "error") {
-      this.pendingSnapshot.push({ event_type: event.event_type, content: event.content });
+      this.pendingSnapshot.push({
+        event_type: event.event_type,
+        content: event.content,
+        ts: String(Date.now()),
+      });
     }
   }
 
