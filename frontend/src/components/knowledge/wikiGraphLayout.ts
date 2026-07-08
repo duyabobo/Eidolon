@@ -14,8 +14,70 @@ const TYPE_COLORS: Record<string, string> = {
   default: "#94a3b8",
 };
 
+export const GRAPH_COLORS = {
+  nodeInactive: "#94a3b8",
+  nodeInactiveStroke: "#e2e8f0",
+  nodeActive: "#6366f1",
+  nodeActiveRing: "#e0e7ff",
+  nodeActiveStroke: "#4338ca",
+  edgeInactive: "#cbd5e1",
+  edgeActive: "#6366f1",
+  labelInactive: "#64748b",
+  labelActive: "#312e81",
+};
+
 export function nodeColor(type: string): string {
   return TYPE_COLORS[type.toLowerCase()] ?? TYPE_COLORS.default;
+}
+
+export function collectRelatedNodeIds(
+  selectedNodeId: string | null,
+  edges: WikiGraphEdge[],
+): Set<string> {
+  if (!selectedNodeId) return new Set();
+  const related = new Set<string>([selectedNodeId]);
+  for (const edge of edges) {
+    if (edge.source_id === selectedNodeId) related.add(edge.target_id);
+    if (edge.target_id === selectedNodeId) related.add(edge.source_id);
+  }
+  return related;
+}
+
+export function isEdgeConnectedToNode(edge: WikiGraphEdge, nodeId: string): boolean {
+  return edge.source_id === nodeId || edge.target_id === nodeId;
+}
+
+export function edgeLabelPosition(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): { x: number; y: number; rotate: number } {
+  const mx = (x1 + x2) / 2;
+  const my = (y1 + y2) / 2;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const offset = 10;
+  let rotate = (Math.atan2(dy, dx) * 180) / Math.PI;
+  if (rotate > 90 || rotate < -90) rotate += 180;
+  return {
+    x: mx - (dy / len) * offset,
+    y: my + (dx / len) * offset,
+    rotate,
+  };
+}
+
+export function truncateLabel(text: string, max = 18): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1)}…`;
+}
+
+export function truncateEdgeDescription(text: string, max = 40): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max - 1)}…`;
 }
 
 export function layoutGraph(
@@ -90,9 +152,4 @@ export function layoutGraph(
   }
 
   return simNodes;
-}
-
-export function truncateLabel(text: string, max = 18): string {
-  if (text.length <= max) return text;
-  return `${text.slice(0, max - 1)}…`;
 }
