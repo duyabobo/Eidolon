@@ -422,7 +422,6 @@ export default function KnowledgePanel({
       await knowledgeApi.updateBase(kbId, { name, description });
       setEditingId(null);
       load();
-      setMsg({ type: "ok", text: "已保存" });
     } catch (e) {
       setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
     }
