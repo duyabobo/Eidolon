@@ -40,18 +40,45 @@ export function buildMessagesFromSnapshot(request, snapshot) {
     }
     return msgs;
 }
+function closeLastAssistantStep(prev) {
+    if (prev.length === 0)
+        return prev;
+    const last = prev[prev.length - 1];
+    if (last.role !== "assistant" || last.endedAt)
+        return prev;
+    const now = Date.now();
+    return [...prev.slice(0, -1), { ...last, endedAt: now, isStreaming: false }];
+}
 function appendMessageEvent(prev, type, text, streaming = false) {
+    const now = Date.now();
     const last = prev[prev.length - 1];
     if (streaming && last?.role === "assistant" && last.type === type) {
-        return [...prev.slice(0, -1), { ...last, content: last.content + text, isStreaming: true }];
+        return [...prev.slice(0, -1), {
+                ...last,
+                content: last.content + text,
+                isStreaming: true,
+                startedAt: last.startedAt ?? now,
+            }];
     }
+    const closed = closeLastAssistantStep(prev);
     if (type === "text" || type === "thinking") {
-        return [...prev, { role: "assistant", type, content: text, isStreaming: streaming }];
+        return [...closed, { role: "assistant", type, content: text, isStreaming: streaming, startedAt: now }];
     }
-    return [...prev, { role: "assistant", type, content: text }];
+    return [...closed, { role: "assistant", type, content: text, startedAt: now }];
 }
 function markAllStreamingDone(prev) {
-    return prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
+    const now = Date.now();
+    return prev.map((m, i) => {
+        const isLast = i === prev.length - 1;
+        let next = { ...m };
+        if (m.isStreaming) {
+            next = { ...next, isStreaming: false, endedAt: m.endedAt ?? now };
+        }
+        else if (isLast && m.role === "assistant" && !m.endedAt && m.startedAt) {
+            next = { ...next, endedAt: now };
+        }
+        return next;
+    });
 }
 const ChatSessionContext = createContext(null);
 export function useChatSession() {

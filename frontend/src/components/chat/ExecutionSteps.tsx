@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
 import type { Message } from "../../context/ChatSessionContext";
+import {
+  formatDuration, messageDuration, toolStepDuration, isStepLive,
+} from "./stepTiming";
 
 export type StepGroup =
   | { kind: "thinking"; msg: Message }
@@ -82,6 +85,33 @@ function outputPreview(text: string, maxLines = 3): { preview: string; truncated
   return { preview, truncated: true };
 }
 
+function useLiveClock(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) {
+      setNow(Date.now());
+      return;
+    }
+    const id = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(id);
+  }, [active]);
+  return now;
+}
+
+function DurationBadge({ ms, live }: { ms: number | null; live?: boolean }) {
+  if (ms === null) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums shrink-0 ${
+      live ? "bg-brand-50 text-brand-600 ring-1 ring-brand-200/60" : "bg-ink-100/90 text-ink-500"
+    }`}>
+      <svg className="w-2.5 h-2.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      {formatDuration(ms)}
+    </span>
+  );
+}
+
 function CollapseBody({ title, children, defaultOpen = false }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -130,9 +160,11 @@ function StepIcon({ kind, isError }: { kind: "thinking" | "tool" | "text"; isErr
   );
 }
 
-function ThinkingStep({ msg, index }: { msg: Message; index: number }) {
+function ThinkingStep({ msg, index, now }: { msg: Message; index: number; now: number }) {
   const streaming = !!msg.isStreaming;
   const preview = msg.content.length > 160 ? `${msg.content.slice(0, 160)}…` : msg.content;
+  const durationMs = messageDuration(msg, now);
+  const live = isStepLive(msg);
 
   return (
     <div className="step-timeline-item">
@@ -143,12 +175,15 @@ function ThinkingStep({ msg, index }: { msg: Message; index: number }) {
         <div className="flex-1 min-w-0 rounded-xl border border-amber-200/70 bg-gradient-to-br from-amber-50/90 to-orange-50/40 overflow-hidden">
           <div className="px-3 py-2 border-b border-amber-100/80 flex items-center justify-between gap-2">
             <span className="text-xs font-semibold text-amber-800 tracking-wide">思考</span>
-            {streaming && (
-              <span className="text-[10px] text-amber-600 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                进行中
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              <DurationBadge ms={durationMs} live={live} />
+              {streaming && (
+                <span className="text-[10px] text-amber-600 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  进行中
+                </span>
+              )}
+            </div>
           </div>
           <div className="px-3 py-2.5 text-xs text-amber-900/70 italic leading-relaxed whitespace-pre-wrap break-words">
             {streaming ? msg.content : preview}
@@ -166,10 +201,12 @@ function ThinkingStep({ msg, index }: { msg: Message; index: number }) {
   );
 }
 
-function ToolStep({ call, result, index }: { call: Message; result?: Message; index: number }) {
+function ToolStep({ call, result, index, now }: { call: Message; result?: Message; index: number; now: number }) {
   const { name, input, inputText } = parseToolCall(call.content);
   const inputHighlight = toolInputPreview(input, inputText);
   const callStreaming = !!call.isStreaming;
+  const durationMs = toolStepDuration(call, result, now);
+  const live = isStepLive(call, ...(result ? [result] : []));
 
   let resultName = "";
   let outputText = "";
@@ -195,19 +232,22 @@ function ToolStep({ call, result, index }: { call: Message; result?: Message; in
         <div className={`flex-1 min-w-0 rounded-xl border overflow-hidden shadow-soft ${
           isError ? "border-rose-200/80 bg-white" : "border-brand-200/60 bg-white"
         }`}>
-          {/* 调用 */}
-          <div className="px-3 py-2.5 bg-gradient-to-r from-brand-50/80 to-violet-50/40 border-b border-brand-100/60">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-[10px] uppercase tracking-wider text-brand-500 font-semibold">调用</span>
-                <code className="text-sm font-semibold text-brand-800 truncate">{name}</code>
-              </div>
-              {callStreaming && (
-                <span className="text-[10px] text-brand-500 flex items-center gap-1 shrink-0">
+          <div className="px-3 py-2 flex items-center justify-between gap-2 border-b border-ink-100/80 bg-white/60">
+            <code className="text-sm font-semibold text-brand-800 truncate">{name}</code>
+            <div className="flex items-center gap-2 shrink-0">
+              <DurationBadge ms={durationMs} live={live} />
+              {(callStreaming || resultStreaming) && (
+                <span className="text-[10px] text-brand-500 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />
                   执行中
                 </span>
               )}
+            </div>
+          </div>
+          {/* 调用 */}
+          <div className="px-3 py-2.5 bg-gradient-to-r from-brand-50/80 to-violet-50/40 border-b border-brand-100/60">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[10px] uppercase tracking-wider text-brand-500 font-semibold">调用</span>
             </div>
             {inputHighlight && (
               <pre className="mt-2 text-xs font-mono text-ink-700 bg-white/70 border border-brand-100/80 rounded-lg px-2.5 py-2 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
@@ -270,7 +310,10 @@ function ToolStep({ call, result, index }: { call: Message; result?: Message; in
   );
 }
 
-function TextStep({ msg, index }: { msg: Message; index: number }) {
+function TextStep({ msg, index, now }: { msg: Message; index: number; now: number }) {
+  const durationMs = messageDuration(msg, now);
+  const live = isStepLive(msg);
+
   return (
     <div className="step-timeline-item">
       <div className="step-timeline-node">{index}</div>
@@ -278,8 +321,9 @@ function TextStep({ msg, index }: { msg: Message; index: number }) {
       <div className="flex gap-3 flex-1 min-w-0 pb-4 step-timeline-body">
         <StepIcon kind="text" />
         <div className="flex-1 rounded-xl border border-ink-200/70 bg-ink-50/50 overflow-hidden">
-          <div className="px-3 py-1.5 border-b border-ink-100 text-[10px] font-semibold uppercase tracking-wider text-ink-400">
-            中间输出
+          <div className="px-3 py-1.5 border-b border-ink-100 flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">中间输出</span>
+            <DurationBadge ms={durationMs} live={live} />
           </div>
           <div className="px-3 py-2.5 text-xs text-ink-700 leading-relaxed whitespace-pre-wrap break-words">
             {msg.content}
@@ -330,7 +374,8 @@ interface Props {
 
 export default function ExecutionSteps({ steps }: Props) {
   const groups = groupSteps(steps);
-  const isActive = steps.some((s) => s.isStreaming);
+  const isActive = steps.some((s) => s.isStreaming || (s.startedAt && !s.endedAt));
+  const now = useLiveClock(isActive);
   const [open, setOpen] = useState(isActive);
 
   useEffect(() => {
@@ -342,6 +387,16 @@ export default function ExecutionSteps({ steps }: Props) {
 
   const toolCount = groups.filter((g) => g.kind === "tool").length;
   const thinkCount = groups.filter((g) => g.kind === "thinking").length;
+
+  const totalMs = (() => {
+    const starts = steps.map((s) => s.startedAt).filter((t): t is number => t != null);
+    if (starts.length === 0) return null;
+    const start = Math.min(...starts);
+    const ends = steps.map((s) => s.endedAt ?? (s.isStreaming || (s.startedAt && !s.endedAt) ? now : null))
+      .filter((t): t is number => t != null);
+    if (ends.length === 0) return isActive ? now - start : null;
+    return Math.max(...ends) - start;
+  })();
 
   return (
     <div className="max-w-[92%] mb-3">
@@ -363,6 +418,7 @@ export default function ExecutionSteps({ steps }: Props) {
                 {groups.length} 步
                 {thinkCount > 0 && ` · ${thinkCount} 次思考`}
                 {toolCount > 0 && ` · ${toolCount} 次工具`}
+                {totalMs != null && ` · 共 ${formatDuration(totalMs)}`}
               </span>
               {isActive && <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />}
             </div>
@@ -374,9 +430,9 @@ export default function ExecutionSteps({ steps }: Props) {
           <div className="px-4 pb-3 pt-1 border-t border-ink-100/80 step-timeline">
             {groups.map((g, idx) => {
               const n = idx + 1;
-              if (g.kind === "thinking") return <ThinkingStep key={idx} msg={g.msg} index={n} />;
-              if (g.kind === "tool") return <ToolStep key={idx} call={g.call} result={g.result} index={n} />;
-              return <TextStep key={idx} msg={g.msg} index={n} />;
+              if (g.kind === "thinking") return <ThinkingStep key={idx} msg={g.msg} index={n} now={now} />;
+              if (g.kind === "tool") return <ToolStep key={idx} call={g.call} result={g.result} index={n} now={now} />;
+              return <TextStep key={idx} msg={g.msg} index={n} now={now} />;
             })}
           </div>
         )}
