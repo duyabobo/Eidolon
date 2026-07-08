@@ -7,9 +7,10 @@ interface Props {
   scope: SkillScope;
   onClose: () => void;
   onPublished: (skill: Skill) => void;
+  embedded?: boolean;
 }
 
-export default function SkillCreatorChat({ userId, scope, onClose, onPublished }: Props) {
+export default function SkillCreatorChat({ userId, scope, onClose, onPublished, embedded = false }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<SkillCreatorMessage[]>([]);
   const [draft, setDraft] = useState<SkillDraft | null>(null);
@@ -84,16 +85,17 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished }
     }
   };
 
-  return (
-    <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white/95 backdrop-blur-xl rounded-2.5xl shadow-panel w-full max-w-4xl h-[90vh] flex flex-col border border-ink-200/60">
-        <div className="px-6 py-4 border-b border-ink-200/60 flex items-center justify-between shrink-0">
-          <div>
-            <h2 className="font-semibold text-ink-900">对话创建{scopeLabel}</h2>
-            <p className="text-xs text-ink-400 mt-0.5">通过 skill-creator 对话生成，保存后同步 MongoDB + NFS</p>
-          </div>
-          <button onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
+  const panel = (
+    <div className={`bg-white/95 backdrop-blur-xl rounded-2.5xl shadow-panel w-full flex flex-col border border-ink-200/60 ${
+      embedded ? "h-[70vh]" : "max-w-4xl h-[90vh]"
+    }`}>
+      <div className="px-6 py-4 border-b border-ink-200/60 flex items-center justify-between shrink-0">
+        <div>
+          <h2 className="font-semibold text-ink-900">对话创建{scopeLabel}</h2>
+          <p className="text-xs text-ink-400 mt-0.5">通过 skill-creator 对话生成，保存后同步 MongoDB + NFS</p>
         </div>
+        <button type="button" onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
+      </div>
 
         <div className="flex-1 flex min-h-0">
           <div className="flex-1 flex flex-col border-r min-w-0">
@@ -171,7 +173,14 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished }
             </div>
           </div>
         </div>
-      </div>
+    </div>
+  );
+
+  if (embedded) return panel;
+
+  return (
+    <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      {panel}
     </div>
   );
 }

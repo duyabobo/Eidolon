@@ -5,10 +5,11 @@ const EMPTY: McpServerConfig = { url: "", description: "", enabled: true };
 
 interface Props {
   userId: string;
-  onClose: () => void;
+  onClose?: () => void;
+  embedded?: boolean;
 }
 
-export default function UserMcpPanel({ userId, onClose }: Props) {
+export default function UserMcpPanel({ userId, onClose, embedded = false }: Props) {
   const [servers, setServers] = useState<McpServerItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [editName, setEditName] = useState("");
@@ -52,69 +53,77 @@ export default function UserMcpPanel({ userId, onClose }: Props) {
     setMsg({ type: "ok", text: `已删除 ${name}` });
   };
 
+  const content = (
+    <div className="space-y-4">
+      {msg && (
+        <p className={`text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+          {msg.text}
+        </p>
+      )}
+
+      <Section title="系统 MCP（只读）" items={systemServers} badge="系统" badgeCls="bg-sky-50 text-sky-700" />
+      <Section
+        title="我的 MCP"
+        items={userServers}
+        badge="我的"
+        badgeCls="bg-emerald-50 text-emerald-700"
+        onDelete={handleDelete}
+      />
+
+      {showForm ? (
+        <div className="border border-ink-200/60 rounded-xl p-4 space-y-2">
+          <input
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            placeholder="server 名称"
+            className="ui-field w-full"
+          />
+          <input
+            value={editCfg.url}
+            onChange={(e) => setEditCfg({ ...editCfg, url: e.target.value })}
+            placeholder="http://..."
+            className="ui-field w-full"
+          />
+          <input
+            value={editCfg.description ?? ""}
+            onChange={(e) => setEditCfg({ ...editCfg, description: e.target.value })}
+            placeholder="描述（可选）"
+            className="ui-field w-full"
+          />
+          <div className="flex gap-2">
+            <button type="button" onClick={handleSave} className="ui-btn-primary flex-1">保存</button>
+            <button type="button" onClick={() => setShowForm(false)} className="flex-1 py-2.5 text-sm border border-ink-200 rounded-xl">取消</button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowForm(true)}
+          className="w-full py-2.5 border-2 border-dashed border-emerald-300/80 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50/50 transition-colors"
+        >
+          + 添加个人 MCP
+        </button>
+      )}
+
+      {loading && <p className="text-xs text-ink-400 text-center">加载中…</p>}
+    </div>
+  );
+
+  if (embedded) return content;
+
   return (
     <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white/95 backdrop-blur-xl rounded-2.5xl shadow-panel w-full max-w-lg max-h-[85vh] flex flex-col border border-ink-200/60">
         <div className="px-5 py-4 border-b border-ink-200/60 flex justify-between items-center">
           <div>
             <h2 className="font-semibold text-ink-900">MCP 配置</h2>
-            <p className="text-xs text-ink-400">系统 MCP + 你的个人 MCP（均存 MongoDB）</p>
+            <p className="text-xs text-ink-400">系统 MCP + 你的个人 MCP</p>
           </div>
-          <button onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {msg && (
-            <p className={`text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-              {msg.text}
-            </p>
+          {onClose && (
+            <button type="button" onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
           )}
-
-          <Section title="系统 MCP" items={systemServers} badge="系统" badgeCls="bg-sky-100 text-sky-700" />
-          <Section
-            title="我的 MCP"
-            items={userServers}
-            badge="我的"
-            badgeCls="bg-emerald-100 text-emerald-700"
-            onDelete={handleDelete}
-          />
-
-          {showForm ? (
-            <div className="border rounded-xl p-3 space-y-2">
-              <input
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                placeholder="server 名称"
-                className="w-full border rounded-lg px-2 py-1.5 text-sm"
-              />
-              <input
-                value={editCfg.url}
-                onChange={(e) => setEditCfg({ ...editCfg, url: e.target.value })}
-                placeholder="http://..."
-                className="w-full border rounded-lg px-2 py-1.5 text-sm"
-              />
-              <input
-                value={editCfg.description ?? ""}
-                onChange={(e) => setEditCfg({ ...editCfg, description: e.target.value })}
-                placeholder="描述（可选）"
-                className="w-full border rounded-lg px-2 py-1.5 text-sm"
-              />
-              <div className="flex gap-2">
-                <button onClick={handleSave} className="flex-1 py-1.5 bg-indigo-600 text-white text-sm rounded-lg">保存</button>
-                <button onClick={() => setShowForm(false)} className="flex-1 py-1.5 border text-sm rounded-lg">取消</button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowForm(true)}
-              className="w-full py-2 border-2 border-dashed border-emerald-300 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50"
-            >
-              + 添加个人 MCP
-            </button>
-          )}
-
-          {loading && <p className="text-xs text-gray-400 text-center">加载中…</p>}
         </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4">{content}</div>
       </div>
     </div>
   );
@@ -135,20 +144,20 @@ function Section({
 }) {
   return (
     <div>
-      <h3 className="text-sm font-medium text-gray-700 mb-2">{title}</h3>
+      <h3 className="text-sm font-medium text-ink-700 mb-2">{title}</h3>
       {items.length === 0 ? (
-        <p className="text-xs text-gray-400">暂无</p>
+        <p className="text-xs text-ink-400">暂无</p>
       ) : (
         <div className="space-y-2">
           {items.map((s) => (
-            <div key={`${s.scope}-${s.name}`} className="flex items-center gap-2 border rounded-lg px-3 py-2">
-              <span className={`text-[10px] px-1.5 py-0.5 rounded ${badgeCls}`}>{badge}</span>
+            <div key={`${s.scope}-${s.name}`} className="flex items-center gap-2 border border-ink-200/60 rounded-xl px-3 py-2.5">
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${badgeCls}`}>{badge}</span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{s.name}</p>
-                <p className="text-xs text-gray-500 truncate">{s.description || s.url}</p>
+                <p className="text-sm font-medium truncate text-ink-800">{s.name}</p>
+                <p className="text-xs text-ink-400 truncate">{s.description || s.url}</p>
               </div>
               {onDelete && (
-                <button onClick={() => onDelete(s.name)} className="text-xs text-red-600 shrink-0">删除</button>
+                <button type="button" onClick={() => onDelete(s.name)} className="text-xs text-rose-500 shrink-0 hover:text-rose-700">删除</button>
               )}
             </div>
           ))}
