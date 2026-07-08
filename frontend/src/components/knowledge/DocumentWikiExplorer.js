@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { knowledgeApi, } from "../../api/knowledge";
 import WikiGraphView from "./WikiGraphView";
 import WikiNodeDetail from "./WikiNodeDetail";
+import { resolveNavigationTarget } from "./wikiConnections";
 export default function DocumentWikiExplorer({ kbId, doc, onBack }) {
     const [graph, setGraph] = useState(null);
     const [graphLoading, setGraphLoading] = useState(true);
@@ -29,7 +30,16 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }) {
         setNodeDetail(null);
         setNodeError(null);
     }, [loadGraph]);
-    const loadNodeDetail = useCallback(async (nodeId) => {
+    const loadNodeDetail = useCallback(async (target) => {
+        const graphNodes = graph?.nodes ?? [];
+        const nodeId = resolveNavigationTarget(target, graphNodes);
+        if (!nodeId) {
+            setSelectedNodeId(null);
+            setNodeDetail(null);
+            setNodeError(`未找到节点：${target}`);
+            detailRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            return;
+        }
         setSelectedNodeId(nodeId);
         setNodeLoading(true);
         setNodeError(null);
@@ -45,7 +55,7 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }) {
             setNodeLoading(false);
             detailRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
         }
-    }, [kbId]);
+    }, [graph?.nodes, kbId]);
     const handleNodeClick = async (node) => {
         await loadNodeDetail(node.node_id);
     };

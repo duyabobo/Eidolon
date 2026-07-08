@@ -7,6 +7,7 @@ import type { WikiGraphNode } from "../../api/knowledge";
 import {
   buildTitleNodeIndex,
   isWikiNodeHref,
+  preprocessConnectionLines,
   preprocessWikiMarkdown,
   wikiNodeIdFromHref,
 } from "./wikiMarkdownLinks";
@@ -15,7 +16,7 @@ interface WikiMarkdownProps {
   content: string;
   className?: string;
   graphNodes?: WikiGraphNode[];
-  onWikiNodeClick?: (nodeId: string) => void;
+  onWikiNodeClick?: (target: string) => void;
 }
 
 export default function WikiMarkdown({
@@ -28,7 +29,8 @@ export default function WikiMarkdown({
   if (!text) return null;
 
   const titleIndex = buildTitleNodeIndex(graphNodes);
-  const processed = preprocessWikiMarkdown(text, titleIndex);
+  const withConnections = preprocessConnectionLines(text, graphNodes);
+  const processed = preprocessWikiMarkdown(withConnections, titleIndex);
 
   const components: Components = {
     a: ({ href, children }) => {

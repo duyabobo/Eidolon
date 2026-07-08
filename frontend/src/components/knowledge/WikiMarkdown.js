@@ -3,13 +3,14 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
-import { buildTitleNodeIndex, isWikiNodeHref, preprocessWikiMarkdown, wikiNodeIdFromHref, } from "./wikiMarkdownLinks";
+import { buildTitleNodeIndex, isWikiNodeHref, preprocessConnectionLines, preprocessWikiMarkdown, wikiNodeIdFromHref, } from "./wikiMarkdownLinks";
 export default function WikiMarkdown({ content, className = "", graphNodes = [], onWikiNodeClick, }) {
     const text = content.trim();
     if (!text)
         return null;
     const titleIndex = buildTitleNodeIndex(graphNodes);
-    const processed = preprocessWikiMarkdown(text, titleIndex);
+    const withConnections = preprocessConnectionLines(text, graphNodes);
+    const processed = preprocessWikiMarkdown(withConnections, titleIndex);
     const components = {
         a: ({ href, children }) => {
             if (href && isWikiNodeHref(href) && onWikiNodeClick) {

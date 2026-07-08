@@ -8,6 +8,7 @@ import {
 } from "../../api/knowledge";
 import WikiGraphView from "./WikiGraphView";
 import WikiNodeDetail from "./WikiNodeDetail";
+import { resolveNavigationTarget } from "./wikiConnections";
 
 interface DocumentWikiExplorerProps {
   kbId: string;
@@ -44,7 +45,17 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWiki
     setNodeError(null);
   }, [loadGraph]);
 
-  const loadNodeDetail = useCallback(async (nodeId: string) => {
+  const loadNodeDetail = useCallback(async (target: string) => {
+    const graphNodes = graph?.nodes ?? [];
+    const nodeId = resolveNavigationTarget(target, graphNodes);
+    if (!nodeId) {
+      setSelectedNodeId(null);
+      setNodeDetail(null);
+      setNodeError(`未找到节点：${target}`);
+      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      return;
+    }
+
     setSelectedNodeId(nodeId);
     setNodeLoading(true);
     setNodeError(null);
@@ -58,7 +69,7 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWiki
       setNodeLoading(false);
       detailRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, [kbId]);
+  }, [graph?.nodes, kbId]);
 
   const handleNodeClick = async (node: WikiGraphNode) => {
     await loadNodeDetail(node.node_id);

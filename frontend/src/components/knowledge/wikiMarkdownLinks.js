@@ -1,13 +1,37 @@
+import { findNodeByTitle, parseConnectionLine } from "./wikiConnections";
 export const WIKI_NODE_LINK_PREFIX = "wiki-node:";
 export function buildTitleNodeIndex(graphNodes) {
     const index = new Map();
     for (const node of graphNodes) {
-        const key = node.title.trim().toLowerCase();
-        if (key && !index.has(key)) {
-            index.set(key, node.node_id);
+        const title = node.title.trim();
+        const lower = title.toLowerCase();
+        if (lower && !index.has(lower)) {
+            index.set(lower, node.node_id);
+        }
+        const base = title.split(/[（(]/)[0]?.trim().toLowerCase();
+        if (base && !index.has(base)) {
+            index.set(base, node.node_id);
         }
     }
     return index;
+}
+/** 将「标题 — 描述」行转为 wiki 内链 markdown */
+export function preprocessConnectionLines(content, graphNodes) {
+    return content
+        .split("\n")
+        .map((line) => {
+        const trimmed = line.trim();
+        if (!trimmed)
+            return line;
+        const parsed = parseConnectionLine(trimmed);
+        if (!parsed.description)
+            return line;
+        const node = findNodeByTitle(parsed.label, graphNodes);
+        if (!node)
+            return line;
+        return `[${parsed.label}](${WIKI_NODE_LINK_PREFIX}${node.node_id}) — ${parsed.description}`;
+    })
+        .join("\n");
 }
 /** 将 [[标题]] / [[node_id|标题]] 转为可点击的 wiki 内链 */
 export function preprocessWikiMarkdown(content, titleIndex) {

@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -54,7 +56,7 @@ class WikiNodeItem(BaseModel):
     body: str = ""
     body_sections: dict[str, str] = Field(default_factory=dict)
     references: str = ""
-    connections: list[dict] = Field(default_factory=list)
+    connections: list[Any] = Field(default_factory=list)
     attachment_oss_url: str = ""
     created_at: str = ""
     doc_lang: str = ""

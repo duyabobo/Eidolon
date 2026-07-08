@@ -1,6 +1,7 @@
 import type { WikiGraphEdge, WikiGraphNode, WikiNodeItem } from "../../api/knowledge";
+import WikiConnectionList from "./WikiConnectionList";
 import WikiMarkdown from "./WikiMarkdown";
-import { connectionsToMarkdown, resolveWikiConnections } from "./wikiConnections";
+import { resolveWikiConnections } from "./wikiConnections";
 
 interface WikiNodeDetailProps {
   node: WikiNodeItem | null;
@@ -8,12 +9,24 @@ interface WikiNodeDetailProps {
   error: string | null;
   graphNodes: WikiGraphNode[];
   graphEdges?: WikiGraphEdge[];
-  onNavigateNode: (nodeId: string) => void;
+  onNavigateNode: (target: string) => void;
   onClose: () => void;
 }
 
 function SectionTitle({ children }: { children: string }) {
   return <h4 className="text-xs font-medium text-ink-500 mb-1.5">{children}</h4>;
+}
+
+function collectConnectionInputs(node: WikiNodeItem): unknown[] {
+  const inputs: unknown[] = [...(node.connections ?? [])];
+  const linksSection =
+    node.body_sections["链接"] ??
+    node.body_sections["connections"] ??
+    node.body_sections["Connections"];
+  if (linksSection?.trim()) {
+    inputs.push(linksSection);
+  }
+  return inputs;
 }
 
 export default function WikiNodeDetail({
@@ -28,12 +41,14 @@ export default function WikiNodeDetail({
   if (!node && !loading && !error) return null;
 
   const bodySections = node
-    ? Object.entries(node.body_sections).filter(([, value]) => value?.trim())
+    ? Object.entries(node.body_sections).filter(([key, value]) => {
+        if (!value?.trim()) return false;
+        return key.toLowerCase() !== "connections" && key !== "链接";
+      })
     : [];
   const connections = node
-    ? resolveWikiConnections(node.connections, graphNodes, graphEdges, node.node_id)
+    ? resolveWikiConnections(collectConnectionInputs(node), graphNodes, graphEdges, node.node_id)
     : [];
-  const connectionsMarkdown = connectionsToMarkdown(connections);
 
   const markdownProps = {
     graphNodes,
@@ -120,10 +135,10 @@ export default function WikiNodeDetail({
               </section>
             )}
 
-            {connectionsMarkdown && (
+            {connections.length > 0 && (
               <section>
                 <SectionTitle>链接</SectionTitle>
-                <WikiMarkdown content={connectionsMarkdown} {...markdownProps} />
+                <WikiConnectionList links={connections} onNavigate={onNavigateNode} />
               </section>
             )}
           </div>
