@@ -70,11 +70,11 @@ function KnowledgeServiceSection({ onSaved }: { onSaved: () => void }) {
               type="url"
               value={form.base_url}
               onChange={(e) => setForm({ base_url: e.target.value })}
-              placeholder="留空使用本地存储，如 http://knowledge:8080/v1/knowledge"
+              placeholder="留空使用本地存储，如 http://mrag:9621"
               className="ui-field w-full"
             />
             <p className="text-[11px] text-ink-400 mt-1">
-              远程 API 路径约定：{"{base_url}"}/bases、{"{base_url}"}/bases/{"{kb_id}"}/documents
+              远程 mRAG：用户注册 scene_type=LLM_WIKI_PI，文档处理 batch_process process_type=1
             </p>
           </div>
 

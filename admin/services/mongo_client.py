@@ -39,8 +39,14 @@ async def connect() -> None:
     await mcp_mongo.ensure_indexes(db)
     await mcp_mongo.migrate_legacy_config(db)
     from services import knowledge_config_store
+    from constants.knowledge import MRAG_KEY_COLLECTION
 
     await knowledge_config_store.ensure_indexes(db)
+    await db[MRAG_KEY_COLLECTION].create_index(
+        [("scene_uid", 1), ("scene_type", 1)],
+        unique=True,
+        name="knowledge_mrag_key_scene_unique",
+    )
     await db.skills.create_index(
         [("user_id", 1), ("name", 1)],
         unique=True,

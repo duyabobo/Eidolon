@@ -1,10 +1,18 @@
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import Response
 
+from constants.knowledge import (
+    DEFAULT_DATASET_AVATAR,
+    KNOWLEDGE_BATCH_PROCESS_TYPE,
+    KNOWLEDGE_PLATFORM_SCENE_UID,
+    KNOWLEDGE_SCENE_TYPE,
+    MRAG_KEY_COLLECTION,
+)
 from models.knowledge import (
     KnowledgeBase,
     KnowledgeBaseCreate,
@@ -14,10 +22,20 @@ from models.knowledge import (
     KnowledgeDocumentList,
 )
 from services.knowledge_config_store import get_service_config
+from services.mongo_client import get_db
 
 logger = logging.getLogger(__name__)
 
 _REQUEST_TIMEOUT_SECONDS = 120.0
+
+_DOC_STATUS_MAP = {
+    "init": "uploaded",
+    "pending": "processing",
+    "processing": "processing",
+    "preprocessed": "processing",
+    "processed": "indexed",
+    "failed": "failed",
+}
 
 
 def _api_root(base_url: str) -> str:
@@ -35,104 +53,312 @@ def _raise_upstream_error(resp: httpx.Response) -> None:
     detail = resp.text
     try:
         payload = resp.json()
-        if isinstance(payload, dict) and payload.get("detail"):
-            detail = str(payload["detail"])
+        if isinstance(payload, dict):
+            if payload.get("detail"):
+                detail = str(payload["detail"])
+            elif payload.get("message"):
+                detail = str(payload["message"])
     except Exception:
         pass
     logger.warning("知识库服务请求失败 status=%d detail=%s", resp.status_code, detail[:200])
     raise HTTPException(status_code=resp.status_code, detail=detail or "知识库服务请求失败")
 
 
+def _unwrap_data(resp: httpx.Response) -> Any:
+    if resp.status_code >= 400:
+        _raise_upstream_error(resp)
+    payload = resp.json()
+    if isinstance(payload, dict) and "data" in payload:
+        return payload["data"]
+    return payload
+
+
+def _parse_dt(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str) and value.strip():
+        text = value.strip().replace(" ", "T")
+        try:
+            return datetime.fromisoformat(text).replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc)
+
+
+def _map_dataset(raw: dict) -> KnowledgeBase:
+    return KnowledgeBase(
+        id=str(raw.get("_id") or raw.get("id") or ""),
+        name=str(raw.get("name") or ""),
+        description=str(raw.get("intro") or raw.get("description") or ""),
+        type="document",
+        document_count=int(raw.get("unit_count") or raw.get("document_count") or 0),
+        chunking_config=None,
+        created_at=_parse_dt(raw.get("createTime") or raw.get("created_at")),
+        updated_at=_parse_dt(raw.get("updateTime") or raw.get("updated_at")),
+    )
+
+
+def _map_document(kb_id: str, raw: dict) -> KnowledgeDocument:
+    status_raw = str(raw.get("status") or "uploaded").lower()
+    mapped_status = _DOC_STATUS_MAP.get(status_raw, "uploaded")
+    file_size_raw = raw.get("file_size") or "0"
+    if isinstance(file_size_raw, str):
+        digits = "".join(ch for ch in file_size_raw if ch.isdigit() or ch == ".")
+        try:
+            file_size = int(float(digits) * 1024) if "kb" in file_size_raw.lower() else int(float(digits or 0))
+        except ValueError:
+            file_size = 0
+    else:
+        file_size = int(file_size_raw)
+
+    now = datetime.now(timezone.utc)
+    created = _parse_dt(raw.get("created_at")) if raw.get("created_at") else now
+    updated = _parse_dt(raw.get("updated_at")) if raw.get("updated_at") else created
+    return KnowledgeDocument(
+        id=str(raw.get("doc_id") or raw.get("id") or ""),
+        kb_id=kb_id,
+        name=str(raw.get("file_name") or raw.get("name") or ""),
+        file_size=file_size,
+        status=mapped_status,  # type: ignore[arg-type]
+        error_message=raw.get("error_message"),
+        created_at=created,
+        updated_at=updated,
+    )
+
+
+async def _get_knowledge_key() -> str:
+    db = get_db()
+    cached = await db[MRAG_KEY_COLLECTION].find_one({
+        "scene_uid": KNOWLEDGE_PLATFORM_SCENE_UID,
+        "scene_type": KNOWLEDGE_SCENE_TYPE,
+    })
+    if cached and cached.get("knowledge_key"):
+        return str(cached["knowledge_key"])
+
+    root = await _resolve_base_url()
+    payload = {
+        "scene_uid": KNOWLEDGE_PLATFORM_SCENE_UID,
+        "scene_type": KNOWLEDGE_SCENE_TYPE,
+    }
+    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
+        resp = await client.post(f"{root}/dataset/get_or_create_knowledge_key", json=payload)
+    data = _unwrap_data(resp)
+    knowledge_key = str((data or {}).get("knowledge_key") or "")
+    if not knowledge_key:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="知识库服务未返回 knowledge_key")
+
+    await db[MRAG_KEY_COLLECTION].update_one(
+        {"scene_uid": KNOWLEDGE_PLATFORM_SCENE_UID, "scene_type": KNOWLEDGE_SCENE_TYPE},
+        {"$set": {
+            "scene_uid": KNOWLEDGE_PLATFORM_SCENE_UID,
+            "scene_type": KNOWLEDGE_SCENE_TYPE,
+            "knowledge_key": knowledge_key,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+    logger.info(
+        "知识库用户已注册 scene_uid=%s scene_type=%s",
+        KNOWLEDGE_PLATFORM_SCENE_UID,
+        KNOWLEDGE_SCENE_TYPE,
+    )
+    return knowledge_key
+
+
+def _knowledge_headers(knowledge_key: str) -> dict[str, str]:
+    return {"x-knowledge-key": knowledge_key}
+
+
+async def _batch_process_documents(knowledge_key: str, doc_ids: list[str]) -> None:
+    if not doc_ids:
+        return
+    root = await _resolve_base_url()
+    payload = {
+        "doc_ids": doc_ids,
+        "process_type": KNOWLEDGE_BATCH_PROCESS_TYPE,
+        "wait_for_completion": False,
+    }
+    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
+        resp = await client.post(
+            f"{root}/documents/batch_process",
+            json=payload,
+            headers=_knowledge_headers(knowledge_key),
+        )
+    _unwrap_data(resp)
+    logger.info(
+        "batch_process 已提交 doc_count=%d process_type=%d scene_type=%s",
+        len(doc_ids),
+        KNOWLEDGE_BATCH_PROCESS_TYPE,
+        KNOWLEDGE_SCENE_TYPE,
+    )
+
+
 async def list_bases(page: int, page_size: int) -> KnowledgeBaseList:
-    root = await _resolve_base_url()
-    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.get(f"{root}/bases", params={"page": page, "page_size": page_size})
-    if resp.status_code >= 400:
-        _raise_upstream_error(resp)
-    return KnowledgeBaseList(**resp.json())
-
-
-async def create_base(body: KnowledgeBaseCreate) -> KnowledgeBase:
-    root = await _resolve_base_url()
-    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.post(f"{root}/bases", json=body.model_dump())
-    if resp.status_code >= 400:
-        _raise_upstream_error(resp)
-    return KnowledgeBase(**resp.json())
-
-
-async def get_base(kb_id: str) -> KnowledgeBase:
-    root = await _resolve_base_url()
-    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.get(f"{root}/bases/{kb_id}")
-    if resp.status_code >= 400:
-        _raise_upstream_error(resp)
-    return KnowledgeBase(**resp.json())
-
-
-async def update_base(kb_id: str, body: KnowledgeBaseUpdate) -> KnowledgeBase:
-    root = await _resolve_base_url()
-    payload: dict[str, Any] = body.model_dump(exclude_unset=True)
-    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.put(f"{root}/bases/{kb_id}", json=payload)
-    if resp.status_code >= 400:
-        _raise_upstream_error(resp)
-    return KnowledgeBase(**resp.json())
-
-
-async def delete_base(kb_id: str) -> None:
-    root = await _resolve_base_url()
-    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.delete(f"{root}/bases/{kb_id}")
-    if resp.status_code >= 400:
-        _raise_upstream_error(resp)
-
-
-async def list_documents(kb_id: str, page: int, page_size: int) -> KnowledgeDocumentList:
+    knowledge_key = await _get_knowledge_key()
     root = await _resolve_base_url()
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.get(
-            f"{root}/bases/{kb_id}/documents",
-            params={"page": page, "page_size": page_size},
+            f"{root}/dataset/list",
+            params={"limit": page_size},
+            headers=_knowledge_headers(knowledge_key),
         )
-    if resp.status_code >= 400:
-        _raise_upstream_error(resp)
-    return KnowledgeDocumentList(**resp.json())
+    data = _unwrap_data(resp) or {}
+    items = [_map_dataset(item) for item in data.get("list", [])]
+    total = int(data.get("total") or len(items))
+    return KnowledgeBaseList(items=items, total=total, page=page, page_size=page_size)
+
+
+async def create_base(body: KnowledgeBaseCreate) -> KnowledgeBase:
+    knowledge_key = await _get_knowledge_key()
+    root = await _resolve_base_url()
+    payload = {
+        "name": body.name,
+        "intro": body.description,
+        "avatar": DEFAULT_DATASET_AVATAR,
+    }
+    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
+        resp = await client.post(
+            f"{root}/dataset/create",
+            json=payload,
+            headers=_knowledge_headers(knowledge_key),
+        )
+    dataset_id = _unwrap_data(resp)
+    return KnowledgeBase(
+        id=str(dataset_id),
+        name=body.name,
+        description=body.description,
+        type=body.type,
+        document_count=0,
+        chunking_config=body.chunking_config,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+
+async def get_base(kb_id: str) -> KnowledgeBase:
+    knowledge_key = await _get_knowledge_key()
+    root = await _resolve_base_url()
+    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
+        resp = await client.get(
+            f"{root}/dataset/list",
+            params={"dataset_id": kb_id, "limit": 1},
+            headers=_knowledge_headers(knowledge_key),
+        )
+    data = _unwrap_data(resp) or {}
+    items = data.get("list") or []
+    if not items:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="知识库不存在")
+    return _map_dataset(items[0])
+
+
+async def update_base(kb_id: str, body: KnowledgeBaseUpdate) -> KnowledgeBase:
+    knowledge_key = await _get_knowledge_key()
+    root = await _resolve_base_url()
+    payload: dict[str, Any] = {"id": kb_id}
+    if body.name is not None:
+        payload["name"] = body.name
+    if body.description is not None:
+        payload["intro"] = body.description
+    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
+        resp = await client.post(
+            f"{root}/dataset/edit",
+            json=payload,
+            headers=_knowledge_headers(knowledge_key),
+        )
+    raw = _unwrap_data(resp) or {}
+    return _map_dataset(raw)
+
+
+async def delete_base(kb_id: str) -> None:
+    knowledge_key = await _get_knowledge_key()
+    root = await _resolve_base_url()
+    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
+        resp = await client.post(
+            f"{root}/dataset/delete",
+            json={"id": kb_id},
+            headers=_knowledge_headers(knowledge_key),
+        )
+    _unwrap_data(resp)
+
+
+async def list_documents(kb_id: str, page: int, page_size: int) -> KnowledgeDocumentList:
+    knowledge_key = await _get_knowledge_key()
+    root = await _resolve_base_url()
+    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
+        resp = await client.get(
+            f"{root}/documents/by_knowledge/{kb_id}",
+            params={"page_no": page, "page_size": page_size},
+            headers=_knowledge_headers(knowledge_key),
+        )
+    data = _unwrap_data(resp) or {}
+    items = [_map_document(kb_id, item) for item in data.get("list", [])]
+    total = int(data.get("total") or len(items))
+    return KnowledgeDocumentList(items=items, total=total, page=page, page_size=page_size)
 
 
 async def get_document(kb_id: str, doc_id: str) -> KnowledgeDocument:
-    root = await _resolve_base_url()
-    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.get(f"{root}/bases/{kb_id}/documents/{doc_id}")
-    if resp.status_code >= 400:
-        _raise_upstream_error(resp)
-    return KnowledgeDocument(**resp.json())
+    docs = await list_documents(kb_id, page=1, page_size=200)
+    for doc in docs.items:
+        if doc.id == doc_id:
+            return doc
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
 
 
 async def upload_document(kb_id: str, upload: UploadFile) -> KnowledgeDocument:
+    knowledge_key = await _get_knowledge_key()
     root = await _resolve_base_url()
     content = await upload.read()
     filename = upload.filename or "unnamed"
-    files = {"file": (filename, content, upload.content_type or "application/octet-stream")}
+    files = {"files": (filename, content, upload.content_type or "application/octet-stream")}
+    data = {"knowledge_id": kb_id}
+
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.post(f"{root}/bases/{kb_id}/documents", files=files)
-    if resp.status_code >= 400:
-        _raise_upstream_error(resp)
-    return KnowledgeDocument(**resp.json())
+        resp = await client.post(
+            f"{root}/documents/batch_upload",
+            data=data,
+            files=files,
+            headers=_knowledge_headers(knowledge_key),
+        )
+    upload_data = _unwrap_data(resp) or {}
+    results = upload_data.get("results") or []
+    if not results:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="文档上传失败")
+
+    first = results[0]
+    doc_id = str(first.get("doc_id") or "")
+    if not doc_id:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="文档上传未返回 doc_id")
+
+    await _batch_process_documents(knowledge_key, [doc_id])
+    return _map_document(kb_id, {
+        "doc_id": doc_id,
+        "file_name": filename,
+        "file_size": len(content),
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
 
 
 async def delete_document(kb_id: str, doc_id: str) -> None:
+    knowledge_key = await _get_knowledge_key()
     root = await _resolve_base_url()
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.delete(f"{root}/bases/{kb_id}/documents/{doc_id}")
-    if resp.status_code >= 400:
-        _raise_upstream_error(resp)
+        resp = await client.delete(
+            f"{root}/documents/{doc_id}",
+            headers=_knowledge_headers(knowledge_key),
+        )
+    _unwrap_data(resp)
 
 
 async def download_document(kb_id: str, doc_id: str) -> Response:
+    knowledge_key = await _get_knowledge_key()
     root = await _resolve_base_url()
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.get(f"{root}/bases/{kb_id}/documents/{doc_id}/download")
+        resp = await client.get(
+            f"{root}/documents/download/{doc_id}",
+            headers=_knowledge_headers(knowledge_key),
+        )
     if resp.status_code >= 400:
         _raise_upstream_error(resp)
 
