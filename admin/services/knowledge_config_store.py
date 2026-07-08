@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from constants.knowledge import KNOWLEDGE_PLATFORM_SCENE_UID
 from models.knowledge import KnowledgeServiceConfig
 from services.mongo_client import get_db
 
@@ -29,13 +30,25 @@ def normalize_base_url(url: str) -> str:
     return trimmed
 
 
+def normalize_scene_uid(uid: str) -> str:
+    return (uid or "").strip()
+
+
 def _to_config(raw: dict | None) -> KnowledgeServiceConfig:
     if not raw:
         return KnowledgeServiceConfig(base_url="")
+    scene_uid = normalize_scene_uid(str(raw.get("scene_uid", "")))
     return KnowledgeServiceConfig(
         base_url=normalize_base_url(str(raw.get("base_url", ""))),
+        scene_uid=scene_uid,
         created_at=raw.get("created_at"),
     )
+
+
+async def resolve_scene_uid() -> str:
+    """读取最新配置中的 scene_uid；未配置时使用平台默认值。"""
+    uid = normalize_scene_uid((await get_service_config()).scene_uid)
+    return uid or KNOWLEDGE_PLATFORM_SCENE_UID
 
 
 async def get_service_config() -> KnowledgeServiceConfig:
@@ -46,13 +59,25 @@ async def get_service_config() -> KnowledgeServiceConfig:
 async def save_service_config(cfg: KnowledgeServiceConfig) -> KnowledgeServiceConfig:
     now = _now()
     base_url = normalize_base_url(cfg.base_url)
+    scene_uid = normalize_scene_uid(cfg.scene_uid)
+    if not scene_uid:
+        scene_uid = normalize_scene_uid((await get_service_config()).scene_uid)
     doc = {
         "base_url": base_url,
+        "scene_uid": scene_uid,
         "created_at": now,
     }
     await get_db()[_COLLECTION].insert_one(doc)
-    logger.info("知识库服务地址已新增记录 base_url=%s", doc["base_url"] or "(本地模式)")
-    return KnowledgeServiceConfig(base_url=doc["base_url"], created_at=now)
+    logger.info(
+        "知识库服务地址已新增记录 base_url=%s scene_uid=%s",
+        doc["base_url"] or "(本地模式)",
+        doc["scene_uid"] or "(未配置)",
+    )
+    return KnowledgeServiceConfig(
+        base_url=doc["base_url"],
+        scene_uid=doc["scene_uid"],
+        created_at=now,
+    )
 
 
 async def is_remote_mode() -> bool:

@@ -2,7 +2,7 @@ import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-run
 import { useCallback, useEffect, useRef, useState } from "react";
 import { knowledgeApi, formatFileSize, docStatusLabel, } from "../api/knowledge";
 import DocumentWikiExplorer from "./knowledge/DocumentWikiExplorer";
-const EMPTY_SERVICE = { base_url: "" };
+const EMPTY_SERVICE = { base_url: "", scene_uid: "" };
 function KnowledgeServiceSection({ onSaved }) {
     const [form, setForm] = useState(EMPTY_SERVICE);
     const [loading, setLoading] = useState(true);
@@ -18,7 +18,10 @@ function KnowledgeServiceSection({ onSaved }) {
         setSaving(true);
         setMsg(null);
         try {
-            const saved = await knowledgeApi.saveServiceConfig({ base_url: form.base_url.trim() });
+            const saved = await knowledgeApi.saveServiceConfig({
+                base_url: form.base_url.trim(),
+                scene_uid: form.scene_uid.trim(),
+            });
             setForm(saved);
             setMsg({
                 type: "ok",
@@ -36,7 +39,7 @@ function KnowledgeServiceSection({ onSaved }) {
         }
     };
     const isRemote = Boolean(form.base_url.trim());
-    return (_jsxs("div", { className: "border border-ink-200/60 rounded-xl p-4 space-y-3 bg-ink-50/40", children: [_jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsxs("div", { children: [_jsx("p", { className: "text-sm font-medium text-ink-800", children: "\u77E5\u8BC6\u5E93\u670D\u52A1" }), _jsxs("p", { className: "text-xs text-ink-400 mt-0.5", children: [isRemote ? "远程模式：请求转发至下方地址" : "本地模式：数据存 MongoDB + global/knowledge/", form.created_at && (_jsxs(_Fragment, { children: [" \u00B7 \u5F53\u524D\u914D\u7F6E\u4E8E ", new Date(form.created_at).toLocaleString("zh-CN")] }))] })] }), _jsx("span", { className: `text-[10px] px-2 py-0.5 rounded-full font-medium ${isRemote ? "bg-violet-50 text-violet-700" : "bg-ink-100 text-ink-600"}`, children: isRemote ? "远程" : "本地" })] }), loading ? (_jsx("p", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u914D\u7F6E\u2026" })) : (_jsxs(_Fragment, { children: [_jsxs("div", { children: [_jsx("label", { className: "block text-xs font-medium text-ink-600 mb-1", children: "\u670D\u52A1\u5730\u5740\uFF08Base URL\uFF09" }), _jsx("input", { type: "url", value: form.base_url, onChange: (e) => setForm({ base_url: e.target.value }), placeholder: "\u7559\u7A7A\u4F7F\u7528\u672C\u5730\u5B58\u50A8\uFF0C\u5982 http://mrag:9621", className: "ui-field w-full" }), _jsx("p", { className: "text-[11px] text-ink-400 mt-1", children: "\u8FDC\u7A0B mRAG\uFF1A\u7528\u6237\u6CE8\u518C scene_type=LLM_WIKI_PI\uFF0C\u6587\u6863\u5904\u7406 batch_process process_type=1" })] }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), _jsx("button", { type: "button", disabled: saving, onClick: handleSave, className: "ui-btn-primary text-sm", children: saving ? "保存中…" : "保存服务地址" })] }))] }));
+    return (_jsxs("div", { className: "border border-ink-200/60 rounded-xl p-4 space-y-3 bg-ink-50/40", children: [_jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsxs("div", { children: [_jsx("p", { className: "text-sm font-medium text-ink-800", children: "\u77E5\u8BC6\u5E93\u670D\u52A1" }), _jsxs("p", { className: "text-xs text-ink-400 mt-0.5", children: [isRemote ? "远程模式：请求转发至下方地址" : "本地模式：数据存 MongoDB + global/knowledge/", form.created_at && (_jsxs(_Fragment, { children: [" \u00B7 \u5F53\u524D\u914D\u7F6E\u4E8E ", new Date(form.created_at).toLocaleString("zh-CN")] }))] })] }), _jsx("span", { className: `text-[10px] px-2 py-0.5 rounded-full font-medium ${isRemote ? "bg-violet-50 text-violet-700" : "bg-ink-100 text-ink-600"}`, children: isRemote ? "远程" : "本地" })] }), loading ? (_jsx("p", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u914D\u7F6E\u2026" })) : (_jsxs(_Fragment, { children: [_jsxs("div", { children: [_jsx("label", { className: "block text-xs font-medium text-ink-600 mb-1", children: "\u670D\u52A1\u5730\u5740\uFF08Base URL\uFF09" }), _jsx("input", { type: "url", value: form.base_url, onChange: (e) => setForm({ ...form, base_url: e.target.value }), placeholder: "\u7559\u7A7A\u4F7F\u7528\u672C\u5730\u5B58\u50A8\uFF0C\u5982 http://host:9621 \u6216 host:9621/mrag-knowledge", className: "ui-field w-full" })] }), _jsxs("div", { children: [_jsx("label", { className: "block text-xs font-medium text-ink-600 mb-1", children: "Scene UID" }), _jsx("input", { type: "text", value: form.scene_uid, onChange: (e) => setForm({ ...form, scene_uid: e.target.value }), placeholder: "mRAG \u7528\u6237 scene_uid\uFF0C\u5982 llm_wiki_pi", className: "ui-field w-full" }), _jsx("p", { className: "text-[11px] text-ink-400 mt-1", children: "\u8FDC\u7A0B mRAG\uFF1Ascene_type=LLM_WIKI_PI\uFF0C\u6587\u6863\u5904\u7406 batch_process process_type=1" })] }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), _jsx("button", { type: "button", disabled: saving, onClick: handleSave, className: "ui-btn-primary text-sm", children: saving ? "保存中…" : "保存服务地址" })] }))] }));
 }
 function StatusBadge({ status }) {
     const cls = {

@@ -41,6 +41,7 @@ export interface KnowledgeDocumentList {
 
 export interface KnowledgeServiceConfig {
   base_url: string;
+  scene_uid?: string;
   created_at?: string | null;
 }
 

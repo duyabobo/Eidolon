@@ -61,4 +61,5 @@ class KnowledgeDocumentList(BaseModel):
 class KnowledgeServiceConfig(BaseModel):
     """知识库后端服务地址（为空时使用 admin 本地存储）"""
     base_url: str = Field(default="", max_length=512, description="知识库 API 根地址，如 http://knowledge:8080/v1/knowledge")
+    scene_uid: str = Field(default="", max_length=128, description="mRAG 用户 scene_uid，用于 get_or_create_knowledge_key")
     created_at: datetime | None = None

@@ -9,7 +9,6 @@ from fastapi.responses import Response
 from constants.knowledge import (
     DEFAULT_DATASET_AVATAR,
     KNOWLEDGE_BATCH_PROCESS_TYPE,
-    KNOWLEDGE_PLATFORM_SCENE_UID,
     KNOWLEDGE_SCENE_TYPE,
     MRAG_KEY_COLLECTION,
 )
@@ -21,7 +20,7 @@ from models.knowledge import (
     KnowledgeDocument,
     KnowledgeDocumentList,
 )
-from services.knowledge_config_store import get_service_config, normalize_base_url
+from services.knowledge_config_store import get_service_config, normalize_base_url, resolve_scene_uid
 from services.mongo_client import get_db
 
 logger = logging.getLogger(__name__)
@@ -161,9 +160,10 @@ def _map_document(kb_id: str, raw: dict) -> KnowledgeDocument:
 
 
 async def _get_knowledge_key() -> str:
+    scene_uid = await resolve_scene_uid()
     db = get_db()
     cached = await db[MRAG_KEY_COLLECTION].find_one({
-        "scene_uid": KNOWLEDGE_PLATFORM_SCENE_UID,
+        "scene_uid": scene_uid,
         "scene_type": KNOWLEDGE_SCENE_TYPE,
     })
     if cached and cached.get("knowledge_key"):
@@ -171,7 +171,7 @@ async def _get_knowledge_key() -> str:
 
     root = await _resolve_base_url()
     payload = {
-        "scene_uid": KNOWLEDGE_PLATFORM_SCENE_UID,
+        "scene_uid": scene_uid,
         "scene_type": KNOWLEDGE_SCENE_TYPE,
     }
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
@@ -182,9 +182,9 @@ async def _get_knowledge_key() -> str:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="知识库服务未返回 knowledge_key")
 
     await db[MRAG_KEY_COLLECTION].update_one(
-        {"scene_uid": KNOWLEDGE_PLATFORM_SCENE_UID, "scene_type": KNOWLEDGE_SCENE_TYPE},
+        {"scene_uid": scene_uid, "scene_type": KNOWLEDGE_SCENE_TYPE},
         {"$set": {
-            "scene_uid": KNOWLEDGE_PLATFORM_SCENE_UID,
+            "scene_uid": scene_uid,
             "scene_type": KNOWLEDGE_SCENE_TYPE,
             "knowledge_key": knowledge_key,
             "updated_at": datetime.now(timezone.utc),
@@ -193,7 +193,7 @@ async def _get_knowledge_key() -> str:
     )
     logger.info(
         "知识库用户已注册 scene_uid=%s scene_type=%s",
-        KNOWLEDGE_PLATFORM_SCENE_UID,
+        scene_uid,
         KNOWLEDGE_SCENE_TYPE,
     )
     return knowledge_key

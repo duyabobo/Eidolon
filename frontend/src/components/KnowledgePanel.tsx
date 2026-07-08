@@ -5,7 +5,7 @@ import {
 } from "../api/knowledge";
 import DocumentWikiExplorer from "./knowledge/DocumentWikiExplorer";
 
-const EMPTY_SERVICE: KnowledgeServiceConfig = { base_url: "" };
+const EMPTY_SERVICE: KnowledgeServiceConfig = { base_url: "", scene_uid: "" };
 
 function KnowledgeServiceSection({ onSaved }: { onSaved: () => void }) {
   const [form, setForm] = useState<KnowledgeServiceConfig>(EMPTY_SERVICE);
@@ -24,7 +24,10 @@ function KnowledgeServiceSection({ onSaved }: { onSaved: () => void }) {
     setSaving(true);
     setMsg(null);
     try {
-      const saved = await knowledgeApi.saveServiceConfig({ base_url: form.base_url.trim() });
+      const saved = await knowledgeApi.saveServiceConfig({
+        base_url: form.base_url.trim(),
+        scene_uid: (form.scene_uid ?? "").trim(),
+      });
       setForm(saved);
       setMsg({
         type: "ok",
@@ -70,12 +73,22 @@ function KnowledgeServiceSection({ onSaved }: { onSaved: () => void }) {
             <input
               type="url"
               value={form.base_url}
-              onChange={(e) => setForm({ base_url: e.target.value })}
+              onChange={(e) => setForm({ ...form, base_url: e.target.value })}
               placeholder="留空使用本地存储，如 http://host:9621 或 host:9621/mrag-knowledge"
               className="ui-field w-full"
             />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-600 mb-1">Scene UID</label>
+            <input
+              type="text"
+              value={form.scene_uid ?? ""}
+              onChange={(e) => setForm({ ...form, scene_uid: e.target.value })}
+              placeholder="mRAG 用户 scene_uid，如 llm_wiki_pi"
+              className="ui-field w-full"
+            />
             <p className="text-[11px] text-ink-400 mt-1">
-              远程 mRAG：用户注册 scene_type=LLM_WIKI_PI，文档处理 batch_process process_type=1
+              远程 mRAG：scene_type=LLM_WIKI_PI，文档处理 batch_process process_type=1
             </p>
           </div>
 
