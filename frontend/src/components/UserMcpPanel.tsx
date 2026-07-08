@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { mcpApi, McpServerConfig, McpServerItem, McpServerStatus } from "../api/mcp";
-import { McpEditModal, McpServerStatusBadge, mcpServerStatusKey } from "./McpServerUi";
+import { useEffect, useState } from "react";
+import type { McpServerConfig, McpServerItem } from "../api/mcp";
+import { McpEditModal, McpServerRow } from "./McpServerUi";
+import { serverStatusKey } from "./mcpManagerUtils";
+import { useMcpManager } from "./useMcpManager";
 
 const EMPTY: McpServerConfig = { url: "", description: "", enabled: true, api_key: "" };
 
@@ -17,47 +19,29 @@ interface Props {
 }
 
 export default function UserMcpPanel({ userId, onClose, embedded = false }: Props) {
-  const [servers, setServers] = useState<McpServerItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [probing, setProbing] = useState(false);
-  const [statusMap, setStatusMap] = useState<Record<string, McpServerStatus>>({});
+  const {
+    servers,
+    loading,
+    probingAll,
+    probingKeys,
+    statusMap,
+    expandedToolKeys,
+    errMsg,
+    setErrMsg,
+    load,
+    probeAll,
+    probeOne,
+    toggleExpandedTools,
+    saveServer,
+    toggleEnabled,
+    deleteServer,
+  } = useMcpManager({ userId, includeDisabled: true });
+
   const [edit, setEdit] = useState<EditState | null>(null);
-  const [errMsg, setErrMsg] = useState<string | null>(null);
-
-  const refreshStatus = useCallback(async () => {
-    setProbing(true);
-    try {
-      const res = await mcpApi.getServerStatus(userId);
-      const next: Record<string, McpServerStatus> = {};
-      for (const item of res.servers) {
-        next[mcpServerStatusKey(item.scope, item.name)] = item;
-      }
-      setStatusMap(next);
-    } catch {
-      setStatusMap({});
-    } finally {
-      setProbing(false);
-    }
-  }, [userId]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const list = await mcpApi.listForChat(userId);
-      setServers(list);
-    } catch {
-      setServers([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
 
   useEffect(() => {
-    void (async () => {
-      await load();
-      await refreshStatus();
-    })();
-  }, [load, refreshStatus]);
+    void load();
+  }, [load]);
 
   const userServers = servers.filter((s) => s.scope === "user");
   const systemServers = servers.filter((s) => s.scope === "system");
@@ -68,26 +52,28 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
       setErrMsg("名称和 URL 不能为空");
       return;
     }
-    setErrMsg(null);
     try {
-      await mcpApi.addUserServer(userId, edit.name.trim(), edit.config);
+      await saveServer("user", edit.name.trim(), edit.config);
       setEdit(null);
-      await load();
-      await refreshStatus();
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "保存失败");
     }
   };
 
-  const handleDelete = async (name: string) => {
-    if (!confirm(`确认删除个人 MCP "${name}"？`)) return;
-    setErrMsg(null);
+  const handleDelete = async (server: McpServerItem) => {
+    if (!confirm(`确认删除个人 MCP "${server.name}"？`)) return;
     try {
-      await mcpApi.deleteUserServer(userId, name);
-      await load();
-      await refreshStatus();
+      await deleteServer(server);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "删除失败");
+    }
+  };
+
+  const handleToggleEnabled = async (server: McpServerItem, enabled: boolean) => {
+    try {
+      await toggleEnabled(server, enabled);
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : "更新失败");
     }
   };
 
@@ -99,21 +85,41 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
         </p>
       )}
 
-      <Section
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => void probeAll()}
+          disabled={probingAll || servers.length === 0}
+          className="text-xs px-3 py-1.5 border border-sky-200 rounded-lg text-sky-700 hover:bg-sky-50 disabled:opacity-50"
+        >
+          {probingAll ? "测试中…" : "测试全部"}
+        </button>
+      </div>
+
+      <McpSection
         title="系统 MCP（只读）"
-        items={systemServers}
         badge="系统"
         badgeCls="bg-sky-50 text-sky-700"
+        items={systemServers}
         statusMap={statusMap}
-        probing={probing}
+        probingKeys={probingKeys}
+        expandedToolKeys={expandedToolKeys}
+        canToggleEnabled={false}
+        onProbe={(server) => void probeOne(server)}
+        onToggleTools={toggleExpandedTools}
       />
-      <Section
+
+      <McpSection
         title="我的 MCP"
-        items={userServers}
         badge="我的"
         badgeCls="bg-emerald-50 text-emerald-700"
+        items={userServers}
         statusMap={statusMap}
-        probing={probing}
+        probingKeys={probingKeys}
+        expandedToolKeys={expandedToolKeys}
+        onProbe={(server) => void probeOne(server)}
+        onToggleTools={toggleExpandedTools}
+        onToggleEnabled={(server, enabled) => void handleToggleEnabled(server, enabled)}
         onEdit={(server) => setEdit({
           name: server.name,
           isNew: false,
@@ -124,7 +130,7 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
             api_key: "",
           },
         })}
-        onDelete={handleDelete}
+        onDelete={(server) => void handleDelete(server)}
       />
 
       <button
@@ -174,25 +180,39 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
   );
 }
 
-function Section({
+function McpSection({
   title,
-  items,
   badge,
   badgeCls,
+  items,
   statusMap,
-  probing,
+  probingKeys,
+  expandedToolKeys,
+  canToggleEnabled = true,
+  onProbe,
+  onToggleTools,
+  onToggleEnabled,
   onEdit,
   onDelete,
 }: {
   title: string;
-  items: McpServerItem[];
   badge: string;
   badgeCls: string;
-  statusMap: Record<string, McpServerStatus>;
-  probing: boolean;
+  items: McpServerItem[];
+  statusMap: Record<string, import("../api/mcp").McpServerStatus>;
+  probingKeys: Set<string>;
+  expandedToolKeys: Set<string>;
+  canToggleEnabled?: boolean;
+  onProbe: (server: McpServerItem) => void;
+  onToggleTools: (key: string) => void;
+  onToggleEnabled?: (server: McpServerItem, enabled: boolean) => void;
   onEdit?: (server: McpServerItem) => void;
-  onDelete?: (name: string) => void;
+  onDelete?: (server: McpServerItem) => void;
 }) {
+  const scopeBadge = (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${badgeCls}`}>{badge}</span>
+  );
+
   return (
     <div>
       <h3 className="text-sm font-medium text-ink-700 mb-2">{title}</h3>
@@ -201,37 +221,22 @@ function Section({
       ) : (
         <div className="space-y-2">
           {items.map((server) => {
-            const statusKey = mcpServerStatusKey(server.scope, server.name);
+            const key = serverStatusKey(server);
             return (
-              <div key={statusKey} className="flex items-center gap-2 border border-ink-200/60 rounded-xl px-3 py-2.5">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${badgeCls}`}>{badge}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-medium truncate text-ink-800">{server.name}</p>
-                    <McpServerStatusBadge statusKey={statusKey} statusMap={statusMap} probing={probing} />
-                  </div>
-                  <p className="text-xs text-ink-400 truncate">{server.description || server.url}</p>
-                  {server.has_api_key && <p className="text-[10px] text-amber-700 mt-0.5">已配置 API Key</p>}
-                </div>
-                {onEdit && (
-                  <button
-                    type="button"
-                    onClick={() => onEdit(server)}
-                    className="text-xs text-ink-600 shrink-0 hover:text-ink-800"
-                  >
-                    编辑
-                  </button>
-                )}
-                {onDelete && (
-                  <button
-                    type="button"
-                    onClick={() => onDelete(server.name)}
-                    className="text-xs text-rose-500 shrink-0 hover:text-rose-700"
-                  >
-                    删除
-                  </button>
-                )}
-              </div>
+              <McpServerRow
+                key={key}
+                server={server}
+                status={statusMap[key]}
+                probing={probingKeys.has(key)}
+                toolsExpanded={expandedToolKeys.has(key)}
+                scopeBadge={scopeBadge}
+                canToggleEnabled={canToggleEnabled}
+                onToggleEnabled={onToggleEnabled ? (enabled) => onToggleEnabled(server, enabled) : undefined}
+                onProbe={() => onProbe(server)}
+                onToggleTools={() => onToggleTools(key)}
+                onEdit={onEdit ? () => onEdit(server) : undefined}
+                onDelete={onDelete ? () => onDelete(server) : undefined}
+              />
             );
           })}
         </div>

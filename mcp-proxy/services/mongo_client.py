@@ -45,27 +45,60 @@ class McpServerEntry:
     url: str
     api_key: str = ""
     scope: str = "system"
+    enabled: bool = True
 
 
-async def read_enabled_mcp_servers(user_id: str | None = None) -> list[McpServerEntry]:
-    """读取系统 MCP + 指定用户的个人 MCP（均已启用）。"""
+async def read_mcp_servers(
+    user_id: str | None = None,
+    *,
+    include_disabled: bool = False,
+    name: str | None = None,
+    scope: str | None = None,
+) -> list[McpServerEntry]:
+    """读取系统 MCP + 指定用户的个人 MCP。"""
     db = _get_db()
-    query_parts: list[dict[str, Any]] = [{**_system_user_filter(), "enabled": {"$ne": False}}]
+    query_parts: list[dict[str, Any]] = [_system_user_filter()]
     if user_id and user_id.strip():
-        query_parts.append({"user_id": user_id.strip(), "enabled": {"$ne": False}})
+        query_parts.append({"user_id": user_id.strip()})
 
-    cursor = db[_COLLECTION].find({"$or": query_parts})
+    filters: list[dict[str, Any]] = [{"$or": query_parts}]
+    if not include_disabled:
+        filters.append({"enabled": {"$ne": False}})
+    if name:
+        filters.append({"name": name})
+    if scope == "system":
+        filters.append(_system_user_filter())
+    elif scope == "user":
+        if not user_id or not user_id.strip():
+            return []
+        filters.append({"user_id": user_id.strip()})
+
+    mongo_query: dict[str, Any] = {"$and": filters} if len(filters) > 1 else filters[0]
+    cursor = db[_COLLECTION].find(mongo_query)
     result: list[McpServerEntry] = []
     async for raw in cursor:
         if not raw.get("url"):
             continue
-        scope = "user" if raw.get("user_id") else "system"
+        entry_scope = "user" if raw.get("user_id") else "system"
         result.append(McpServerEntry(
             name=str(raw["name"]),
             url=str(raw["url"]),
             api_key=str(raw.get("api_key") or ""),
-            scope=scope,
+            scope=entry_scope,
+            enabled=bool(raw.get("enabled", True)),
         ))
 
-    logger.info("MCP servers user=%s count=%d", user_id or "-", len(result))
+    logger.info(
+        "MCP servers user=%s count=%d include_disabled=%s name=%s scope=%s",
+        user_id or "-",
+        len(result),
+        include_disabled,
+        name or "-",
+        scope or "-",
+    )
     return result
+
+
+async def read_enabled_mcp_servers(user_id: str | None = None) -> list[McpServerEntry]:
+    """读取已启用的 MCP Server（供 pi 聚合调用）。"""
+    return await read_mcp_servers(user_id, include_disabled=False)

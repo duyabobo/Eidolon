@@ -34,10 +34,13 @@ class McpServerStatusItem(BaseModel):
     name: str
     scope: str
     url: str
+    enabled: bool = True
     available: bool
     tool_count: int
+    tools: list[str] = Field(default_factory=list)
     error: str = ""
     latency_ms: int = 0
+    skipped: bool = False
 
 
 class McpServerStatusResponse(BaseModel):

@@ -39,14 +39,25 @@ async def ensure_mcp_indexes() -> None:
     )
 
 
-async def list_mcp_for_user(user_id: str | None) -> list[McpServerItem]:
+async def list_mcp_for_user(
+    user_id: str | None,
+    *,
+    include_disabled: bool = False,
+) -> list[McpServerItem]:
     db = get_db()
-    cursor = db[_COLLECTION].find({**_system_user_filter(), "enabled": {"$ne": False}})
+    system_filter = _system_user_filter()
+    system_query: dict[str, Any] = dict(system_filter)
+    if not include_disabled:
+        system_query["enabled"] = {"$ne": False}
+    cursor = db[_COLLECTION].find(system_query)
     items = [_to_item(raw) async for raw in cursor]
 
     if user_id and user_id.strip():
         uid = user_id.strip()
-        user_cursor = db[_COLLECTION].find({"user_id": uid, "enabled": {"$ne": False}})
+        user_query: dict[str, Any] = {"user_id": uid}
+        if not include_disabled:
+            user_query["enabled"] = {"$ne": False}
+        user_cursor = db[_COLLECTION].find(user_query)
         items.extend([_to_item(raw) async for raw in user_cursor])
 
     items.sort(key=lambda item: (item.scope.value, item.name))

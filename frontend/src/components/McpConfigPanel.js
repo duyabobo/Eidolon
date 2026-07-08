@@ -1,78 +1,25 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { configApi } from "../api/config";
-import { mcpApi } from "../api/mcp";
-import { McpEditModal, McpServerStatusBadge, mcpServerStatusKey } from "./McpServerUi";
+import { McpEditModal, McpServerRow } from "./McpServerUi";
+import { serverStatusKey } from "./mcpManagerUtils";
+import { useMcpManager } from "./useMcpManager";
 const EMPTY_SERVER = { url: "", description: "", enabled: true, api_key: "" };
 function ScopeBadge({ scope }) {
     return (_jsx("span", { className: `text-[10px] px-1.5 py-0.5 rounded-full font-medium ${scope === "user" ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"}`, children: scope === "user" ? "我的" : "系统" }));
 }
 export default function McpConfigPanel({ userId }) {
-    const [servers, setServers] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [probing, setProbing] = useState(false);
-    const [statusMap, setStatusMap] = useState({});
+    const { servers, loading, probingAll, probingKeys, statusMap, expandedToolKeys, errMsg, setErrMsg, load, probeAll, probeOne, toggleExpandedTools, saveServer, toggleEnabled, deleteServer, } = useMcpManager({ userId, includeDisabled: true });
     const [edit, setEdit] = useState(null);
-    const [errMsg, setErrMsg] = useState(null);
-    const refreshStatus = useCallback(async () => {
-        setProbing(true);
-        try {
-            const res = await mcpApi.getServerStatus(userId.trim() || undefined);
-            const next = {};
-            for (const item of res.servers) {
-                next[mcpServerStatusKey(item.scope, item.name)] = item;
-            }
-            setStatusMap(next);
-        }
-        catch {
-            setStatusMap({});
-        }
-        finally {
-            setProbing(false);
-        }
-    }, [userId]);
-    const load = useCallback(async () => {
-        setLoading(true);
-        try {
-            const list = await mcpApi.listForChat(userId.trim() || undefined);
-            setServers(list);
-        }
-        catch {
-            setServers([]);
-        }
-        finally {
-            setLoading(false);
-        }
-    }, [userId]);
     useEffect(() => {
-        void (async () => {
-            await load();
-            await refreshStatus();
-        })();
-    }, [load, refreshStatus]);
-    const handleDeleteSystem = async (name) => {
-        if (!confirm(`确认删除系统 MCP "${name}"？`))
+        void load();
+    }, [load]);
+    const handleDelete = async (server) => {
+        const label = server.scope === "system" ? "系统" : "个人";
+        if (!confirm(`确认删除${label} MCP "${server.name}"？`))
             return;
-        setErrMsg(null);
         try {
-            await configApi.deleteServer(name);
-            await load();
-            await refreshStatus();
-        }
-        catch (e) {
-            setErrMsg(e instanceof Error ? e.message : "删除失败");
-        }
-    };
-    const handleDeleteUser = async (name) => {
-        if (!userId.trim())
-            return;
-        if (!confirm(`确认删除个人 MCP "${name}"？`))
-            return;
-        setErrMsg(null);
-        try {
-            await mcpApi.deleteUserServer(userId.trim(), name);
-            await load();
-            await refreshStatus();
+            await deleteServer(server);
         }
         catch (e) {
             setErrMsg(e instanceof Error ? e.message : "删除失败");
@@ -144,33 +91,27 @@ export default function McpConfigPanel({ userId }) {
             setErrMsg("URL 不能为空");
             return;
         }
-        setErrMsg(null);
         try {
-            if (edit.scope === "system") {
-                await configApi.addServer(edit.name.trim(), edit.config);
-            }
-            else {
-                if (!userId.trim()) {
-                    setErrMsg("请先在「历史」页设置用户 ID");
-                    return;
-                }
-                await mcpApi.addUserServer(userId.trim(), edit.name.trim(), edit.config);
-            }
+            await saveServer(edit.scope, edit.name.trim(), edit.config);
             setEdit(null);
-            await load();
-            await refreshStatus();
         }
         catch (e) {
             setErrMsg(e instanceof Error ? e.message : "保存失败");
         }
     };
+    const handleToggleEnabled = async (server, enabled) => {
+        try {
+            await toggleEnabled(server, enabled);
+        }
+        catch (e) {
+            setErrMsg(e instanceof Error ? e.message : "更新失败");
+        }
+    };
     if (loading)
         return _jsx("div", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u4E2D\u2026" });
-    return (_jsxs("div", { className: "space-y-4", children: [errMsg && (_jsx("p", { className: "text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700", children: errMsg })), _jsxs("div", { className: "space-y-2", children: [servers.length === 0 && (_jsx("p", { className: "text-sm text-ink-400 text-center py-8 border border-dashed border-ink-200 rounded-xl", children: "\u6682\u65E0 MCP Server" })), servers.map((server) => {
-                        const statusKey = mcpServerStatusKey(server.scope, server.name);
-                        return (_jsxs("div", { className: "flex items-center gap-3 border border-ink-200/60 rounded-xl px-4 py-3", children: [_jsxs("div", { className: "flex-1 min-w-0", children: [_jsxs("div", { className: "flex items-center gap-2 flex-wrap", children: [_jsx(ScopeBadge, { scope: server.scope }), _jsx("span", { className: "text-sm font-medium text-ink-800", children: server.name }), server.enabled === false && (_jsx("span", { className: "text-xs bg-ink-100 text-ink-500 px-1.5 py-0.5 rounded", children: "\u5DF2\u7981\u7528" })), server.has_api_key && (_jsx("span", { className: "text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded", children: "\u5DF2\u914D\u7F6E API Key" })), _jsx(McpServerStatusBadge, { statusKey: statusKey, statusMap: statusMap, probing: probing })] }), _jsx("p", { className: "text-xs text-ink-400 truncate mt-0.5", children: server.url }), server.description && _jsx("p", { className: "text-xs text-ink-400 mt-0.5", children: server.description })] }), _jsxs("div", { className: "flex gap-2 shrink-0", children: [_jsx("button", { type: "button", onClick: () => (server.scope === "system" ? void openSystemEdit(server) : openUserEdit(server)), className: "text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50", children: "\u7F16\u8F91" }), _jsx("button", { type: "button", onClick: () => (server.scope === "system"
-                                                ? handleDeleteSystem(server.name)
-                                                : handleDeleteUser(server.name)), className: "text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50", children: "\u5220\u9664" })] })] }, statusKey));
+    return (_jsxs("div", { className: "space-y-4", children: [errMsg && (_jsx("p", { className: "text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700", children: errMsg })), _jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsx("p", { className: "text-xs text-ink-500", children: "\u542B\u5DF2\u7981\u7528 Server\uFF1B\u53EF\u7528\u6027\u9700\u624B\u52A8\u6D4B\u8BD5\u540E\u5237\u65B0 tool \u5217\u8868" }), _jsx("button", { type: "button", onClick: () => void probeAll(), disabled: probingAll || servers.length === 0, className: "text-xs px-3 py-1.5 border border-sky-200 rounded-lg text-sky-700 hover:bg-sky-50 disabled:opacity-50 shrink-0", children: probingAll ? "测试中…" : "测试全部" })] }), _jsxs("div", { className: "space-y-2", children: [servers.length === 0 && (_jsx("p", { className: "text-sm text-ink-400 text-center py-8 border border-dashed border-ink-200 rounded-xl", children: "\u6682\u65E0 MCP Server" })), servers.map((server) => {
+                        const key = serverStatusKey(server);
+                        return (_jsx(McpServerRow, { server: server, status: statusMap[key], probing: probingKeys.has(key), toolsExpanded: expandedToolKeys.has(key), scopeBadge: _jsx(ScopeBadge, { scope: server.scope }), onToggleEnabled: (enabled) => void handleToggleEnabled(server, enabled), onProbe: () => void probeOne(server), onToggleTools: () => toggleExpandedTools(key), onEdit: () => (server.scope === "system" ? void openSystemEdit(server) : openUserEdit(server)), onDelete: () => void handleDelete(server) }, key));
                     })] }), _jsx("button", { type: "button", onClick: openUserCreate, className: "w-full py-2.5 border-2 border-dashed border-emerald-300/80 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50/50 transition-colors", children: "+ \u6DFB\u52A0\u4E2A\u4EBA MCP" }), edit && (_jsx(McpEditModal, { title: edit.isNew
                     ? "添加个人 MCP"
                     : edit.scope === "system"

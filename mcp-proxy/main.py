@@ -5,7 +5,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse, Response
 
 from config import settings
@@ -89,10 +89,20 @@ async def health() -> dict:
 
 
 @app.get("/servers/status", tags=["mcp"])
-async def servers_status(request: Request) -> dict:
-    """探测各 MCP Server 连通性并返回工具数量（不缓存，每次实时检测）。"""
+async def servers_status(
+    request: Request,
+    include_disabled: bool = Query(False, description="是否包含已禁用的 Server"),
+    name: str | None = Query(None, description="仅探测指定名称"),
+    scope: str | None = Query(None, description="system 或 user，配合 name 使用"),
+) -> dict:
+    """探测 MCP Server 连通性并返回工具列表（不缓存，每次实时检测）。"""
     user_id = request.headers.get("X-User-Id") or None
-    servers = await mongo_client.read_enabled_mcp_servers(user_id)
+    servers = await mongo_client.read_mcp_servers(
+        user_id,
+        include_disabled=include_disabled,
+        name=name,
+        scope=scope,
+    )
     items = await probe_mcp_servers(servers)
     return {"servers": items}
 

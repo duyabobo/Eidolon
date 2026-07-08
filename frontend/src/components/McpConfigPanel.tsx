@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { configApi, McpServerConfig } from "../api/config";
-import { mcpApi, McpServerItem, McpServerStatus } from "../api/mcp";
-import { McpEditModal, McpServerStatusBadge, mcpServerStatusKey } from "./McpServerUi";
+import type { McpServerItem } from "../api/mcp";
+import { McpEditModal, McpServerRow } from "./McpServerUi";
+import { serverStatusKey } from "./mcpManagerUtils";
+import { useMcpManager } from "./useMcpManager";
 
 const EMPTY_SERVER: McpServerConfig = { url: "", description: "", enabled: true, api_key: "" };
 
@@ -27,68 +29,35 @@ function ScopeBadge({ scope }: { scope: "system" | "user" }) {
 }
 
 export default function McpConfigPanel({ userId }: Props) {
-  const [servers, setServers] = useState<McpServerItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [probing, setProbing] = useState(false);
-  const [statusMap, setStatusMap] = useState<Record<string, McpServerStatus>>({});
+  const {
+    servers,
+    loading,
+    probingAll,
+    probingKeys,
+    statusMap,
+    expandedToolKeys,
+    errMsg,
+    setErrMsg,
+    load,
+    probeAll,
+    probeOne,
+    toggleExpandedTools,
+    saveServer,
+    toggleEnabled,
+    deleteServer,
+  } = useMcpManager({ userId, includeDisabled: true });
+
   const [edit, setEdit] = useState<EditState | null>(null);
-  const [errMsg, setErrMsg] = useState<string | null>(null);
-
-  const refreshStatus = useCallback(async () => {
-    setProbing(true);
-    try {
-      const res = await mcpApi.getServerStatus(userId.trim() || undefined);
-      const next: Record<string, McpServerStatus> = {};
-      for (const item of res.servers) {
-        next[mcpServerStatusKey(item.scope, item.name)] = item;
-      }
-      setStatusMap(next);
-    } catch {
-      setStatusMap({});
-    } finally {
-      setProbing(false);
-    }
-  }, [userId]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const list = await mcpApi.listForChat(userId.trim() || undefined);
-      setServers(list);
-    } catch {
-      setServers([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
 
   useEffect(() => {
-    void (async () => {
-      await load();
-      await refreshStatus();
-    })();
-  }, [load, refreshStatus]);
+    void load();
+  }, [load]);
 
-  const handleDeleteSystem = async (name: string) => {
-    if (!confirm(`确认删除系统 MCP "${name}"？`)) return;
-    setErrMsg(null);
+  const handleDelete = async (server: McpServerItem) => {
+    const label = server.scope === "system" ? "系统" : "个人";
+    if (!confirm(`确认删除${label} MCP "${server.name}"？`)) return;
     try {
-      await configApi.deleteServer(name);
-      await load();
-      await refreshStatus();
-    } catch (e) {
-      setErrMsg(e instanceof Error ? e.message : "删除失败");
-    }
-  };
-
-  const handleDeleteUser = async (name: string) => {
-    if (!userId.trim()) return;
-    if (!confirm(`确认删除个人 MCP "${name}"？`)) return;
-    setErrMsg(null);
-    try {
-      await mcpApi.deleteUserServer(userId.trim(), name);
-      await load();
-      await refreshStatus();
+      await deleteServer(server);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "删除失败");
     }
@@ -161,22 +130,19 @@ export default function McpConfigPanel({ userId }: Props) {
       setErrMsg("URL 不能为空");
       return;
     }
-    setErrMsg(null);
     try {
-      if (edit.scope === "system") {
-        await configApi.addServer(edit.name.trim(), edit.config);
-      } else {
-        if (!userId.trim()) {
-          setErrMsg("请先在「历史」页设置用户 ID");
-          return;
-        }
-        await mcpApi.addUserServer(userId.trim(), edit.name.trim(), edit.config);
-      }
+      await saveServer(edit.scope, edit.name.trim(), edit.config);
       setEdit(null);
-      await load();
-      await refreshStatus();
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "保存失败");
+    }
+  };
+
+  const handleToggleEnabled = async (server: McpServerItem, enabled: boolean) => {
+    try {
+      await toggleEnabled(server, enabled);
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : "更新失败");
     }
   };
 
@@ -190,6 +156,20 @@ export default function McpConfigPanel({ userId }: Props) {
         </p>
       )}
 
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-ink-500">
+          含已禁用 Server；可用性需手动测试后刷新 tool 列表
+        </p>
+        <button
+          type="button"
+          onClick={() => void probeAll()}
+          disabled={probingAll || servers.length === 0}
+          className="text-xs px-3 py-1.5 border border-sky-200 rounded-lg text-sky-700 hover:bg-sky-50 disabled:opacity-50 shrink-0"
+        >
+          {probingAll ? "测试中…" : "测试全部"}
+        </button>
+      </div>
+
       <div className="space-y-2">
         {servers.length === 0 && (
           <p className="text-sm text-ink-400 text-center py-8 border border-dashed border-ink-200 rounded-xl">
@@ -197,46 +177,21 @@ export default function McpConfigPanel({ userId }: Props) {
           </p>
         )}
         {servers.map((server) => {
-          const statusKey = mcpServerStatusKey(server.scope, server.name);
+          const key = serverStatusKey(server);
           return (
-            <div
-              key={statusKey}
-              className="flex items-center gap-3 border border-ink-200/60 rounded-xl px-4 py-3"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <ScopeBadge scope={server.scope} />
-                  <span className="text-sm font-medium text-ink-800">{server.name}</span>
-                  {server.enabled === false && (
-                    <span className="text-xs bg-ink-100 text-ink-500 px-1.5 py-0.5 rounded">已禁用</span>
-                  )}
-                  {server.has_api_key && (
-                    <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">已配置 API Key</span>
-                  )}
-                  <McpServerStatusBadge statusKey={statusKey} statusMap={statusMap} probing={probing} />
-                </div>
-                <p className="text-xs text-ink-400 truncate mt-0.5">{server.url}</p>
-                {server.description && <p className="text-xs text-ink-400 mt-0.5">{server.description}</p>}
-              </div>
-              <div className="flex gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => (server.scope === "system" ? void openSystemEdit(server) : openUserEdit(server))}
-                  className="text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50"
-                >
-                  编辑
-                </button>
-                <button
-                  type="button"
-                  onClick={() => (server.scope === "system"
-                    ? handleDeleteSystem(server.name)
-                    : handleDeleteUser(server.name))}
-                  className="text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50"
-                >
-                  删除
-                </button>
-              </div>
-            </div>
+            <McpServerRow
+              key={key}
+              server={server}
+              status={statusMap[key]}
+              probing={probingKeys.has(key)}
+              toolsExpanded={expandedToolKeys.has(key)}
+              scopeBadge={<ScopeBadge scope={server.scope} />}
+              onToggleEnabled={(enabled) => void handleToggleEnabled(server, enabled)}
+              onProbe={() => void probeOne(server)}
+              onToggleTools={() => toggleExpandedTools(key)}
+              onEdit={() => (server.scope === "system" ? void openSystemEdit(server) : openUserEdit(server))}
+              onDelete={() => void handleDelete(server)}
+            />
           );
         })}
       </div>

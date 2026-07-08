@@ -15,25 +15,44 @@ class McpServerProbeResult:
     name: str
     scope: str
     url: str
+    enabled: bool
     available: bool
     tool_count: int
+    tools: list[str]
     error: str = ""
     latency_ms: int = 0
+    skipped: bool = False
 
 
 async def probe_mcp_server(server: McpServerEntry) -> McpServerProbeResult:
+    if not server.enabled:
+        return McpServerProbeResult(
+            name=server.name,
+            scope=server.scope,
+            url=server.url,
+            enabled=False,
+            available=False,
+            tool_count=0,
+            tools=[],
+            skipped=True,
+            error="Server 已禁用",
+        )
+
     started = time.monotonic()
     try:
         async with AsyncExitStack() as stack:
             session = await open_mcp_session(stack, server.url, server.api_key)
             tools_result = await session.list_tools()
+            tool_names = [tool.name for tool in tools_result.tools]
             latency_ms = int((time.monotonic() - started) * 1000)
             return McpServerProbeResult(
                 name=server.name,
                 scope=server.scope,
                 url=server.url,
+                enabled=True,
                 available=True,
-                tool_count=len(tools_result.tools),
+                tool_count=len(tool_names),
+                tools=tool_names,
                 latency_ms=latency_ms,
             )
     except Exception as exc:
@@ -48,8 +67,10 @@ async def probe_mcp_server(server: McpServerEntry) -> McpServerProbeResult:
             name=server.name,
             scope=server.scope,
             url=server.url,
+            enabled=True,
             available=False,
             tool_count=0,
+            tools=[],
             error=str(exc),
             latency_ms=latency_ms,
         )
