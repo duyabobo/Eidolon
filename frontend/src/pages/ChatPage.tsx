@@ -6,6 +6,7 @@ import {
 } from "../api/session";
 import { skillsApi, Skill, SkillScope, toSkillRef } from "../api/skills";
 import SkillCreatorChat from "../components/SkillCreatorChat";
+import UserMcpPanel from "../components/UserMcpPanel";
 
 // ── 消息结构 ────────────────────────────────────────────────────────────────
 
@@ -164,6 +165,7 @@ export default function ChatPage() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showSkillCreator, setShowSkillCreator] = useState(false);
+  const [showMcpPanel, setShowMcpPanel] = useState(false);
 
   // session_id：当前 chat 窗口的 session，null 表示尚未创建
   const sessionIdRef = useRef<string | null>(null);
@@ -423,6 +425,17 @@ export default function ChatPage() {
           <button
             onClick={() => {
               if (!userId.trim()) { setError("请先填写用户 ID"); return; }
+              setShowMcpPanel(true);
+            }}
+            title="管理 MCP"
+            className="text-xs px-2 py-1 border border-sky-300 text-sky-700 rounded-lg hover:bg-sky-50 whitespace-nowrap"
+          >
+            MCP
+          </button>
+
+          <button
+            onClick={() => {
+              if (!userId.trim()) { setError("请先填写用户 ID"); return; }
               setShowSkillCreator(true);
             }}
             title="对话创建我的 Skill"
@@ -465,6 +478,10 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+
+      {showMcpPanel && userId.trim() && (
+        <UserMcpPanel userId={userId.trim()} onClose={() => setShowMcpPanel(false)} />
+      )}
 
       {showSkillCreator && userId.trim() && (
         <SkillCreatorChat

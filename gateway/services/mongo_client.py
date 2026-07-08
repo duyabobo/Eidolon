@@ -21,8 +21,11 @@ def get_db() -> AsyncIOMotorDatabase:
 async def connect() -> None:
     global _client
     _client = AsyncIOMotorClient(settings.mongo_uri)
-    from services import skill_mongo
+    db = _client[settings.mongo_db]
+    from services import mcp_mongo, skill_mongo
 
+    await mcp_mongo.ensure_indexes(db)
+    await mcp_mongo.migrate_legacy_config(db)
     await skill_mongo.ensure_skill_indexes()
     logger.info("MongoDB 连接成功: %s / %s", settings.mongo_uri, settings.mongo_db)
 

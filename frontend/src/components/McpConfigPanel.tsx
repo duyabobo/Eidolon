@@ -63,7 +63,7 @@ export default function McpConfigPanel() {
   return (
     <div className="space-y-4">
       <p className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-        MCP 配置保存后，下一个新建 session 即可使用最新配置，无需重启服务。
+        系统 MCP 配置保存在 MongoDB（mcp_servers 集合，user_id 为空）。保存后 mcp-proxy 最多 60s 内自动生效。
       </p>
 
       {msg && (
@@ -88,6 +88,7 @@ export default function McpConfigPanel() {
           >
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
+                <span className="text-xs bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">系统</span>
                 <span className="text-sm font-medium text-gray-800">{name}</span>
                 {cfg.enabled === false && (
                   <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">已禁用</span>

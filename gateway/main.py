@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from logger import setup_logging
 from middleware import AccessLogMiddleware
-from routes import session, skills, stream
+from routes import mcp, session, skills, stream
 from services import mongo_client, redis_client
 
 setup_logging("gateway")
@@ -25,6 +25,7 @@ app.add_middleware(AccessLogMiddleware)
 app.include_router(session.router)
 app.include_router(stream.router)
 app.include_router(skills.router)
+app.include_router(mcp.router)
 
 
 @app.on_event("startup")

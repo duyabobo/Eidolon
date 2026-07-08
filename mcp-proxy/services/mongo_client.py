@@ -1,8 +1,9 @@
 """
-MongoDB 客户端：只读取 configs 集合中的 mcp 配置，不写入任何数据。
+MongoDB 客户端：读取 mcp_servers 集合（系统 + 用户 MCP）。
 """
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
@@ -11,12 +12,17 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 _client: AsyncIOMotorClient | None = None
+_COLLECTION = "mcp_servers"
 
 
 def _get_db() -> AsyncIOMotorDatabase:
     if _client is None:
         raise RuntimeError("MongoDB 未连接，请先调用 connect()")
     return _client[settings.mongo_db]
+
+
+def _system_user_filter() -> dict[str, Any]:
+    return {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}]}
 
 
 async def connect() -> None:
@@ -37,25 +43,23 @@ async def disconnect() -> None:
 class McpServerEntry:
     name: str
     url: str
+    scope: str = "system"
 
 
-async def read_enabled_mcp_servers() -> list[McpServerEntry]:
-    """读取所有启用的 URL 类型 MCP Server 配置。command 类型本地进程不允许，直接过滤。"""
-    raw = await _get_db().configs.find_one({"_id": "mcp"})
-    if not raw or "servers" not in raw:
-        return []
+async def read_enabled_mcp_servers(user_id: str | None = None) -> list[McpServerEntry]:
+    """读取系统 MCP + 指定用户的个人 MCP（均已启用）。"""
+    db = _get_db()
+    query_parts: list[dict[str, Any]] = [{**_system_user_filter(), "enabled": {"$ne": False}}]
+    if user_id and user_id.strip():
+        query_parts.append({"user_id": user_id.strip(), "enabled": {"$ne": False}})
 
-    servers: dict = raw["servers"]
+    cursor = db[_COLLECTION].find({"$or": query_parts})
     result: list[McpServerEntry] = []
+    async for raw in cursor:
+        if not raw.get("url"):
+            continue
+        scope = "user" if raw.get("user_id") else "system"
+        result.append(McpServerEntry(name=str(raw["name"]), url=str(raw["url"]), scope=scope))
 
-    for name, cfg in servers.items():
-        if not isinstance(cfg, dict):
-            continue
-        if not cfg.get("url"):
-            logger.warning("MCP server '%s' 缺少 url 字段，已跳过", name)
-            continue
-        if cfg.get("enabled") is False:
-            continue
-        result.append(McpServerEntry(name=name, url=cfg["url"]))
-
+    logger.info("MCP servers user=%s count=%d", user_id or "-", len(result))
     return result

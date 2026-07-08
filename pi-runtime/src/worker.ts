@@ -24,6 +24,10 @@ import {
   setSessionQuestionId,
   unregisterSessionLlmBridge,
 } from "./session-llm-bridge";
+import {
+  registerSessionMcpBridge,
+  unregisterSessionMcpBridge,
+} from "./session-mcp-bridge";
 
 // ── 消息类型定义 ──────────────────────────────────────────────────────────────
 
@@ -105,6 +109,7 @@ async function closeSession(sessionId: string, reason: string): Promise<void> {
     console.error(`[worker] 关闭 pi 进程失败: session=${sessionId}`, err)
   );
   unregisterSessionLlmBridge(sessionId);
+  unregisterSessionMcpBridge(sessionId);
   await running.messageSubscriber.quit().catch(() => {});
   await running.closeSubscriber.quit().catch(() => {});
   await destroySandbox(running.userId, sessionId).catch((err) =>
@@ -135,6 +140,12 @@ async function startAndRegisterSession(
     sessionId,
     process.env.LLM_PROXY_HOST ?? "llm-proxy",
     Number(process.env.LLM_PROXY_PORT ?? 9001),
+  );
+  registerSessionMcpBridge(
+    sessionId,
+    userId,
+    process.env.MCP_PROXY_HOST ?? "mcp-proxy",
+    Number(process.env.MCP_PROXY_PORT ?? 8080),
   );
 
   const piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);
@@ -301,13 +312,8 @@ async function main(): Promise<void> {
   await connectRedis();
 
   // 启动 Unix socket 桥：为沙盒提供 llm-proxy 和 mcp-proxy 两个网络白名单出口
-  startSocketBridge(
-    process.env.LLM_PROXY_HOST ?? "llm-proxy",
-    Number(process.env.LLM_PROXY_PORT ?? 9001),
-    process.env.MCP_PROXY_HOST ?? "mcp-proxy",
-    Number(process.env.MCP_PROXY_PORT ?? 8080)
-  );
-  console.log(`[worker] socket bridge 已启动（mcp.sock → mcp-proxy，LLM 按 session 注册）`);
+  startSocketBridge();
+  console.log(`[worker] socket 目录已就绪（LLM/MCP 按 session 注册）`);
 
   const subscriber = await startSubscriber();
 

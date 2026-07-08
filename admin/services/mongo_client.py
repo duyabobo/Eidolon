@@ -33,7 +33,12 @@ def _meta_key(name: str, user_id: str | None = None) -> dict[str, Any]:
 async def connect() -> None:
     global _client
     _client = AsyncIOMotorClient(settings.mongo_uri)
-    await _client[settings.mongo_db][_SKILL_COLLECTION].create_index(
+    db = get_db()
+    from services import mcp_mongo
+
+    await mcp_mongo.ensure_indexes(db)
+    await mcp_mongo.migrate_legacy_config(db)
+    await db.skills.create_index(
         [("user_id", 1), ("name", 1)],
         unique=True,
         name="skill_user_name_unique",
@@ -49,19 +54,19 @@ async def disconnect() -> None:
 
 
 async def get_mcp_config() -> McpConfig:
-    raw = await get_db()[_CONFIG_COLLECTION].find_one({"_id": _MCP_DOC_ID})
-    if not raw:
-        return McpConfig()
-    raw.pop("_id", None)
-    return McpConfig(**raw)
+    from services.mcp_mongo import list_system_config
+    return await list_system_config(get_db())
 
 
 async def save_mcp_config(cfg: McpConfig) -> None:
-    await get_db()[_CONFIG_COLLECTION].update_one(
-        {"_id": _MCP_DOC_ID},
-        {"$set": cfg.model_dump()},
-        upsert=True,
-    )
+    db = get_db()
+    from services.mcp_mongo import _meta_key, upsert_server
+
+    cursor = db.mcp_servers.find(_system_user_filter())
+    async for raw in cursor:
+        await db.mcp_servers.delete_one(_meta_key(str(raw["name"]), None))
+    for name, server in cfg.servers.items():
+        await upsert_server(db, name, server, None)
     logger.info("MCP 配置已保存，共 %d 个 server", len(cfg.servers))
 
 
