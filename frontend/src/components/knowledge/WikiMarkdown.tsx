@@ -11,6 +11,7 @@ import {
   preprocessWikiMarkdown,
   wikiNodeIdFromHref,
 } from "./wikiMarkdownLinks";
+import { preprocessStructuredFields } from "./wikiStructuredText";
 
 interface WikiMarkdownProps {
   content: string;
@@ -29,7 +30,8 @@ export default function WikiMarkdown({
   if (!text) return null;
 
   const titleIndex = buildTitleNodeIndex(graphNodes);
-  const withConnections = preprocessConnectionLines(text, graphNodes);
+  const withStructured = preprocessStructuredFields(text);
+  const withConnections = preprocessConnectionLines(withStructured, graphNodes);
   const processed = preprocessWikiMarkdown(withConnections, titleIndex);
 
   const components: Components = {
@@ -50,7 +52,12 @@ export default function WikiMarkdown({
         return <span>{children}</span>;
       }
       return (
-        <a href={href} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="text-brand-600 hover:text-brand-700 hover:underline break-all"
+        >
           {children}
         </a>
       );
