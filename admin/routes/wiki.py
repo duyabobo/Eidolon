@@ -1,13 +1,16 @@
 import logging
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 
+from constants.knowledge import KNOWLEDGE_KEY_HEADER
 from models.wiki import (
     WikiDocumentGraphResponse,
     WikiGraphByDocRequest,
     WikiNodeDetailRequest,
     WikiNodeDetailResponse,
 )
+from routes.knowledge_deps import require_knowledge_key
 from services import knowledge_config_store, wiki_client
 
 logger = logging.getLogger(__name__)
@@ -24,12 +27,18 @@ async def _require_remote_mode() -> None:
 
 
 @router.post("/graph/by_doc", response_model=WikiDocumentGraphResponse)
-async def api_wiki_graph_by_doc(body: WikiGraphByDocRequest) -> WikiDocumentGraphResponse:
+async def api_wiki_graph_by_doc(
+    body: WikiGraphByDocRequest,
+    x_knowledge_key: Annotated[str | None, Header(alias=KNOWLEDGE_KEY_HEADER)] = None,
+) -> WikiDocumentGraphResponse:
     await _require_remote_mode()
-    return await wiki_client.graph_by_doc(body)
+    return await wiki_client.graph_by_doc(require_knowledge_key(x_knowledge_key), body)
 
 
 @router.post("/nodes/detail", response_model=WikiNodeDetailResponse)
-async def api_wiki_node_detail(body: WikiNodeDetailRequest) -> WikiNodeDetailResponse:
+async def api_wiki_node_detail(
+    body: WikiNodeDetailRequest,
+    x_knowledge_key: Annotated[str | None, Header(alias=KNOWLEDGE_KEY_HEADER)] = None,
+) -> WikiNodeDetailResponse:
     await _require_remote_mode()
-    return await wiki_client.node_detail(body)
+    return await wiki_client.node_detail(require_knowledge_key(x_knowledge_key), body)

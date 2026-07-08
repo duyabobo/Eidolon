@@ -13,7 +13,7 @@ from models.wiki import (
     WikiNodeDetailResponse,
     WikiNodeItem,
 )
-from services.knowledge_client import _get_knowledge_key, _knowledge_headers, _raise_upstream_error, _resolve_base_url, _unwrap_data
+from services.knowledge_client import _knowledge_headers, _raise_upstream_error, _resolve_base_url, _unwrap_data
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,7 @@ def _parse_node_detail(data: dict[str, Any]) -> WikiNodeDetailResponse:
     )
 
 
-async def graph_by_doc(body: WikiGraphByDocRequest) -> WikiDocumentGraphResponse:
-    knowledge_key = await _get_knowledge_key()
+async def graph_by_doc(knowledge_key: str, body: WikiGraphByDocRequest) -> WikiDocumentGraphResponse:
     root = await _resolve_base_url()
     payload: dict[str, Any] = {
         "doc_id": body.doc_id,
@@ -64,8 +63,7 @@ async def graph_by_doc(body: WikiGraphByDocRequest) -> WikiDocumentGraphResponse
     return _parse_graph(raw if isinstance(raw, dict) else {})
 
 
-async def node_detail(body: WikiNodeDetailRequest) -> WikiNodeDetailResponse:
-    knowledge_key = await _get_knowledge_key()
+async def node_detail(knowledge_key: str, body: WikiNodeDetailRequest) -> WikiNodeDetailResponse:
     root = await _resolve_base_url()
     payload: dict[str, Any] = {
         "node_id": body.node_id,

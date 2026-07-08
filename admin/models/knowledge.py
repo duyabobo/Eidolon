@@ -63,3 +63,7 @@ class KnowledgeServiceConfig(BaseModel):
     base_url: str = Field(default="", max_length=512, description="知识库 API 根地址，如 http://knowledge:8080/v1/knowledge")
     scene_uid: str = Field(default="", max_length=128, description="mRAG 用户 scene_uid，用于 get_or_create_knowledge_key")
     created_at: datetime | None = None
+
+
+class KnowledgeKeyResponse(BaseModel):
+    knowledge_key: str

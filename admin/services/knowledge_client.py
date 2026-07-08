@@ -10,7 +10,6 @@ from constants.knowledge import (
     DEFAULT_DATASET_AVATAR,
     KNOWLEDGE_BATCH_PROCESS_TYPE,
     KNOWLEDGE_SCENE_TYPE,
-    MRAG_KEY_COLLECTION,
 )
 from models.knowledge import (
     KnowledgeBase,
@@ -19,9 +18,9 @@ from models.knowledge import (
     KnowledgeBaseUpdate,
     KnowledgeDocument,
     KnowledgeDocumentList,
+    KnowledgeKeyResponse,
 )
 from services.knowledge_config_store import get_service_config, normalize_base_url, resolve_scene_uid
-from services.mongo_client import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -159,44 +158,25 @@ def _map_document(kb_id: str, raw: dict) -> KnowledgeDocument:
     )
 
 
-async def _get_knowledge_key() -> str:
+async def fetch_knowledge_key() -> KnowledgeKeyResponse:
+    """按当前服务配置调用 mRAG get_or_create_knowledge_key（不缓存）。"""
     scene_uid = await resolve_scene_uid()
-    db = get_db()
-    cached = await db[MRAG_KEY_COLLECTION].find_one({
-        "scene_uid": scene_uid,
-        "scene_type": KNOWLEDGE_SCENE_TYPE,
-    })
-    if cached and cached.get("knowledge_key"):
-        return str(cached["knowledge_key"])
-
     root = await _resolve_base_url()
     payload = {
         "scene_uid": scene_uid,
         "scene_type": KNOWLEDGE_SCENE_TYPE,
     }
-    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.post(f"{root}/dataset/get_or_create_knowledge_key", json=payload)
+    resp = await _request_json(
+        "POST",
+        f"{root}/dataset/get_or_create_knowledge_key",
+        json=payload,
+    )
     data = _unwrap_data(resp)
     knowledge_key = str((data or {}).get("knowledge_key") or "")
     if not knowledge_key:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="知识库服务未返回 knowledge_key")
-
-    await db[MRAG_KEY_COLLECTION].update_one(
-        {"scene_uid": scene_uid, "scene_type": KNOWLEDGE_SCENE_TYPE},
-        {"$set": {
-            "scene_uid": scene_uid,
-            "scene_type": KNOWLEDGE_SCENE_TYPE,
-            "knowledge_key": knowledge_key,
-            "updated_at": datetime.now(timezone.utc),
-        }},
-        upsert=True,
-    )
-    logger.info(
-        "知识库用户已注册 scene_uid=%s scene_type=%s",
-        scene_uid,
-        KNOWLEDGE_SCENE_TYPE,
-    )
-    return knowledge_key
+    logger.info("已获取 knowledge_key scene_uid=%s scene_type=%s", scene_uid, KNOWLEDGE_SCENE_TYPE)
+    return KnowledgeKeyResponse(knowledge_key=knowledge_key)
 
 
 def _knowledge_headers(knowledge_key: str) -> dict[str, str]:
@@ -227,8 +207,7 @@ async def _batch_process_documents(knowledge_key: str, doc_ids: list[str]) -> No
     )
 
 
-async def list_bases(page: int, page_size: int) -> KnowledgeBaseList:
-    knowledge_key = await _get_knowledge_key()
+async def list_bases(knowledge_key: str, page: int, page_size: int) -> KnowledgeBaseList:
     root = await _resolve_base_url()
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.get(
@@ -242,8 +221,7 @@ async def list_bases(page: int, page_size: int) -> KnowledgeBaseList:
     return KnowledgeBaseList(items=items, total=total, page=page, page_size=page_size)
 
 
-async def create_base(body: KnowledgeBaseCreate) -> KnowledgeBase:
-    knowledge_key = await _get_knowledge_key()
+async def create_base(knowledge_key: str, body: KnowledgeBaseCreate) -> KnowledgeBase:
     root = await _resolve_base_url()
     payload = {
         "name": body.name,
@@ -269,8 +247,7 @@ async def create_base(body: KnowledgeBaseCreate) -> KnowledgeBase:
     )
 
 
-async def get_base(kb_id: str) -> KnowledgeBase:
-    knowledge_key = await _get_knowledge_key()
+async def get_base(knowledge_key: str, kb_id: str) -> KnowledgeBase:
     root = await _resolve_base_url()
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.get(
@@ -285,8 +262,7 @@ async def get_base(kb_id: str) -> KnowledgeBase:
     return _map_dataset(items[0])
 
 
-async def update_base(kb_id: str, body: KnowledgeBaseUpdate) -> KnowledgeBase:
-    knowledge_key = await _get_knowledge_key()
+async def update_base(knowledge_key: str, kb_id: str, body: KnowledgeBaseUpdate) -> KnowledgeBase:
     root = await _resolve_base_url()
     payload: dict[str, Any] = {"id": kb_id}
     if body.name is not None:
@@ -303,8 +279,7 @@ async def update_base(kb_id: str, body: KnowledgeBaseUpdate) -> KnowledgeBase:
     return _map_dataset(raw)
 
 
-async def delete_base(kb_id: str) -> None:
-    knowledge_key = await _get_knowledge_key()
+async def delete_base(knowledge_key: str, kb_id: str) -> None:
     root = await _resolve_base_url()
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.post(
@@ -315,8 +290,7 @@ async def delete_base(kb_id: str) -> None:
     _unwrap_data(resp)
 
 
-async def list_documents(kb_id: str, page: int, page_size: int) -> KnowledgeDocumentList:
-    knowledge_key = await _get_knowledge_key()
+async def list_documents(knowledge_key: str, kb_id: str, page: int, page_size: int) -> KnowledgeDocumentList:
     root = await _resolve_base_url()
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.get(
@@ -330,16 +304,15 @@ async def list_documents(kb_id: str, page: int, page_size: int) -> KnowledgeDocu
     return KnowledgeDocumentList(items=items, total=total, page=page, page_size=page_size)
 
 
-async def get_document(kb_id: str, doc_id: str) -> KnowledgeDocument:
-    docs = await list_documents(kb_id, page=1, page_size=200)
+async def get_document(knowledge_key: str, kb_id: str, doc_id: str) -> KnowledgeDocument:
+    docs = await list_documents(knowledge_key, kb_id, page=1, page_size=200)
     for doc in docs.items:
         if doc.id == doc_id:
             return doc
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
 
 
-async def upload_document(kb_id: str, upload: UploadFile) -> KnowledgeDocument:
-    knowledge_key = await _get_knowledge_key()
+async def upload_document(knowledge_key: str, kb_id: str, upload: UploadFile) -> KnowledgeDocument:
     root = await _resolve_base_url()
     content = await upload.read()
     filename = upload.filename or "unnamed"
@@ -374,8 +347,7 @@ async def upload_document(kb_id: str, upload: UploadFile) -> KnowledgeDocument:
     })
 
 
-async def delete_document(kb_id: str, doc_id: str) -> None:
-    knowledge_key = await _get_knowledge_key()
+async def delete_document(knowledge_key: str, kb_id: str, doc_id: str) -> None:
     root = await _resolve_base_url()
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.delete(
@@ -385,8 +357,7 @@ async def delete_document(kb_id: str, doc_id: str) -> None:
     _unwrap_data(resp)
 
 
-async def download_document(kb_id: str, doc_id: str) -> Response:
-    knowledge_key = await _get_knowledge_key()
+async def download_document(knowledge_key: str, kb_id: str, doc_id: str) -> Response:
     root = await _resolve_base_url()
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.get(

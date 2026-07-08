@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   knowledgeApi, KnowledgeBase, KnowledgeDocument, KnowledgeServiceConfig,
-  formatFileSize, docStatusLabel,
+  ensureKnowledgeKey, formatFileSize, docStatusLabel,
 } from "../api/knowledge";
 import DocumentWikiExplorer from "./knowledge/DocumentWikiExplorer";
 
 const EMPTY_SERVICE: KnowledgeServiceConfig = { base_url: "", scene_uid: "" };
 
-function KnowledgeServiceSection({ onSaved }: { onSaved: () => void }) {
+function KnowledgeServiceSection({ onSaved }: { onSaved: (saved: KnowledgeServiceConfig) => void | Promise<void> }) {
   const [form, setForm] = useState<KnowledgeServiceConfig>(EMPTY_SERVICE);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -32,10 +32,10 @@ function KnowledgeServiceSection({ onSaved }: { onSaved: () => void }) {
       setMsg({
         type: "ok",
         text: saved.base_url
-          ? "配置已保存，knowledge_key 将按新 Scene UID 重新获取，知识库列表已刷新。"
+          ? "配置已保存，已重新获取 knowledge_key 并刷新知识库列表。"
           : "已切换为本地模式（新增配置记录）。",
       });
-      onSaved();
+      await onSaved(saved);
     } catch (e) {
       setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
     } finally {
@@ -293,13 +293,13 @@ function DocumentSection({ kb }: { kb: KnowledgeBase }) {
                 >
                   图谱
                 </button>
-                <a
-                  href={knowledgeApi.downloadUrl(kb.id, doc.id)}
+                <button
+                  type="button"
+                  onClick={() => knowledgeApi.downloadDocument(kb.id, doc.id, doc.name)}
                   className="text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50"
-                  download
                 >
                   下载
-                </a>
+                </button>
                 <button
                   type="button"
                   onClick={() => handleDelete(doc)}
@@ -324,21 +324,40 @@ export default function KnowledgePanel() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setLoading(true);
-    knowledgeApi.listBases()
-      .then((res) => setBases(res.items))
-      .catch(() => setBases([]))
-      .finally(() => setLoading(false));
+    setMsg(null);
+    try {
+      const cfg = await knowledgeApi.getServiceConfig();
+      await ensureKnowledgeKey(cfg);
+      const res = await knowledgeApi.listBases();
+      setBases(res.items);
+    } catch (e) {
+      setBases([]);
+      setMsg({ type: "err", text: e instanceof Error ? e.message : "加载知识库失败" });
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  const handleServiceConfigSaved = useCallback(() => {
+  const handleServiceConfigSaved = useCallback(async (saved: KnowledgeServiceConfig) => {
     setSelectedId(null);
     setEditingId(null);
-    load();
-  }, [load]);
+    setLoading(true);
+    setMsg(null);
+    try {
+      await ensureKnowledgeKey(saved, true);
+      const res = await knowledgeApi.listBases();
+      setBases(res.items);
+    } catch (e) {
+      setBases([]);
+      setMsg({ type: "err", text: e instanceof Error ? e.message : "刷新知识库失败" });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const selected = bases.find((b) => b.id === selectedId) ?? null;
 

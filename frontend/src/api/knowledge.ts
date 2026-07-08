@@ -1,3 +1,10 @@
+import {
+  clearCachedKnowledgeKey,
+  getCachedKnowledgeKeyHeader,
+  readCachedKnowledgeKey,
+  writeCachedKnowledgeKey,
+} from "./knowledgeKeyCache";
+
 export interface ChunkingConfig {
   chunk_size: number;
   chunk_overlap: number;
@@ -43,6 +50,10 @@ export interface KnowledgeServiceConfig {
   base_url: string;
   scene_uid?: string;
   created_at?: string | null;
+}
+
+export interface KnowledgeKeyResponse {
+  knowledge_key: string;
 }
 
 export interface WikiGraphNode {
@@ -99,14 +110,44 @@ export interface WikiNodeDetailResponse {
   took_ms: number;
 }
 
+function jsonHeaders(): Record<string, string> {
+  return { "Content-Type": "application/json", ...getCachedKnowledgeKeyHeader() };
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const resp = await fetch(url, { cache: "no-store", ...options });
+  const headers = {
+    ...getCachedKnowledgeKeyHeader(),
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  const resp = await fetch(url, { cache: "no-store", ...options, headers });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
   }
   if (resp.status === 204) return undefined as T;
   return resp.json();
+}
+
+/** 远程模式下获取并缓存 knowledge_key；配置变更时需 forceRefresh=true */
+export async function ensureKnowledgeKey(
+  cfg: KnowledgeServiceConfig,
+  forceRefresh = false,
+): Promise<string | null> {
+  if (!cfg.base_url?.trim()) {
+    clearCachedKnowledgeKey();
+    return null;
+  }
+  if (!forceRefresh) {
+    const cached = readCachedKnowledgeKey(cfg);
+    if (cached) return cached;
+  }
+  clearCachedKnowledgeKey();
+  const resp = await request<KnowledgeKeyResponse>("/config/knowledge/service/key", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  writeCachedKnowledgeKey(cfg, resp.knowledge_key);
+  return resp.knowledge_key;
 }
 
 export const knowledgeApi = {
@@ -117,6 +158,12 @@ export const knowledgeApi = {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(cfg),
+    }),
+
+  fetchKnowledgeKey: () =>
+    request<KnowledgeKeyResponse>("/config/knowledge/service/key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
     }),
 
   listBases: (page = 1, pageSize = 20) =>
@@ -130,14 +177,14 @@ export const knowledgeApi = {
   }) =>
     request<KnowledgeBase>("/config/knowledge/bases", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(body),
     }),
 
   updateBase: (kbId: string, body: { name?: string; description?: string; chunking_config?: ChunkingConfig }) =>
     request<KnowledgeBase>(`/config/knowledge/bases/${encodeURIComponent(kbId)}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(body),
     }),
 
@@ -154,7 +201,12 @@ export const knowledgeApi = {
     form.append("file", file);
     const resp = await fetch(
       `/config/knowledge/bases/${encodeURIComponent(kbId)}/documents`,
-      { method: "POST", body: form, cache: "no-store" },
+      {
+        method: "POST",
+        body: form,
+        cache: "no-store",
+        headers: getCachedKnowledgeKeyHeader(),
+      },
     );
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
@@ -169,20 +221,35 @@ export const knowledgeApi = {
       { method: "DELETE" },
     ),
 
-  downloadUrl: (kbId: string, docId: string) =>
-    `/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`,
+  downloadDocument: async (kbId: string, docId: string, filename: string): Promise<void> => {
+    const resp = await fetch(
+      `/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`,
+      { cache: "no-store", headers: getCachedKnowledgeKeyHeader() },
+    );
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  },
 
   getWikiGraphByDoc: (docId: string, knowledgeIds?: string[]) =>
     request<WikiDocumentGraph>("/config/knowledge/wiki/graph/by_doc", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ doc_id: docId, knowledge_ids: knowledgeIds }),
     }),
 
   getWikiNodeDetail: (nodeId: string, knowledgeIds?: string[]) =>
     request<WikiNodeDetailResponse>("/config/knowledge/wiki/nodes/detail", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ node_id: nodeId, knowledge_ids: knowledgeIds }),
     }),
 };

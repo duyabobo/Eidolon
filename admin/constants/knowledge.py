@@ -11,4 +11,4 @@ KNOWLEDGE_BATCH_PROCESS_TYPE = 1
 
 DEFAULT_DATASET_AVATAR = "/icon/logo.svg"
 
-MRAG_KEY_COLLECTION = "knowledge_mrag_keys"
+KNOWLEDGE_KEY_HEADER = "x-knowledge-key"
