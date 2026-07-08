@@ -1,0 +1,62 @@
+import asyncio
+import logging
+import time
+from contextlib import AsyncExitStack
+from dataclasses import asdict, dataclass
+
+from services.mcp_connection import open_mcp_session
+from services.mongo_client import McpServerEntry
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class McpServerProbeResult:
+    name: str
+    scope: str
+    url: str
+    available: bool
+    tool_count: int
+    error: str = ""
+    latency_ms: int = 0
+
+
+async def probe_mcp_server(server: McpServerEntry) -> McpServerProbeResult:
+    started = time.monotonic()
+    try:
+        async with AsyncExitStack() as stack:
+            session = await open_mcp_session(stack, server.url, server.api_key)
+            tools_result = await session.list_tools()
+            latency_ms = int((time.monotonic() - started) * 1000)
+            return McpServerProbeResult(
+                name=server.name,
+                scope=server.scope,
+                url=server.url,
+                available=True,
+                tool_count=len(tools_result.tools),
+                latency_ms=latency_ms,
+            )
+    except Exception as exc:
+        latency_ms = int((time.monotonic() - started) * 1000)
+        logger.warning(
+            "MCP 探测失败 name=%s url=%s err=%s",
+            server.name,
+            server.url,
+            exc,
+        )
+        return McpServerProbeResult(
+            name=server.name,
+            scope=server.scope,
+            url=server.url,
+            available=False,
+            tool_count=0,
+            error=str(exc),
+            latency_ms=latency_ms,
+        )
+
+
+async def probe_mcp_servers(servers: list[McpServerEntry]) -> list[dict]:
+    if not servers:
+        return []
+    results = await asyncio.gather(*(probe_mcp_server(server) for server in servers))
+    return [asdict(item) for item in results]

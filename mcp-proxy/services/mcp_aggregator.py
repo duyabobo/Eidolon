@@ -16,10 +16,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
-from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.types import Tool
 
+from services.mcp_connection import open_mcp_session
 from services.mongo_client import McpServerEntry
 
 logger = logging.getLogger(__name__)
@@ -74,23 +73,7 @@ class McpAggregator:
 
     async def _connect_and_load_tools(self, server: McpServerEntry) -> None:
         try:
-            headers = {"Authorization": f"Bearer {server.api_key.strip()}"} if server.api_key.strip() else None
-            http_client = create_mcp_http_client(headers=headers) if headers else None
-            if http_client is not None:
-                await self._exit_stack.enter_async_context(http_client)
-
-            client_kwargs: dict[str, Any] = {"url": server.url}
-            if http_client is not None:
-                client_kwargs["http_client"] = http_client
-
-            read, write, _ = await self._exit_stack.enter_async_context(
-                streamable_http_client(**client_kwargs)
-            )
-            session: ClientSession = await self._exit_stack.enter_async_context(
-                ClientSession(read, write)
-            )
-            await session.initialize()
-
+            session = await open_mcp_session(self._exit_stack, server.url, server.api_key)
             tools_result = await session.list_tools()
             loaded = 0
             for tool in tools_result.tools:

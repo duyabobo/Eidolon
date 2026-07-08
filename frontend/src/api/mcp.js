@@ -14,6 +14,10 @@ export const mcpApi = {
         const qs = userId?.trim() ? `?user_id=${encodeURIComponent(userId.trim())}` : "";
         return request(`/mcp${qs}`);
     },
+    getServerStatus: (userId) => {
+        const qs = userId?.trim() ? `?user_id=${encodeURIComponent(userId.trim())}` : "";
+        return request(`/mcp/status${qs}`);
+    },
     addUserServer: (userId, name, cfg) => request(`/mcp/servers/${encodeURIComponent(name)}?user_id=${encodeURIComponent(userId)}`, { method: "POST", body: JSON.stringify(cfg) }),
     deleteUserServer: (userId, name) => fetch(`/mcp/servers/${encodeURIComponent(name)}?user_id=${encodeURIComponent(userId)}`, {
         method: "DELETE",

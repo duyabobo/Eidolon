@@ -28,3 +28,17 @@ class McpServerCreateRequest(BaseModel):
     description: str = ""
     enabled: bool = True
     api_key: str = ""
+
+
+class McpServerStatusItem(BaseModel):
+    name: str
+    scope: str
+    url: str
+    available: bool
+    tool_count: int
+    error: str = ""
+    latency_ms: int = 0
+
+
+class McpServerStatusResponse(BaseModel):
+    servers: list[McpServerStatusItem]

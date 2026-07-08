@@ -1,7 +1,14 @@
-import { useEffect, useState } from "react";
-import { mcpApi, McpServerConfig, McpServerItem } from "../api/mcp";
+import { useCallback, useEffect, useState } from "react";
+import { mcpApi, McpServerConfig, McpServerItem, McpServerStatus } from "../api/mcp";
+import { McpEditModal, McpServerStatusBadge, mcpServerStatusKey } from "./McpServerUi";
 
 const EMPTY: McpServerConfig = { url: "", description: "", enabled: true, api_key: "" };
+
+type EditState = {
+  name: string;
+  config: McpServerConfig;
+  isNew: boolean;
+};
 
 interface Props {
   userId: string;
@@ -12,34 +19,61 @@ interface Props {
 export default function UserMcpPanel({ userId, onClose, embedded = false }: Props) {
   const [servers, setServers] = useState<McpServerItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editName, setEditName] = useState("");
-  const [editCfg, setEditCfg] = useState<McpServerConfig>({ ...EMPTY });
-  const [showForm, setShowForm] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [statusMap, setStatusMap] = useState<Record<string, McpServerStatus>>({});
+  const [edit, setEdit] = useState<EditState | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  const load = () =>
-    mcpApi.listForChat(userId)
-      .then(setServers)
-      .catch(() => setServers([]))
-      .finally(() => setLoading(false));
+  const refreshStatus = useCallback(async () => {
+    setProbing(true);
+    try {
+      const res = await mcpApi.getServerStatus(userId);
+      const next: Record<string, McpServerStatus> = {};
+      for (const item of res.servers) {
+        next[mcpServerStatusKey(item.scope, item.name)] = item;
+      }
+      setStatusMap(next);
+    } catch {
+      setStatusMap({});
+    } finally {
+      setProbing(false);
+    }
+  }, [userId]);
 
-  useEffect(() => { load(); }, [userId]);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await mcpApi.listForChat(userId);
+      setServers(list);
+    } catch {
+      setServers([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void (async () => {
+      await load();
+      await refreshStatus();
+    })();
+  }, [load, refreshStatus]);
 
   const userServers = servers.filter((s) => s.scope === "user");
   const systemServers = servers.filter((s) => s.scope === "system");
 
   const handleSave = async () => {
-    if (!editName.trim() || !editCfg.url?.trim()) {
+    if (!edit) return;
+    if (!edit.name.trim() || !edit.config.url?.trim()) {
       setErrMsg("名称和 URL 不能为空");
       return;
     }
     setErrMsg(null);
     try {
-      await mcpApi.addUserServer(userId, editName.trim(), editCfg);
+      await mcpApi.addUserServer(userId, edit.name.trim(), edit.config);
+      setEdit(null);
       await load();
-      setShowForm(false);
-      setEditName("");
-      setEditCfg({ ...EMPTY });
+      await refreshStatus();
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "保存失败");
     }
@@ -47,8 +81,14 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
 
   const handleDelete = async (name: string) => {
     if (!confirm(`确认删除个人 MCP "${name}"？`)) return;
-    await mcpApi.deleteUserServer(userId, name);
-    await load();
+    setErrMsg(null);
+    try {
+      await mcpApi.deleteUserServer(userId, name);
+      await load();
+      await refreshStatus();
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : "删除失败");
+    }
   };
 
   const content = (
@@ -59,59 +99,56 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
         </p>
       )}
 
-      <Section title="系统 MCP（只读）" items={systemServers} badge="系统" badgeCls="bg-sky-50 text-sky-700" />
+      <Section
+        title="系统 MCP（只读）"
+        items={systemServers}
+        badge="系统"
+        badgeCls="bg-sky-50 text-sky-700"
+        statusMap={statusMap}
+        probing={probing}
+      />
       <Section
         title="我的 MCP"
         items={userServers}
         badge="我的"
         badgeCls="bg-emerald-50 text-emerald-700"
+        statusMap={statusMap}
+        probing={probing}
+        onEdit={(server) => setEdit({
+          name: server.name,
+          isNew: false,
+          config: {
+            url: server.url,
+            description: server.description ?? "",
+            enabled: server.enabled !== false,
+            api_key: "",
+          },
+        })}
         onDelete={handleDelete}
       />
 
-      {showForm ? (
-        <div className="border border-ink-200/60 rounded-xl p-4 space-y-2">
-          <input
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            placeholder="server 名称"
-            className="ui-field w-full"
-          />
-          <input
-            value={editCfg.url}
-            onChange={(e) => setEditCfg({ ...editCfg, url: e.target.value })}
-            placeholder="http://..."
-            className="ui-field w-full"
-          />
-          <input
-            value={editCfg.description ?? ""}
-            onChange={(e) => setEditCfg({ ...editCfg, description: e.target.value })}
-            placeholder="描述（可选）"
-            className="ui-field w-full"
-          />
-          <input
-            type="password"
-            value={editCfg.api_key ?? ""}
-            onChange={(e) => setEditCfg({ ...editCfg, api_key: e.target.value })}
-            placeholder="API Key（可选，付费 MCP 鉴权用）"
-            className="ui-field w-full"
-            autoComplete="off"
-          />
-          <div className="flex gap-2">
-            <button type="button" onClick={handleSave} className="ui-btn-primary flex-1">保存</button>
-            <button type="button" onClick={() => setShowForm(false)} className="flex-1 py-2.5 text-sm border border-ink-200 rounded-xl">取消</button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowForm(true)}
-          className="w-full py-2.5 border-2 border-dashed border-emerald-300/80 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50/50 transition-colors"
-        >
-          + 添加个人 MCP
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={() => setEdit({ name: "", isNew: true, config: { ...EMPTY } })}
+        className="w-full py-2.5 border-2 border-dashed border-emerald-300/80 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50/50 transition-colors"
+      >
+        + 添加个人 MCP
+      </button>
 
       {loading && <p className="text-xs text-ink-400 text-center">加载中…</p>}
+
+      {edit && (
+        <McpEditModal
+          title={edit.isNew ? "添加个人 MCP" : `编辑个人 MCP · ${edit.name}`}
+          name={edit.name}
+          nameReadonly={!edit.isNew}
+          onNameChange={(name) => setEdit({ ...edit, name })}
+          config={edit.config}
+          onChange={(patch) => setEdit({ ...edit, config: { ...edit.config, ...patch } })}
+          onSave={() => void handleSave()}
+          onCancel={() => setEdit(null)}
+        />
+      )}
     </div>
   );
 
@@ -126,7 +163,9 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
             <p className="text-xs text-ink-400">系统 MCP + 你的个人 MCP</p>
           </div>
           {onClose && (
-            <button type="button" onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
+            <button type="button" onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">
+              关闭
+            </button>
           )}
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4">{content}</div>
@@ -140,12 +179,18 @@ function Section({
   items,
   badge,
   badgeCls,
+  statusMap,
+  probing,
+  onEdit,
   onDelete,
 }: {
   title: string;
   items: McpServerItem[];
   badge: string;
   badgeCls: string;
+  statusMap: Record<string, McpServerStatus>;
+  probing: boolean;
+  onEdit?: (server: McpServerItem) => void;
   onDelete?: (name: string) => void;
 }) {
   return (
@@ -155,19 +200,40 @@ function Section({
         <p className="text-xs text-ink-400">暂无</p>
       ) : (
         <div className="space-y-2">
-          {items.map((s) => (
-            <div key={`${s.scope}-${s.name}`} className="flex items-center gap-2 border border-ink-200/60 rounded-xl px-3 py-2.5">
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${badgeCls}`}>{badge}</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate text-ink-800">{s.name}</p>
-                <p className="text-xs text-ink-400 truncate">{s.description || s.url}</p>
-                {s.has_api_key && <p className="text-[10px] text-amber-700 mt-0.5">已配置 API Key</p>}
+          {items.map((server) => {
+            const statusKey = mcpServerStatusKey(server.scope, server.name);
+            return (
+              <div key={statusKey} className="flex items-center gap-2 border border-ink-200/60 rounded-xl px-3 py-2.5">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${badgeCls}`}>{badge}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium truncate text-ink-800">{server.name}</p>
+                    <McpServerStatusBadge statusKey={statusKey} statusMap={statusMap} probing={probing} />
+                  </div>
+                  <p className="text-xs text-ink-400 truncate">{server.description || server.url}</p>
+                  {server.has_api_key && <p className="text-[10px] text-amber-700 mt-0.5">已配置 API Key</p>}
+                </div>
+                {onEdit && (
+                  <button
+                    type="button"
+                    onClick={() => onEdit(server)}
+                    className="text-xs text-ink-600 shrink-0 hover:text-ink-800"
+                  >
+                    编辑
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    type="button"
+                    onClick={() => onDelete(server.name)}
+                    className="text-xs text-rose-500 shrink-0 hover:text-rose-700"
+                  >
+                    删除
+                  </button>
+                )}
               </div>
-              {onDelete && (
-                <button type="button" onClick={() => onDelete(s.name)} className="text-xs text-rose-500 shrink-0 hover:text-rose-700">删除</button>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

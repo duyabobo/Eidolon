@@ -10,6 +10,20 @@ export interface McpServerItem {
   user_id?: string | null;
 }
 
+export interface McpServerStatus {
+  name: string;
+  scope: McpScope;
+  url: string;
+  available: boolean;
+  tool_count: number;
+  error?: string;
+  latency_ms?: number;
+}
+
+export interface McpServerStatusResponse {
+  servers: McpServerStatus[];
+}
+
 export interface McpServerConfig {
   url: string;
   description?: string;
@@ -33,6 +47,11 @@ export const mcpApi = {
   listForChat: (userId?: string) => {
     const qs = userId?.trim() ? `?user_id=${encodeURIComponent(userId.trim())}` : "";
     return request<McpServerItem[]>(`/mcp${qs}`);
+  },
+
+  getServerStatus: (userId?: string) => {
+    const qs = userId?.trim() ? `?user_id=${encodeURIComponent(userId.trim())}` : "";
+    return request<McpServerStatusResponse>(`/mcp/status${qs}`);
   },
 
   addUserServer: (userId: string, name: string, cfg: McpServerConfig) =>

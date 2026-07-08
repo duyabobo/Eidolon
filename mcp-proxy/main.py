@@ -12,6 +12,7 @@ from config import settings
 from logger import setup_logging
 from services import mongo_client
 from services.aggregator_manager import McpAggregatorManager
+from services.mcp_probe import probe_mcp_servers
 
 setup_logging("mcp-proxy")
 logger = logging.getLogger(__name__)
@@ -85,6 +86,15 @@ app = FastAPI(title="MCP Proxy", version="1.0.0", lifespan=lifespan)
 @app.get("/health", tags=["health"])
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/servers/status", tags=["mcp"])
+async def servers_status(request: Request) -> dict:
+    """探测各 MCP Server 连通性并返回工具数量（不缓存，每次实时检测）。"""
+    user_id = request.headers.get("X-User-Id") or None
+    servers = await mongo_client.read_enabled_mcp_servers(user_id)
+    items = await probe_mcp_servers(servers)
+    return {"servers": items}
 
 
 @app.post("/mcp", tags=["mcp"])

@@ -2,8 +2,9 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from models.mcp import McpServerCreateRequest, McpServerItem
+from models.mcp import McpServerCreateRequest, McpServerItem, McpServerStatusResponse
 from services import mcp_mongo
+from services.mcp_proxy_client import fetch_server_status
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,13 @@ async def list_mcp(
     user_id: str | None = Query(None, description="用户 ID，合并展示系统与个人 MCP"),
 ) -> list[McpServerItem]:
     return await mcp_mongo.list_mcp_for_user(user_id)
+
+
+@router.get("/status", response_model=McpServerStatusResponse)
+async def mcp_servers_status(
+    user_id: str | None = Query(None, description="用户 ID，合并探测系统与个人 MCP"),
+) -> McpServerStatusResponse:
+    return await fetch_server_status(user_id)
 
 
 @router.post("/servers/{name}", response_model=McpServerItem)

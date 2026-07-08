@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { configApi, McpServerConfig } from "../api/config";
-import { mcpApi, McpServerItem } from "../api/mcp";
+import { mcpApi, McpServerItem, McpServerStatus } from "../api/mcp";
+import { McpEditModal, McpServerStatusBadge, mcpServerStatusKey } from "./McpServerUi";
 
 const EMPTY_SERVER: McpServerConfig = { url: "", description: "", enabled: true, api_key: "" };
 
-interface SystemEditState {
+type EditState = {
+  scope: "system" | "user";
   name: string;
   config: McpServerConfig;
-}
+  isNew: boolean;
+};
 
 interface Props {
   userId: string;
@@ -26,13 +29,29 @@ function ScopeBadge({ scope }: { scope: "system" | "user" }) {
 export default function McpConfigPanel({ userId }: Props) {
   const [servers, setServers] = useState<McpServerItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [systemEdit, setSystemEdit] = useState<SystemEditState | null>(null);
-  const [showUserForm, setShowUserForm] = useState(false);
-  const [userName, setUserName] = useState("");
-  const [userCfg, setUserCfg] = useState<McpServerConfig>({ ...EMPTY_SERVER });
+  const [probing, setProbing] = useState(false);
+  const [statusMap, setStatusMap] = useState<Record<string, McpServerStatus>>({});
+  const [edit, setEdit] = useState<EditState | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  const load = async () => {
+  const refreshStatus = useCallback(async () => {
+    setProbing(true);
+    try {
+      const res = await mcpApi.getServerStatus(userId.trim() || undefined);
+      const next: Record<string, McpServerStatus> = {};
+      for (const item of res.servers) {
+        next[mcpServerStatusKey(item.scope, item.name)] = item;
+      }
+      setStatusMap(next);
+    } catch {
+      setStatusMap({});
+    } finally {
+      setProbing(false);
+    }
+  }, [userId]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
       const list = await mcpApi.listForChat(userId.trim() || undefined);
       setServers(list);
@@ -41,9 +60,14 @@ export default function McpConfigPanel({ userId }: Props) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
-  useEffect(() => { load(); }, [userId]);
+  useEffect(() => {
+    void (async () => {
+      await load();
+      await refreshStatus();
+    })();
+  }, [load, refreshStatus]);
 
   const handleDeleteSystem = async (name: string) => {
     if (!confirm(`确认删除系统 MCP "${name}"？`)) return;
@@ -51,47 +75,109 @@ export default function McpConfigPanel({ userId }: Props) {
     try {
       await configApi.deleteServer(name);
       await load();
+      await refreshStatus();
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "删除失败");
-    }
-  };
-
-  const handleSaveSystem = async () => {
-    if (!systemEdit) return;
-    if (!systemEdit.name.trim()) { setErrMsg("名称不能为空"); return; }
-    setErrMsg(null);
-    try {
-      await configApi.addServer(systemEdit.name.trim(), systemEdit.config);
-      await load();
-      setSystemEdit(null);
-    } catch (e) {
-      setErrMsg(e instanceof Error ? e.message : "保存失败");
-    }
-  };
-
-  const handleSaveUser = async () => {
-    if (!userId.trim()) { setErrMsg("请先在「历史」页设置用户 ID"); return; }
-    if (!userName.trim() || !userCfg.url?.trim()) {
-      setErrMsg("名称和 URL 不能为空");
-      return;
-    }
-    setErrMsg(null);
-    try {
-      await mcpApi.addUserServer(userId.trim(), userName.trim(), userCfg);
-      await load();
-      setShowUserForm(false);
-      setUserName("");
-      setUserCfg({ ...EMPTY_SERVER });
-    } catch (e) {
-      setErrMsg(e instanceof Error ? e.message : "保存失败");
     }
   };
 
   const handleDeleteUser = async (name: string) => {
     if (!userId.trim()) return;
     if (!confirm(`确认删除个人 MCP "${name}"？`)) return;
-    await mcpApi.deleteUserServer(userId.trim(), name);
-    await load();
+    setErrMsg(null);
+    try {
+      await mcpApi.deleteUserServer(userId.trim(), name);
+      await load();
+      await refreshStatus();
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : "删除失败");
+    }
+  };
+
+  const openSystemEdit = async (server: McpServerItem) => {
+    try {
+      const full = await configApi.getMcp();
+      const cfg = full.servers[server.name] ?? {
+        url: server.url,
+        description: server.description,
+        enabled: server.enabled,
+        api_key: "",
+      };
+      setEdit({
+        scope: "system",
+        name: server.name,
+        isNew: false,
+        config: { ...cfg, api_key: cfg.api_key ?? "" },
+      });
+    } catch {
+      setEdit({
+        scope: "system",
+        name: server.name,
+        isNew: false,
+        config: {
+          url: server.url,
+          description: server.description,
+          enabled: server.enabled,
+          api_key: "",
+        },
+      });
+    }
+  };
+
+  const openUserEdit = (server: McpServerItem) => {
+    setEdit({
+      scope: "user",
+      name: server.name,
+      isNew: false,
+      config: {
+        url: server.url,
+        description: server.description ?? "",
+        enabled: server.enabled !== false,
+        api_key: "",
+      },
+    });
+  };
+
+  const openUserCreate = () => {
+    if (!userId.trim()) {
+      setErrMsg("请先在「历史」页设置用户 ID");
+      return;
+    }
+    setEdit({
+      scope: "user",
+      name: "",
+      isNew: true,
+      config: { ...EMPTY_SERVER },
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!edit) return;
+    if (!edit.name.trim()) {
+      setErrMsg("名称不能为空");
+      return;
+    }
+    if (!edit.config.url?.trim()) {
+      setErrMsg("URL 不能为空");
+      return;
+    }
+    setErrMsg(null);
+    try {
+      if (edit.scope === "system") {
+        await configApi.addServer(edit.name.trim(), edit.config);
+      } else {
+        if (!userId.trim()) {
+          setErrMsg("请先在「历史」页设置用户 ID");
+          return;
+        }
+        await mcpApi.addUserServer(userId.trim(), edit.name.trim(), edit.config);
+      }
+      setEdit(null);
+      await load();
+      await refreshStatus();
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : "保存失败");
+    }
   };
 
   if (loading) return <div className="text-sm text-ink-400">加载中…</div>;
@@ -110,168 +196,77 @@ export default function McpConfigPanel({ userId }: Props) {
             暂无 MCP Server
           </p>
         )}
-        {servers.map((s) => (
-          <div
-            key={`${s.scope}-${s.name}`}
-            className="flex items-center gap-3 border border-ink-200/60 rounded-xl px-4 py-3"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <ScopeBadge scope={s.scope} />
-                <span className="text-sm font-medium text-ink-800">{s.name}</span>
-                {s.enabled === false && (
-                  <span className="text-xs bg-ink-100 text-ink-500 px-1.5 py-0.5 rounded">已禁用</span>
-                )}
-                {s.has_api_key && (
-                  <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">已配置 API Key</span>
-                )}
+        {servers.map((server) => {
+          const statusKey = mcpServerStatusKey(server.scope, server.name);
+          return (
+            <div
+              key={statusKey}
+              className="flex items-center gap-3 border border-ink-200/60 rounded-xl px-4 py-3"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <ScopeBadge scope={server.scope} />
+                  <span className="text-sm font-medium text-ink-800">{server.name}</span>
+                  {server.enabled === false && (
+                    <span className="text-xs bg-ink-100 text-ink-500 px-1.5 py-0.5 rounded">已禁用</span>
+                  )}
+                  {server.has_api_key && (
+                    <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">已配置 API Key</span>
+                  )}
+                  <McpServerStatusBadge statusKey={statusKey} statusMap={statusMap} probing={probing} />
+                </div>
+                <p className="text-xs text-ink-400 truncate mt-0.5">{server.url}</p>
+                {server.description && <p className="text-xs text-ink-400 mt-0.5">{server.description}</p>}
               </div>
-              <p className="text-xs text-ink-400 truncate mt-0.5">{s.url}</p>
-              {s.description && <p className="text-xs text-ink-400 mt-0.5">{s.description}</p>}
-            </div>
-            <div className="flex gap-2 shrink-0">
-              {s.scope === "system" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        const full = await configApi.getMcp();
-                        const cfg = full.servers[s.name] ?? {
-                          url: s.url,
-                          description: s.description,
-                          enabled: s.enabled,
-                          api_key: "",
-                        };
-                        setSystemEdit({ name: s.name, config: { ...cfg, api_key: cfg.api_key ?? "" } });
-                      } catch {
-                        setSystemEdit({
-                          name: s.name,
-                          config: { url: s.url, description: s.description, enabled: s.enabled, api_key: "" },
-                        });
-                      }
-                    }}
-                    className="text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteSystem(s.name)}
-                    className="text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50"
-                  >
-                    删除
-                  </button>
-                </>
-              )}
-              {s.scope === "user" && (
+              <div className="flex gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => handleDeleteUser(s.name)}
+                  onClick={() => (server.scope === "system" ? void openSystemEdit(server) : openUserEdit(server))}
+                  className="text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50"
+                >
+                  编辑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (server.scope === "system"
+                    ? handleDeleteSystem(server.name)
+                    : handleDeleteUser(server.name))}
                   className="text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50"
                 >
                   删除
                 </button>
-              )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {showUserForm ? (
-        <div className="border border-ink-200/60 rounded-xl p-4 space-y-2">
-          <p className="text-sm font-medium text-ink-700">添加个人 MCP</p>
-          <input value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="server 名称" className="ui-field w-full" />
-          <input value={userCfg.url} onChange={(e) => setUserCfg({ ...userCfg, url: e.target.value })} placeholder="http://..." className="ui-field w-full" />
-          <input
-            value={userCfg.description ?? ""}
-            onChange={(e) => setUserCfg({ ...userCfg, description: e.target.value })}
-            placeholder="描述（可选）"
-            className="ui-field w-full"
-          />
-          <input
-            type="password"
-            value={userCfg.api_key ?? ""}
-            onChange={(e) => setUserCfg({ ...userCfg, api_key: e.target.value })}
-            placeholder="API Key（可选，付费 MCP 鉴权用）"
-            className="ui-field w-full"
-            autoComplete="off"
-          />
-          <div className="flex gap-2 pt-1">
-            <button type="button" onClick={handleSaveUser} className="ui-btn-primary flex-1">保存</button>
-            <button
-              type="button"
-              onClick={() => { setShowUserForm(false); setUserName(""); setUserCfg({ ...EMPTY_SERVER }); }}
-              className="flex-1 py-2.5 text-sm border border-ink-200 rounded-xl text-ink-600"
-            >
-              取消
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => {
-            if (!userId.trim()) { setErrMsg("请先在「历史」页设置用户 ID"); return; }
-            setShowUserForm(true);
-          }}
-          className="w-full py-2.5 border-2 border-dashed border-emerald-300/80 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50/50 transition-colors"
-        >
-          + 添加个人 MCP
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={openUserCreate}
+        className="w-full py-2.5 border-2 border-dashed border-emerald-300/80 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50/50 transition-colors"
+      >
+        + 添加个人 MCP
+      </button>
 
-      {systemEdit && (
-        <SystemEditModal
-          edit={systemEdit}
-          onChange={setSystemEdit}
-          onSave={handleSaveSystem}
-          onCancel={() => setSystemEdit(null)}
+      {edit && (
+        <McpEditModal
+          title={
+            edit.isNew
+              ? "添加个人 MCP"
+              : edit.scope === "system"
+                ? `编辑系统 MCP · ${edit.name}`
+                : `编辑个人 MCP · ${edit.name}`
+          }
+          name={edit.name}
+          nameReadonly={!edit.isNew}
+          onNameChange={(name) => setEdit({ ...edit, name })}
+          config={edit.config}
+          onChange={(patch) => setEdit({ ...edit, config: { ...edit.config, ...patch } })}
+          onSave={() => void handleSaveEdit()}
+          onCancel={() => setEdit(null)}
         />
       )}
-    </div>
-  );
-}
-
-function SystemEditModal({
-  edit, onChange, onSave, onCancel,
-}: {
-  edit: SystemEditState;
-  onChange: (e: SystemEditState) => void;
-  onSave: () => void;
-  onCancel: () => void;
-}) {
-  const { name, config: cfg } = edit;
-  const set = (patch: Partial<McpServerConfig>) =>
-    onChange({ ...edit, config: { ...cfg, ...patch } });
-
-  return (
-    <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-panel w-full max-w-lg border border-ink-200/60">
-        <div className="px-6 py-4 border-b border-ink-200/60">
-          <h2 className="font-semibold text-ink-900">编辑系统 MCP · {name}</h2>
-        </div>
-        <div className="px-6 py-4 space-y-3">
-          <input value={cfg.url} onChange={(e) => set({ url: e.target.value })} placeholder="URL" className="ui-field w-full" />
-          <input value={cfg.description ?? ""} onChange={(e) => set({ description: e.target.value })} placeholder="描述" className="ui-field w-full" />
-          <input
-            type="password"
-            value={cfg.api_key ?? ""}
-            onChange={(e) => set({ api_key: e.target.value })}
-            placeholder="API Key（可选，留空则不修改已保存的 Key）"
-            className="ui-field w-full"
-            autoComplete="off"
-          />
-          <label className="flex items-center gap-2 text-sm text-ink-700">
-            <input type="checkbox" checked={cfg.enabled !== false} onChange={(e) => set({ enabled: e.target.checked })} />
-            启用
-          </label>
-        </div>
-        <div className="px-6 py-4 border-t border-ink-200/60 flex justify-end gap-2">
-          <button type="button" onClick={onCancel} className="px-4 py-2 text-sm text-ink-600 border border-ink-200 rounded-xl">取消</button>
-          <button type="button" onClick={onSave} className="ui-btn-primary">保存</button>
-        </div>
-      </div>
     </div>
   );
 }

@@ -10,6 +10,8 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://redis:6379"
 
+    mcp_proxy_base_url: str = "http://mcp-proxy:8080"
+
     # SSE 拉取 Redis Stream 时的阻塞超时（毫秒），用于心跳保活
     sse_block_ms: int = 5000
 
