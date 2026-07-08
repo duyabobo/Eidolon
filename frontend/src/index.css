@@ -111,4 +111,19 @@
     @apply text-xs bg-ink-900 text-ink-50 p-3 rounded-lg overflow-x-auto mb-2;
   }
   .wiki-md pre code { @apply bg-transparent p-0 text-inherit; }
+  .wiki-md .katex-display {
+    @apply overflow-x-auto py-2;
+  }
+  .wiki-md .katex {
+    @apply text-[1em];
+  }
+  .wiki-md a {
+    @apply text-brand-600 hover:text-brand-700 hover:underline;
+  }
+  .wiki-md table {
+    @apply w-full text-sm border-collapse mb-2;
+  }
+  .wiki-md th, .wiki-md td {
+    @apply border border-ink-200 px-2 py-1 text-left;
+  }
 }

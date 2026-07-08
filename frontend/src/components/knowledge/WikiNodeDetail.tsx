@@ -1,15 +1,44 @@
-import ReactMarkdown from "react-markdown";
-import type { WikiNodeItem } from "../../api/knowledge";
+import type { WikiGraphEdge, WikiGraphNode, WikiNodeItem } from "../../api/knowledge";
+import WikiMarkdown from "./WikiMarkdown";
+import { connectionsToMarkdown, resolveWikiConnections } from "./wikiConnections";
 
 interface WikiNodeDetailProps {
   node: WikiNodeItem | null;
   loading: boolean;
   error: string | null;
+  graphNodes: WikiGraphNode[];
+  graphEdges?: WikiGraphEdge[];
+  onNavigateNode: (nodeId: string) => void;
   onClose: () => void;
 }
 
-export default function WikiNodeDetail({ node, loading, error, onClose }: WikiNodeDetailProps) {
+function SectionTitle({ children }: { children: string }) {
+  return <h4 className="text-xs font-medium text-ink-500 mb-1.5">{children}</h4>;
+}
+
+export default function WikiNodeDetail({
+  node,
+  loading,
+  error,
+  graphNodes,
+  graphEdges = [],
+  onNavigateNode,
+  onClose,
+}: WikiNodeDetailProps) {
   if (!node && !loading && !error) return null;
+
+  const bodySections = node
+    ? Object.entries(node.body_sections).filter(([, value]) => value?.trim())
+    : [];
+  const connections = node
+    ? resolveWikiConnections(node.connections, graphNodes, graphEdges, node.node_id)
+    : [];
+  const connectionsMarkdown = connectionsToMarkdown(connections);
+
+  const markdownProps = {
+    graphNodes,
+    onWikiNodeClick: onNavigateNode,
+  };
 
   return (
     <div className="border border-ink-200/60 rounded-xl overflow-hidden bg-white">
@@ -39,7 +68,7 @@ export default function WikiNodeDetail({ node, loading, error, onClose }: WikiNo
           <p className="text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700">{error}</p>
         )}
         {node && !loading && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             {node.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {node.tags.map((tag) => (
@@ -49,21 +78,52 @@ export default function WikiNodeDetail({ node, loading, error, onClose }: WikiNo
                 ))}
               </div>
             )}
+
+            {(node.keywords_zh.length > 0 || node.keywords_en.length > 0) && (
+              <section>
+                <SectionTitle>关键词</SectionTitle>
+                <div className="flex flex-wrap gap-1.5">
+                  {[...node.keywords_zh, ...node.keywords_en].map((keyword) => (
+                    <span key={keyword} className="text-[10px] px-2 py-0.5 rounded-full bg-ink-100 text-ink-600">
+                      {keyword}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {node.overview && (
               <section>
-                <h4 className="text-xs font-medium text-ink-500 mb-1">摘要</h4>
-                <p className="text-sm text-ink-700 leading-relaxed">{node.overview}</p>
+                <SectionTitle>摘要</SectionTitle>
+                <WikiMarkdown content={node.overview} {...markdownProps} />
               </section>
             )}
+
             {node.body && (
-              <section className="wiki-md prose prose-sm max-w-none text-ink-800">
-                <ReactMarkdown>{node.body}</ReactMarkdown>
+              <section>
+                <SectionTitle>正文</SectionTitle>
+                <WikiMarkdown content={node.body} {...markdownProps} />
               </section>
             )}
+
+            {bodySections.map(([sectionKey, sectionBody]) => (
+              <section key={sectionKey}>
+                <SectionTitle>{sectionKey}</SectionTitle>
+                <WikiMarkdown content={sectionBody} {...markdownProps} />
+              </section>
+            ))}
+
             {node.references && (
               <section>
-                <h4 className="text-xs font-medium text-ink-500 mb-1">引用</h4>
-                <p className="text-xs text-ink-600 leading-relaxed whitespace-pre-wrap">{node.references}</p>
+                <SectionTitle>引用</SectionTitle>
+                <WikiMarkdown content={node.references} {...markdownProps} />
+              </section>
+            )}
+
+            {connectionsMarkdown && (
+              <section>
+                <SectionTitle>链接</SectionTitle>
+                <WikiMarkdown content={connectionsMarkdown} {...markdownProps} />
               </section>
             )}
           </div>

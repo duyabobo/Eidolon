@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   knowledgeApi,
   KnowledgeDocument,
@@ -23,6 +23,7 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWiki
   const [nodeDetail, setNodeDetail] = useState<WikiNodeItem | null>(null);
   const [nodeLoading, setNodeLoading] = useState(false);
   const [nodeError, setNodeError] = useState<string | null>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
 
   const loadGraph = useCallback(() => {
     setGraphLoading(true);
@@ -43,19 +44,24 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWiki
     setNodeError(null);
   }, [loadGraph]);
 
-  const handleNodeClick = async (node: WikiGraphNode) => {
-    setSelectedNodeId(node.node_id);
+  const loadNodeDetail = useCallback(async (nodeId: string) => {
+    setSelectedNodeId(nodeId);
     setNodeLoading(true);
     setNodeError(null);
     setNodeDetail(null);
     try {
-      const res = await knowledgeApi.getWikiNodeDetail(node.node_id, [kbId]);
+      const res = await knowledgeApi.getWikiNodeDetail(nodeId, [kbId]);
       setNodeDetail(res.node);
     } catch (e) {
       setNodeError(e instanceof Error ? e.message : "加载节点详情失败");
     } finally {
       setNodeLoading(false);
+      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
+  }, [kbId]);
+
+  const handleNodeClick = async (node: WikiGraphNode) => {
+    await loadNodeDetail(node.node_id);
   };
 
   return (
@@ -85,16 +91,21 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWiki
         />
       ) : null}
 
-      <WikiNodeDetail
-        node={nodeDetail}
-        loading={nodeLoading}
-        error={nodeError}
-        onClose={() => {
-          setSelectedNodeId(null);
-          setNodeDetail(null);
-          setNodeError(null);
-        }}
-      />
+      <div ref={detailRef}>
+        <WikiNodeDetail
+          node={nodeDetail}
+          loading={nodeLoading}
+          error={nodeError}
+          graphNodes={graph?.nodes ?? []}
+          graphEdges={graph?.edges ?? []}
+          onNavigateNode={loadNodeDetail}
+          onClose={() => {
+            setSelectedNodeId(null);
+            setNodeDetail(null);
+            setNodeError(null);
+          }}
+        />
+      </div>
     </div>
   );
 }
