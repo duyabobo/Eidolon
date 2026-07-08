@@ -63,4 +63,30 @@
     background: #cbd5e1;
     border-radius: 999px;
   }
+
+  .step-timeline {
+    @apply relative;
+  }
+
+  .step-timeline-item {
+    @apply relative flex gap-0;
+  }
+
+  .step-timeline-node {
+    @apply absolute left-0 top-1 w-5 h-5 rounded-full text-[10px] font-bold;
+    @apply flex items-center justify-center z-10;
+    @apply bg-white border-2 border-brand-200 text-brand-600 shadow-sm;
+  }
+
+  .step-timeline-line {
+    @apply absolute left-[9px] top-6 bottom-0 w-0.5 bg-gradient-to-b from-brand-200 to-ink-100;
+  }
+
+  .step-timeline-item:last-child .step-timeline-line {
+    @apply hidden;
+  }
+
+  .step-timeline-body {
+    @apply ml-7;
+  }
 }
