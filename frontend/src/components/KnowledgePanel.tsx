@@ -209,7 +209,6 @@ function DocumentSection({
       for (const file of Array.from(files)) {
         await knowledgeApi.uploadDocument(kb.id, file);
       }
-      setMsg({ type: "ok", text: "文档上传成功" });
       load();
     } catch (e) {
       setMsg({ type: "err", text: e instanceof Error ? e.message : "上传失败" });
