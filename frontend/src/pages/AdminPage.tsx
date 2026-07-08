@@ -20,7 +20,7 @@ export default function AdminPage() {
 
   return (
     <div className="h-full overflow-y-auto scrollbar-thin">
-      <div className="max-w-3xl mx-auto px-5 py-8">
+      <div className="page-content py-8">
         <h1 className="text-xl font-semibold text-ink-900 mb-6 tracking-tight">管理</h1>
 
         <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-ink-100/70 w-fit mb-8">

@@ -17,6 +17,10 @@
 }
 
 @layer components {
+  .page-content {
+    @apply max-w-3xl mx-auto w-full px-5;
+  }
+
   .ui-icon-btn {
     @apply p-2 rounded-lg text-ink-400 transition-all duration-200;
     @apply hover:text-brand-600 hover:bg-white hover:shadow-sm;

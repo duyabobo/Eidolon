@@ -99,7 +99,7 @@ export default function MessageList({ messages, bottomRef }: Props) {
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin">
-      <div className="max-w-3xl mx-auto w-full px-5 py-6 space-y-5">
+      <div className="page-content py-6 space-y-5">
         {messages.length === 0 && (
           <div className="text-center mt-24 px-4">
             <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-2xl font-bold shadow-soft mb-4">

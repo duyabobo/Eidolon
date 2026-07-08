@@ -36,7 +36,7 @@ export default function HistoryPage() {
 
   return (
     <div className="h-full overflow-y-auto scrollbar-thin">
-      <div className="max-w-2xl mx-auto px-5 py-8 space-y-8">
+      <div className="page-content py-8 space-y-8">
         <section>
           <h2 className="text-sm font-semibold text-ink-700 mb-3">用户 ID</h2>
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-ink-200/60 shadow-soft p-4">

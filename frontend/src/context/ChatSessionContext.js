@@ -12,10 +12,16 @@ export function buildMessagesFromSnapshot(request, snapshot) {
         : [{ role: "user", type: "text", content: request }];
     let clock = Date.now();
     const parseTs = (event) => {
-        if (event.ts == null)
-            return clock;
-        const n = typeof event.ts === "number" ? event.ts : Number(event.ts);
-        return Number.isFinite(n) ? n : clock;
+        if (event.ts != null) {
+            const n = typeof event.ts === "number" ? event.ts : Number(event.ts);
+            if (Number.isFinite(n)) {
+                clock = Math.max(clock, n);
+                return n;
+            }
+        }
+        // 旧 snapshot 无 ts：按事件顺序递增，避免耗时全为 0
+        clock += 100;
+        return clock;
     };
     const closeLastAssistantAt = (list, endTs) => {
         if (list.length === 0)
