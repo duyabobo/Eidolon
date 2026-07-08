@@ -37,25 +37,28 @@ export function groupSteps(steps) {
     return groups;
 }
 function parseToolCall(content) {
+    const raw = content ?? "";
     try {
-        const p = JSON.parse(content);
+        const p = JSON.parse(raw);
+        const inputText = JSON.stringify(p.input ?? null, null, 2) ?? "null";
         return {
             name: p.name || "工具",
             input: p.input,
-            inputText: JSON.stringify(p.input, null, 2),
+            inputText,
         };
     }
     catch {
-        return { name: "工具", input: null, inputText: content };
+        return { name: "工具", input: null, inputText: raw };
     }
 }
 function parseToolResult(content) {
+    const raw = content ?? "";
     try {
-        const p = JSON.parse(content);
-        return { name: p.name || "", output: p.output || "", isError: !!p.isError };
+        const p = JSON.parse(raw);
+        return { name: p.name || "", output: p.output ?? "", isError: !!p.isError };
     }
     catch {
-        return { name: "", output: content, isError: false };
+        return { name: "", output: raw, isError: false };
     }
 }
 /** 从 tool input 提取一行摘要 */
@@ -72,13 +75,15 @@ function toolInputPreview(input, inputText) {
         if (typeof first === "string")
             return first.length > 120 ? `${first.slice(0, 120)}…` : first;
     }
-    const oneLine = inputText.replace(/\s+/g, " ").trim();
+    const safe = inputText ?? "";
+    const oneLine = safe.replace(/\s+/g, " ").trim();
     return oneLine.length > 100 ? `${oneLine.slice(0, 100)}…` : oneLine;
 }
 function outputPreview(text, maxLines = 3) {
-    const lines = text.split("\n");
-    if (lines.length <= maxLines && text.length <= 280)
-        return { preview: text, truncated: false };
+    const safe = text ?? "";
+    const lines = safe.split("\n");
+    if (lines.length <= maxLines && safe.length <= 280)
+        return { preview: safe, truncated: false };
     const clipped = lines.slice(0, maxLines).join("\n");
     const preview = clipped.length > 280 ? `${clipped.slice(0, 280)}…` : clipped;
     return { preview, truncated: true };
@@ -116,13 +121,14 @@ function StepIcon({ kind, isError }) {
 }
 function ThinkingStep({ msg, index, now }) {
     const streaming = !!msg.isStreaming;
-    const preview = msg.content.length > 160 ? `${msg.content.slice(0, 160)}…` : msg.content;
+    const content = msg.content ?? "";
+    const preview = content.length > 160 ? `${content.slice(0, 160)}…` : content;
     const durationMs = messageDuration(msg, now);
     const live = isStepLive(msg);
-    return (_jsxs("div", { className: "step-timeline-item", children: [_jsx("div", { className: "step-timeline-node", children: index }), _jsx("div", { className: "step-timeline-line" }), _jsxs("div", { className: "flex gap-3 flex-1 min-w-0 pb-4 step-timeline-body", children: [_jsx(StepIcon, { kind: "thinking" }), _jsxs("div", { className: "flex-1 min-w-0 rounded-xl border border-amber-200/70 bg-gradient-to-br from-amber-50/90 to-orange-50/40 overflow-hidden", children: [_jsxs("div", { className: "px-3 py-2 border-b border-amber-100/80 flex items-center justify-between gap-2", children: [_jsx("span", { className: "text-xs font-semibold text-amber-800 tracking-wide", children: "\u601D\u8003" }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx(DurationBadge, { ms: durationMs, live: live }), streaming && (_jsxs("span", { className: "text-[10px] text-amber-600 flex items-center gap-1", children: [_jsx("span", { className: "w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" }), "\u8FDB\u884C\u4E2D"] }))] })] }), _jsx("div", { className: "px-3 py-2.5 text-xs text-amber-900/70 italic leading-relaxed whitespace-pre-wrap break-words", children: streaming ? msg.content : preview }), !streaming && msg.content.length > 160 && (_jsx(CollapseBody, { title: "\u67E5\u770B\u5B8C\u6574\u601D\u8003", children: _jsx("div", { className: "px-3 pb-2.5 text-xs text-amber-900/70 italic whitespace-pre-wrap break-words leading-relaxed", children: msg.content }) }))] })] })] }));
+    return (_jsxs("div", { className: "step-timeline-item", children: [_jsx("div", { className: "step-timeline-node", children: index }), _jsx("div", { className: "step-timeline-line" }), _jsxs("div", { className: "flex gap-3 flex-1 min-w-0 pb-4 step-timeline-body", children: [_jsx(StepIcon, { kind: "thinking" }), _jsxs("div", { className: "flex-1 min-w-0 rounded-xl border border-amber-200/70 bg-gradient-to-br from-amber-50/90 to-orange-50/40 overflow-hidden", children: [_jsxs("div", { className: "px-3 py-2 border-b border-amber-100/80 flex items-center justify-between gap-2", children: [_jsx("span", { className: "text-xs font-semibold text-amber-800 tracking-wide", children: "\u601D\u8003" }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx(DurationBadge, { ms: durationMs, live: live }), streaming && (_jsxs("span", { className: "text-[10px] text-amber-600 flex items-center gap-1", children: [_jsx("span", { className: "w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" }), "\u8FDB\u884C\u4E2D"] }))] })] }), _jsx("div", { className: "px-3 py-2.5 text-xs text-amber-900/70 italic leading-relaxed whitespace-pre-wrap break-words", children: streaming ? content : preview }), !streaming && content.length > 160 && (_jsx(CollapseBody, { title: "\u67E5\u770B\u5B8C\u6574\u601D\u8003", children: _jsx("div", { className: "px-3 pb-2.5 text-xs text-amber-900/70 italic whitespace-pre-wrap break-words leading-relaxed", children: content }) }))] })] })] }));
 }
 function ToolStep({ call, result, index, now }) {
-    const { name, input, inputText } = parseToolCall(call.content);
+    const { name, input, inputText } = parseToolCall(call.content ?? "");
     const inputHighlight = toolInputPreview(input, inputText);
     const callStreaming = !!call.isStreaming;
     const durationMs = toolStepDuration(call, result, now);
@@ -132,7 +138,7 @@ function ToolStep({ call, result, index, now }) {
     let isError = false;
     let resultStreaming = false;
     if (result) {
-        const parsed = parseToolResult(result.content);
+        const parsed = parseToolResult(result.content ?? "");
         resultName = parsed.name;
         outputText = parsed.output;
         isError = parsed.isError;
@@ -145,7 +151,7 @@ function ToolStep({ call, result, index, now }) {
 function TextStep({ msg, index, now }) {
     const durationMs = messageDuration(msg, now);
     const live = isStepLive(msg);
-    return (_jsxs("div", { className: "step-timeline-item", children: [_jsx("div", { className: "step-timeline-node", children: index }), _jsx("div", { className: "step-timeline-line" }), _jsxs("div", { className: "flex gap-3 flex-1 min-w-0 pb-4 step-timeline-body", children: [_jsx(StepIcon, { kind: "text" }), _jsxs("div", { className: "flex-1 rounded-xl border border-ink-200/70 bg-ink-50/50 overflow-hidden", children: [_jsxs("div", { className: "px-3 py-1.5 border-b border-ink-100 flex items-center justify-between gap-2", children: [_jsx("span", { className: "text-[10px] font-semibold uppercase tracking-wider text-ink-400", children: "\u4E2D\u95F4\u8F93\u51FA" }), _jsx(DurationBadge, { ms: durationMs, live: live })] }), _jsxs("div", { className: "px-3 py-2.5 text-xs text-ink-700 leading-relaxed whitespace-pre-wrap break-words", children: [msg.content, msg.isStreaming && _jsx("span", { className: "inline-block w-0.5 h-3 bg-brand-400 animate-pulse ml-0.5 align-middle" })] })] })] })] }));
+    return (_jsxs("div", { className: "step-timeline-item", children: [_jsx("div", { className: "step-timeline-node", children: index }), _jsx("div", { className: "step-timeline-line" }), _jsxs("div", { className: "flex gap-3 flex-1 min-w-0 pb-4 step-timeline-body", children: [_jsx(StepIcon, { kind: "text" }), _jsxs("div", { className: "flex-1 rounded-xl border border-ink-200/70 bg-ink-50/50 overflow-hidden", children: [_jsxs("div", { className: "px-3 py-1.5 border-b border-ink-100 flex items-center justify-between gap-2", children: [_jsx("span", { className: "text-[10px] font-semibold uppercase tracking-wider text-ink-400", children: "\u4E2D\u95F4\u8F93\u51FA" }), _jsx(DurationBadge, { ms: durationMs, live: live })] }), _jsxs("div", { className: "px-3 py-2.5 text-xs text-ink-700 leading-relaxed whitespace-pre-wrap break-words", children: [msg.content ?? "", msg.isStreaming && _jsx("span", { className: "inline-block w-0.5 h-3 bg-brand-400 animate-pulse ml-0.5 align-middle" })] })] })] })] }));
 }
 function CollapsedBadges({ groups }) {
     return (_jsx("div", { className: "flex flex-wrap gap-1.5 min-w-0", children: groups.map((g, i) => {
@@ -153,8 +159,8 @@ function CollapsedBadges({ groups }) {
                 return (_jsx("span", { className: "inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100/80 text-amber-800 text-[10px] font-medium", children: "\u601D\u8003" }, i));
             }
             if (g.kind === "tool") {
-                const { name } = parseToolCall(g.call.content);
-                const err = g.result ? parseToolResult(g.result.content).isError : false;
+                const { name } = parseToolCall(g.call.content ?? "");
+                const err = g.result ? parseToolResult(g.result.content ?? "").isError : false;
                 return (_jsxs("span", { className: `inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium ${err ? "bg-rose-100/80 text-rose-700" : "bg-brand-100/80 text-brand-800"}`, children: [name, g.result && (err ? " ✗" : " ✓")] }, i));
             }
             return (_jsx("span", { className: "inline-flex px-2 py-0.5 rounded-md bg-ink-100 text-ink-600 text-[10px] font-medium", children: "\u8F93\u51FA" }, i));

@@ -42,24 +42,27 @@ export function groupSteps(steps: Message[]): StepGroup[] {
 }
 
 function parseToolCall(content: string): { name: string; input: unknown; inputText: string } {
+  const raw = content ?? "";
   try {
-    const p = JSON.parse(content) as { name: string; input: unknown };
+    const p = JSON.parse(raw) as { name?: string; input?: unknown };
+    const inputText = JSON.stringify(p.input ?? null, null, 2) ?? "null";
     return {
       name: p.name || "工具",
       input: p.input,
-      inputText: JSON.stringify(p.input, null, 2),
+      inputText,
     };
   } catch {
-    return { name: "工具", input: null, inputText: content };
+    return { name: "工具", input: null, inputText: raw };
   }
 }
 
 function parseToolResult(content: string): { name: string; output: string; isError: boolean } {
+  const raw = content ?? "";
   try {
-    const p = JSON.parse(content) as { name: string; output: string; isError?: boolean };
-    return { name: p.name || "", output: p.output || "", isError: !!p.isError };
+    const p = JSON.parse(raw) as { name?: string; output?: string; isError?: boolean };
+    return { name: p.name || "", output: p.output ?? "", isError: !!p.isError };
   } catch {
-    return { name: "", output: content, isError: false };
+    return { name: "", output: raw, isError: false };
   }
 }
 
@@ -73,13 +76,15 @@ function toolInputPreview(input: unknown, inputText: string): string {
     const first = Object.values(obj).find((v) => typeof v === "string");
     if (typeof first === "string") return first.length > 120 ? `${first.slice(0, 120)}…` : first;
   }
-  const oneLine = inputText.replace(/\s+/g, " ").trim();
+  const safe = inputText ?? "";
+  const oneLine = safe.replace(/\s+/g, " ").trim();
   return oneLine.length > 100 ? `${oneLine.slice(0, 100)}…` : oneLine;
 }
 
 function outputPreview(text: string, maxLines = 3): { preview: string; truncated: boolean } {
-  const lines = text.split("\n");
-  if (lines.length <= maxLines && text.length <= 280) return { preview: text, truncated: false };
+  const safe = text ?? "";
+  const lines = safe.split("\n");
+  if (lines.length <= maxLines && safe.length <= 280) return { preview: safe, truncated: false };
   const clipped = lines.slice(0, maxLines).join("\n");
   const preview = clipped.length > 280 ? `${clipped.slice(0, 280)}…` : clipped;
   return { preview, truncated: true };
@@ -162,7 +167,8 @@ function StepIcon({ kind, isError }: { kind: "thinking" | "tool" | "text"; isErr
 
 function ThinkingStep({ msg, index, now }: { msg: Message; index: number; now: number }) {
   const streaming = !!msg.isStreaming;
-  const preview = msg.content.length > 160 ? `${msg.content.slice(0, 160)}…` : msg.content;
+  const content = msg.content ?? "";
+  const preview = content.length > 160 ? `${content.slice(0, 160)}…` : content;
   const durationMs = messageDuration(msg, now);
   const live = isStepLive(msg);
 
@@ -186,12 +192,12 @@ function ThinkingStep({ msg, index, now }: { msg: Message; index: number; now: n
             </div>
           </div>
           <div className="px-3 py-2.5 text-xs text-amber-900/70 italic leading-relaxed whitespace-pre-wrap break-words">
-            {streaming ? msg.content : preview}
+            {streaming ? content : preview}
           </div>
-          {!streaming && msg.content.length > 160 && (
+          {!streaming && content.length > 160 && (
             <CollapseBody title="查看完整思考">
               <div className="px-3 pb-2.5 text-xs text-amber-900/70 italic whitespace-pre-wrap break-words leading-relaxed">
-                {msg.content}
+                {content}
               </div>
             </CollapseBody>
           )}
@@ -202,7 +208,7 @@ function ThinkingStep({ msg, index, now }: { msg: Message; index: number; now: n
 }
 
 function ToolStep({ call, result, index, now }: { call: Message; result?: Message; index: number; now: number }) {
-  const { name, input, inputText } = parseToolCall(call.content);
+  const { name, input, inputText } = parseToolCall(call.content ?? "");
   const inputHighlight = toolInputPreview(input, inputText);
   const callStreaming = !!call.isStreaming;
   const durationMs = toolStepDuration(call, result, now);
@@ -213,7 +219,7 @@ function ToolStep({ call, result, index, now }: { call: Message; result?: Messag
   let isError = false;
   let resultStreaming = false;
   if (result) {
-    const parsed = parseToolResult(result.content);
+    const parsed = parseToolResult(result.content ?? "");
     resultName = parsed.name;
     outputText = parsed.output;
     isError = parsed.isError;
@@ -326,7 +332,7 @@ function TextStep({ msg, index, now }: { msg: Message; index: number; now: numbe
             <DurationBadge ms={durationMs} live={live} />
           </div>
           <div className="px-3 py-2.5 text-xs text-ink-700 leading-relaxed whitespace-pre-wrap break-words">
-            {msg.content}
+            {msg.content ?? ""}
             {msg.isStreaming && <span className="inline-block w-0.5 h-3 bg-brand-400 animate-pulse ml-0.5 align-middle" />}
           </div>
         </div>
@@ -347,8 +353,8 @@ function CollapsedBadges({ groups }: { groups: StepGroup[] }) {
           );
         }
         if (g.kind === "tool") {
-          const { name } = parseToolCall(g.call.content);
-          const err = g.result ? parseToolResult(g.result.content).isError : false;
+          const { name } = parseToolCall(g.call.content ?? "");
+          const err = g.result ? parseToolResult(g.result.content ?? "").isError : false;
           return (
             <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium ${
               err ? "bg-rose-100/80 text-rose-700" : "bg-brand-100/80 text-brand-800"
