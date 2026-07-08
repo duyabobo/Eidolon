@@ -1,5 +1,6 @@
 import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { knowledgeApi, ensureKnowledgeKey, formatFileSize, docStatusLabel, } from "../api/knowledge";
 import { setKnowledgeSceneUid } from "../api/knowledgeKeyCache";
 import DocumentWikiExplorer from "./knowledge/DocumentWikiExplorer";
@@ -66,13 +67,23 @@ function BaseForm({ initial, onSubmit, onCancel, submitLabel, }) {
     const [description, setDescription] = useState(initial?.description ?? "");
     return (_jsxs("div", { className: "border border-ink-200/60 rounded-xl p-4 space-y-3 bg-ink-50/30", children: [_jsx("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "\u77E5\u8BC6\u5E93\u540D\u79F0", className: "ui-field w-full", autoFocus: true }), _jsx("textarea", { value: description, onChange: (e) => setDescription(e.target.value), placeholder: "\u63CF\u8FF0\uFF08\u53EF\u9009\uFF09", rows: 2, className: "ui-field w-full resize-none" }), _jsxs("div", { className: "flex gap-2", children: [_jsx("button", { type: "button", disabled: !name.trim(), onClick: () => onSubmit(name.trim(), description.trim()), className: "ui-btn-primary flex-1", children: submitLabel }), _jsx("button", { type: "button", onClick: onCancel, className: "flex-1 py-2.5 text-sm border border-ink-200 rounded-xl", children: "\u53D6\u6D88" })] })] }));
 }
-function DocumentSection({ kb }) {
+function DocumentSection({ kb, deepLinkDocId, }) {
+    const navigate = useNavigate();
     const [docs, setDocs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [msg, setMsg] = useState(null);
     const [wikiDoc, setWikiDoc] = useState(null);
+    const [wikiLoading, setWikiLoading] = useState(false);
     const fileRef = useRef(null);
+    const openWiki = useCallback((doc) => {
+        setWikiDoc(doc);
+        navigate(`/admin/knowledge/bases/${encodeURIComponent(kb.id)}/documents/${encodeURIComponent(doc.id)}`);
+    }, [kb.id, navigate]);
+    const closeWiki = useCallback(() => {
+        setWikiDoc(null);
+        navigate("/admin?tab=knowledge");
+    }, [navigate]);
     const load = useCallback(() => {
         setLoading(true);
         knowledgeApi.listDocuments(kb.id)
@@ -81,6 +92,23 @@ function DocumentSection({ kb }) {
             .finally(() => setLoading(false));
     }, [kb.id]);
     useEffect(() => { load(); }, [load]);
+    useEffect(() => {
+        if (!deepLinkDocId)
+            return;
+        const fromList = docs.find((doc) => doc.id === deepLinkDocId);
+        if (fromList) {
+            setWikiDoc(fromList);
+            return;
+        }
+        setWikiLoading(true);
+        knowledgeApi.getDocument(kb.id, deepLinkDocId)
+            .then(setWikiDoc)
+            .catch(() => {
+            setWikiDoc(null);
+            setMsg({ type: "err", text: "文档不存在或无法加载" });
+        })
+            .finally(() => setWikiLoading(false));
+    }, [deepLinkDocId, docs, kb.id]);
     const handleUpload = async (files) => {
         if (!files?.length)
             return;
@@ -107,21 +135,29 @@ function DocumentSection({ kb }) {
             return;
         await knowledgeApi.deleteDocument(kb.id, doc.id);
         if (wikiDoc?.id === doc.id)
-            setWikiDoc(null);
+            closeWiki();
         load();
     };
-    if (wikiDoc) {
-        return (_jsx(DocumentWikiExplorer, { kbId: kb.id, doc: wikiDoc, onBack: () => setWikiDoc(null) }));
+    if (wikiLoading) {
+        return _jsx("p", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u6587\u6863\u2026" });
     }
-    return (_jsxs("div", { className: "space-y-4", children: [_jsxs("div", { className: "flex items-start justify-between gap-3", children: [_jsxs("div", { children: [_jsx("p", { className: "text-xs text-ink-400 mt-0.5", children: kb.description || "暂无描述" }), _jsx("p", { className: "text-[11px] text-ink-400 mt-1", children: "\u652F\u6301 pdf / docx / txt / md / csv / xlsx / pptx\uFF0C\u5355\u6587\u4EF6 \u2264 10MB \u00B7 \u70B9\u51FB\u6587\u6863\u67E5\u770B Wiki \u77E5\u8BC6\u56FE\u8C31" })] }), _jsxs("div", { children: [_jsx("input", { ref: fileRef, type: "file", multiple: true, accept: ".pdf,.docx,.txt,.md,.csv,.xlsx,.pptx", className: "hidden", onChange: (e) => handleUpload(e.target.files) }), _jsx("button", { type: "button", disabled: uploading, onClick: () => fileRef.current?.click(), className: "ui-btn-primary text-sm", children: uploading ? "上传中…" : "上传文档" })] })] }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), loading ? (_jsx("p", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u6587\u6863\u2026" })) : docs.length === 0 ? (_jsx("p", { className: "text-sm text-ink-400 text-center py-10 border border-dashed border-ink-200 rounded-xl", children: "\u6682\u65E0\u6587\u6863\uFF0C\u70B9\u51FB\u300C\u4E0A\u4F20\u6587\u6863\u300D\u6DFB\u52A0" })) : (_jsx("div", { className: "space-y-2", children: docs.map((doc) => (_jsxs("div", { className: "flex items-center gap-3 border border-ink-200/60 rounded-xl px-4 py-3", children: [_jsxs("button", { type: "button", onClick: () => setWikiDoc(doc), className: "flex-1 min-w-0 text-left hover:opacity-80 transition-opacity", children: [_jsxs("div", { className: "flex items-center gap-2 flex-wrap", children: [_jsx("span", { className: "text-sm font-medium text-ink-800 truncate", children: doc.name }), _jsx(StatusBadge, { status: doc.status })] }), _jsxs("p", { className: "text-xs text-ink-400 mt-0.5", children: [formatFileSize(doc.file_size), " \u00B7 ", new Date(doc.created_at).toLocaleString("zh-CN")] })] }), _jsxs("div", { className: "flex gap-2 shrink-0", children: [_jsx("button", { type: "button", onClick: () => setWikiDoc(doc), className: "text-xs px-3 py-1 border border-violet-200 rounded-lg text-violet-700 hover:bg-violet-50", children: "\u56FE\u8C31" }), _jsx("button", { type: "button", onClick: () => knowledgeApi.downloadDocument(kb.id, doc.id, doc.name), className: "text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50", children: "\u4E0B\u8F7D" }), _jsx("button", { type: "button", onClick: () => handleDelete(doc), className: "text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50", children: "\u5220\u9664" })] })] }, doc.id))) }))] }));
+    if (wikiDoc) {
+        return (_jsx(DocumentWikiExplorer, { kbId: kb.id, doc: wikiDoc, onBack: closeWiki }));
+    }
+    return (_jsxs("div", { className: "space-y-4", children: [_jsxs("div", { className: "flex items-start justify-between gap-3", children: [_jsxs("div", { children: [_jsx("p", { className: "text-xs text-ink-400 mt-0.5", children: kb.description || "暂无描述" }), _jsx("p", { className: "text-[11px] text-ink-400 mt-1", children: "\u652F\u6301 pdf / docx / txt / md / csv / xlsx / pptx\uFF0C\u5355\u6587\u4EF6 \u2264 10MB \u00B7 \u70B9\u51FB\u6587\u6863\u67E5\u770B Wiki \u77E5\u8BC6\u56FE\u8C31" })] }), _jsxs("div", { children: [_jsx("input", { ref: fileRef, type: "file", multiple: true, accept: ".pdf,.docx,.txt,.md,.csv,.xlsx,.pptx", className: "hidden", onChange: (e) => handleUpload(e.target.files) }), _jsx("button", { type: "button", disabled: uploading, onClick: () => fileRef.current?.click(), className: "ui-btn-primary text-sm", children: uploading ? "上传中…" : "上传文档" })] })] }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), loading ? (_jsx("p", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u6587\u6863\u2026" })) : docs.length === 0 ? (_jsx("p", { className: "text-sm text-ink-400 text-center py-10 border border-dashed border-ink-200 rounded-xl", children: "\u6682\u65E0\u6587\u6863\uFF0C\u70B9\u51FB\u300C\u4E0A\u4F20\u6587\u6863\u300D\u6DFB\u52A0" })) : (_jsx("div", { className: "space-y-2", children: docs.map((doc) => (_jsxs("div", { className: "flex items-center gap-3 border border-ink-200/60 rounded-xl px-4 py-3", children: [_jsxs("button", { type: "button", onClick: () => openWiki(doc), className: "flex-1 min-w-0 text-left hover:opacity-80 transition-opacity", children: [_jsxs("div", { className: "flex items-center gap-2 flex-wrap", children: [_jsx("span", { className: "text-sm font-medium text-ink-800 truncate", children: doc.name }), _jsx(StatusBadge, { status: doc.status })] }), _jsxs("p", { className: "text-xs text-ink-400 mt-0.5", children: [formatFileSize(doc.file_size), " \u00B7 ", new Date(doc.created_at).toLocaleString("zh-CN")] })] }), _jsxs("div", { className: "flex gap-2 shrink-0", children: [_jsx("button", { type: "button", onClick: () => openWiki(doc), className: "text-xs px-3 py-1 border border-violet-200 rounded-lg text-violet-700 hover:bg-violet-50", children: "\u56FE\u8C31" }), _jsx("button", { type: "button", onClick: () => knowledgeApi.downloadDocument(kb.id, doc.id, doc.name), className: "text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50", children: "\u4E0B\u8F7D" }), _jsx("button", { type: "button", onClick: () => handleDelete(doc), className: "text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50", children: "\u5220\u9664" })] })] }, doc.id))) }))] }));
 }
-export default function KnowledgePanel({ userId }) {
+export default function KnowledgePanel({ userId, deepLinkKbId, deepLinkDocId, }) {
+    const navigate = useNavigate();
     const [bases, setBases] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [selectedId, setSelectedId] = useState(null);
+    const [selectedId, setSelectedId] = useState(deepLinkKbId ?? null);
     const [showCreate, setShowCreate] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [msg, setMsg] = useState(null);
+    useEffect(() => {
+        if (deepLinkKbId)
+            setSelectedId(deepLinkKbId);
+    }, [deepLinkKbId]);
     const load = useCallback(async () => {
         setLoading(true);
         setMsg(null);
@@ -134,7 +170,17 @@ export default function KnowledgePanel({ userId }) {
             }
             await ensureKnowledgeKey(cfg, userId);
             const res = await knowledgeApi.listBases();
-            setBases(res.items);
+            let items = res.items;
+            if (deepLinkKbId && !items.some((kb) => kb.id === deepLinkKbId)) {
+                try {
+                    const kb = await knowledgeApi.getBase(deepLinkKbId);
+                    items = [...items, kb];
+                }
+                catch {
+                    setMsg({ type: "err", text: "知识库不存在或无法访问" });
+                }
+            }
+            setBases(items);
         }
         catch (e) {
             setBases([]);
@@ -143,7 +189,7 @@ export default function KnowledgePanel({ userId }) {
         finally {
             setLoading(false);
         }
-    }, [userId]);
+    }, [userId, deepLinkKbId]);
     useEffect(() => { void load(); }, [load]);
     const handleServiceConfigSaved = useCallback(async (saved) => {
         setSelectedId(null);
@@ -197,11 +243,16 @@ export default function KnowledgePanel({ userId }) {
             setSelectedId(null);
         load();
     };
+    const handleBackToBaseList = () => {
+        setSelectedId(null);
+        navigate("/admin?tab=knowledge");
+        void load();
+    };
     if (loading) {
         return (_jsxs("div", { className: "space-y-4", children: [_jsx(KnowledgeServiceSection, { userId: userId, onSaved: handleServiceConfigSaved }), _jsx("div", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u77E5\u8BC6\u5E93\u2026" })] }));
     }
     if (selected) {
-        return (_jsxs("div", { className: "space-y-4", children: [_jsx(KnowledgeServiceSection, { userId: userId, onSaved: handleServiceConfigSaved }), _jsx("button", { type: "button", onClick: () => setSelectedId(null), className: "text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1", children: "\u2190 \u8FD4\u56DE\u77E5\u8BC6\u5E93\u5217\u8868" }), _jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsx("h2", { className: "text-base font-semibold text-ink-900", children: selected.name }), _jsxs("span", { className: "text-xs text-ink-400", children: [selected.document_count, " \u4E2A\u6587\u6863"] })] }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), _jsx(DocumentSection, { kb: selected })] }));
+        return (_jsxs("div", { className: "space-y-4", children: [_jsx(KnowledgeServiceSection, { userId: userId, onSaved: handleServiceConfigSaved }), _jsx("button", { type: "button", onClick: handleBackToBaseList, className: "text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1", children: "\u2190 \u8FD4\u56DE\u77E5\u8BC6\u5E93\u5217\u8868" }), _jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsx("h2", { className: "text-base font-semibold text-ink-900", children: selected.name }), _jsxs("span", { className: "text-xs text-ink-400", children: [selected.document_count, " \u4E2A\u6587\u6863"] })] }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), _jsx(DocumentSection, { kb: selected, deepLinkDocId: deepLinkDocId })] }));
     }
     return (_jsxs("div", { className: "space-y-4", children: [_jsx(KnowledgeServiceSection, { userId: userId, onSaved: handleServiceConfigSaved }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), showCreate ? (_jsx(BaseForm, { submitLabel: "\u521B\u5EFA", onSubmit: handleCreate, onCancel: () => setShowCreate(false) })) : (_jsx("button", { type: "button", onClick: () => setShowCreate(true), className: "w-full py-2.5 border-2 border-dashed border-brand-300/80 text-brand-700 text-sm rounded-xl hover:bg-brand-50/50 transition-colors", children: "+ \u65B0\u5EFA\u77E5\u8BC6\u5E93" })), bases.length === 0 ? (_jsx("p", { className: "text-sm text-ink-400 text-center py-10 border border-dashed border-ink-200 rounded-xl", children: "\u6682\u65E0\u77E5\u8BC6\u5E93" })) : (_jsx("div", { className: "space-y-2", children: bases.map((kb) => (_jsx("div", { className: "border border-ink-200/60 rounded-xl overflow-hidden", children: editingId === kb.id ? (_jsx("div", { className: "p-4", children: _jsx(BaseForm, { initial: { name: kb.name, description: kb.description }, submitLabel: "\u4FDD\u5B58", onSubmit: (name, desc) => handleUpdate(kb.id, name, desc), onCancel: () => setEditingId(null) }) })) : (_jsxs("div", { className: "flex items-center gap-3 px-4 py-3", children: [_jsxs("button", { type: "button", onClick: () => setSelectedId(kb.id), className: "flex-1 min-w-0 text-left", children: [_jsx("p", { className: "text-sm font-medium text-ink-800 truncate", children: kb.name }), _jsxs("p", { className: "text-xs text-ink-400 mt-0.5 truncate", children: [kb.description || "无描述", " \u00B7 ", kb.document_count, " \u4E2A\u6587\u6863"] })] }), _jsxs("div", { className: "flex gap-2 shrink-0", children: [_jsx("button", { type: "button", onClick: () => setSelectedId(kb.id), className: "text-xs px-3 py-1 border border-brand-200 rounded-lg text-brand-700 hover:bg-brand-50", children: "\u6587\u6863" }), _jsx("button", { type: "button", onClick: () => setEditingId(kb.id), className: "text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50", children: "\u7F16\u8F91" }), _jsx("button", { type: "button", onClick: () => handleDelete(kb), className: "text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50", children: "\u5220\u9664" })] })] })) }, kb.id))) }))] }));
 }

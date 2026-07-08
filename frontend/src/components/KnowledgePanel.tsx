@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   knowledgeApi, KnowledgeBase, KnowledgeDocument, KnowledgeServiceConfig,
   ensureKnowledgeKey, formatFileSize, docStatusLabel,
@@ -147,13 +148,31 @@ function BaseForm({
   );
 }
 
-function DocumentSection({ kb }: { kb: KnowledgeBase }) {
+function DocumentSection({
+  kb,
+  deepLinkDocId,
+}: {
+  kb: KnowledgeBase;
+  deepLinkDocId?: string;
+}) {
+  const navigate = useNavigate();
   const [docs, setDocs] = useState<KnowledgeDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [wikiDoc, setWikiDoc] = useState<KnowledgeDocument | null>(null);
+  const [wikiLoading, setWikiLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const openWiki = useCallback((doc: KnowledgeDocument) => {
+    setWikiDoc(doc);
+    navigate(`/admin/knowledge/bases/${encodeURIComponent(kb.id)}/documents/${encodeURIComponent(doc.id)}`);
+  }, [kb.id, navigate]);
+
+  const closeWiki = useCallback(() => {
+    setWikiDoc(null);
+    navigate("/admin?tab=knowledge");
+  }, [navigate]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -164,6 +183,23 @@ function DocumentSection({ kb }: { kb: KnowledgeBase }) {
   }, [kb.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!deepLinkDocId) return;
+    const fromList = docs.find((doc) => doc.id === deepLinkDocId);
+    if (fromList) {
+      setWikiDoc(fromList);
+      return;
+    }
+    setWikiLoading(true);
+    knowledgeApi.getDocument(kb.id, deepLinkDocId)
+      .then(setWikiDoc)
+      .catch(() => {
+        setWikiDoc(null);
+        setMsg({ type: "err", text: "文档不存在或无法加载" });
+      })
+      .finally(() => setWikiLoading(false));
+  }, [deepLinkDocId, docs, kb.id]);
 
   const handleUpload = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -186,16 +222,20 @@ function DocumentSection({ kb }: { kb: KnowledgeBase }) {
   const handleDelete = async (doc: KnowledgeDocument) => {
     if (!confirm(`确认删除文档「${doc.name}」？`)) return;
     await knowledgeApi.deleteDocument(kb.id, doc.id);
-    if (wikiDoc?.id === doc.id) setWikiDoc(null);
+    if (wikiDoc?.id === doc.id) closeWiki();
     load();
   };
+
+  if (wikiLoading) {
+    return <p className="text-sm text-ink-400">加载文档…</p>;
+  }
 
   if (wikiDoc) {
     return (
       <DocumentWikiExplorer
         kbId={kb.id}
         doc={wikiDoc}
-        onBack={() => setWikiDoc(null)}
+        onBack={closeWiki}
       />
     );
   }
@@ -249,7 +289,7 @@ function DocumentSection({ kb }: { kb: KnowledgeBase }) {
             <div key={doc.id} className="flex items-center gap-3 border border-ink-200/60 rounded-xl px-4 py-3">
               <button
                 type="button"
-                onClick={() => setWikiDoc(doc)}
+                onClick={() => openWiki(doc)}
                 className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
               >
                 <div className="flex items-center gap-2 flex-wrap">
@@ -263,7 +303,7 @@ function DocumentSection({ kb }: { kb: KnowledgeBase }) {
               <div className="flex gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setWikiDoc(doc)}
+                  onClick={() => openWiki(doc)}
                   className="text-xs px-3 py-1 border border-violet-200 rounded-lg text-violet-700 hover:bg-violet-50"
                 >
                   图谱
@@ -291,13 +331,26 @@ function DocumentSection({ kb }: { kb: KnowledgeBase }) {
   );
 }
 
-export default function KnowledgePanel({ userId }: { userId: string }) {
+export default function KnowledgePanel({
+  userId,
+  deepLinkKbId,
+  deepLinkDocId,
+}: {
+  userId: string;
+  deepLinkKbId?: string;
+  deepLinkDocId?: string;
+}) {
+  const navigate = useNavigate();
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(deepLinkKbId ?? null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  useEffect(() => {
+    if (deepLinkKbId) setSelectedId(deepLinkKbId);
+  }, [deepLinkKbId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -311,14 +364,23 @@ export default function KnowledgePanel({ userId }: { userId: string }) {
       }
       await ensureKnowledgeKey(cfg, userId);
       const res = await knowledgeApi.listBases();
-      setBases(res.items);
+      let items = res.items;
+      if (deepLinkKbId && !items.some((kb) => kb.id === deepLinkKbId)) {
+        try {
+          const kb = await knowledgeApi.getBase(deepLinkKbId);
+          items = [...items, kb];
+        } catch {
+          setMsg({ type: "err", text: "知识库不存在或无法访问" });
+        }
+      }
+      setBases(items);
     } catch (e) {
       setBases([]);
       setMsg({ type: "err", text: e instanceof Error ? e.message : "加载知识库失败" });
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, deepLinkKbId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -373,6 +435,12 @@ export default function KnowledgePanel({ userId }: { userId: string }) {
     load();
   };
 
+  const handleBackToBaseList = () => {
+    setSelectedId(null);
+    navigate("/admin?tab=knowledge");
+    void load();
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -388,7 +456,7 @@ export default function KnowledgePanel({ userId }: { userId: string }) {
         <KnowledgeServiceSection userId={userId} onSaved={handleServiceConfigSaved} />
         <button
           type="button"
-          onClick={() => setSelectedId(null)}
+          onClick={handleBackToBaseList}
           className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1"
         >
           ← 返回知识库列表
@@ -404,7 +472,7 @@ export default function KnowledgePanel({ userId }: { userId: string }) {
             {msg.text}
           </p>
         )}
-        <DocumentSection kb={selected} />
+        <DocumentSection kb={selected} deepLinkDocId={deepLinkDocId} />
       </div>
     );
   }

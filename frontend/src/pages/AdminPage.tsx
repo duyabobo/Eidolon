@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import LlmConfigPanel from "../components/LlmConfigPanel";
 import McpConfigPanel from "../components/McpConfigPanel";
 import SkillsPanel from "../components/SkillsPanel";
@@ -14,9 +15,26 @@ const TAB_LABELS: Record<Tab, string> = {
   knowledge: "Knowledge",
 };
 
+const TAB_IDS = Object.keys(TAB_LABELS) as Tab[];
+
+function parseTab(value: string | null): Tab | null {
+  return TAB_IDS.includes(value as Tab) ? (value as Tab) : null;
+}
+
 export default function AdminPage() {
-  const [tab, setTab] = useState<Tab>("llm");
+  const { kbId, docId } = useParams<{ kbId?: string; docId?: string }>();
+  const [searchParams] = useSearchParams();
+  const tabFromQuery = parseTab(searchParams.get("tab"));
+  const [tab, setTab] = useState<Tab>(
+    kbId && docId ? "knowledge" : tabFromQuery ?? "llm",
+  );
   const { userId, loadSkills } = useChatSession();
+
+  useEffect(() => {
+    if (kbId && docId) {
+      setTab("knowledge");
+    }
+  }, [kbId, docId]);
 
   return (
     <div className="h-full overflow-y-auto scrollbar-thin">
@@ -24,7 +42,7 @@ export default function AdminPage() {
         <h1 className="text-xl font-semibold text-ink-900 mb-6 tracking-tight">管理</h1>
 
         <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-ink-100/70 w-fit mb-8">
-          {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
+          {TAB_IDS.map((t) => (
             <button
               key={t}
               type="button"
@@ -44,7 +62,13 @@ export default function AdminPage() {
           {tab === "llm" && <LlmConfigPanel />}
           {tab === "mcp" && <McpConfigPanel userId={userId} />}
           {tab === "skills" && <SkillsPanel userId={userId} onSkillsChanged={loadSkills} />}
-          {tab === "knowledge" && <KnowledgePanel userId={userId} />}
+          {tab === "knowledge" && (
+            <KnowledgePanel
+              userId={userId}
+              deepLinkKbId={kbId}
+              deepLinkDocId={docId}
+            />
+          )}
         </div>
       </div>
     </div>

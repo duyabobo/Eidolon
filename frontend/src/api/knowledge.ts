@@ -192,6 +192,9 @@ export const knowledgeApi = {
   listBases: (page = 1, pageSize = 20) =>
     request<KnowledgeBaseList>(`/config/knowledge/bases?page=${page}&page_size=${pageSize}`),
 
+  getBase: (kbId: string) =>
+    request<KnowledgeBase>(`/config/knowledge/bases/${encodeURIComponent(kbId)}`),
+
   createBase: (body: {
     name: string;
     description?: string;
@@ -242,6 +245,11 @@ export const knowledgeApi = {
     request<void>(
       `/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`,
       { method: "DELETE" },
+    ),
+
+  getDocument: (kbId: string, docId: string) =>
+    request<KnowledgeDocument>(
+      `/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`,
     ),
 
   downloadDocument: async (kbId: string, docId: string, filename: string): Promise<void> => {

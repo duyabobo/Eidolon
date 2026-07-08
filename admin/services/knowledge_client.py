@@ -307,10 +307,16 @@ async def list_documents(knowledge_key: str, kb_id: str, page: int, page_size: i
 
 
 async def get_document(knowledge_key: str, kb_id: str, doc_id: str) -> KnowledgeDocument:
-    docs = await list_documents(knowledge_key, kb_id, page=1, page_size=200)
-    for doc in docs.items:
-        if doc.id == doc_id:
-            return doc
+    page = 1
+    page_size = 200
+    while True:
+        batch = await list_documents(knowledge_key, kb_id, page=page, page_size=page_size)
+        for doc in batch.items:
+            if doc.id == doc_id:
+                return doc
+        if page * page_size >= batch.total:
+            break
+        page += 1
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
 
 

@@ -97,6 +97,7 @@ function AppLayout() {
           <Route path="/" element={<ChatPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/admin/knowledge/bases/:kbId/documents/:docId" element={<AdminPage />} />
         </Routes>
       </main>
     </div>

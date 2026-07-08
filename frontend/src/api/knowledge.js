@@ -57,6 +57,7 @@ export const knowledgeApi = {
         headers: jsonHeaders(),
     }),
     listBases: (page = 1, pageSize = 20) => request(`/config/knowledge/bases?page=${page}&page_size=${pageSize}`),
+    getBase: (kbId) => request(`/config/knowledge/bases/${encodeURIComponent(kbId)}`),
     createBase: (body) => request("/config/knowledge/bases", {
         method: "POST",
         headers: jsonHeaders(),
@@ -85,6 +86,7 @@ export const knowledgeApi = {
         return resp.json();
     },
     deleteDocument: (kbId, docId) => request(`/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`, { method: "DELETE" }),
+    getDocument: (kbId, docId) => request(`/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`),
     downloadDocument: async (kbId, docId, filename) => {
         const resp = await fetch(`/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`, { cache: "no-store", headers: apiHeaders() });
         if (!resp.ok) {
