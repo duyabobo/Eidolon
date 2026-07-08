@@ -71,7 +71,7 @@ function KnowledgeServiceSection({ onSaved }: { onSaved: () => void }) {
               type="url"
               value={form.base_url}
               onChange={(e) => setForm({ base_url: e.target.value })}
-              placeholder="留空使用本地存储，如 http://mrag:9621"
+              placeholder="留空使用本地存储，如 http://host:9621 或 host:9621/mrag-knowledge"
               className="ui-field w-full"
             />
             <p className="text-[11px] text-ink-400 mt-1">

@@ -19,11 +19,21 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def normalize_base_url(url: str) -> str:
+    """补全协议前缀；留空表示本地模式。"""
+    trimmed = (url or "").strip()
+    if not trimmed:
+        return ""
+    if "://" not in trimmed:
+        return f"http://{trimmed}"
+    return trimmed
+
+
 def _to_config(raw: dict | None) -> KnowledgeServiceConfig:
     if not raw:
         return KnowledgeServiceConfig(base_url="")
     return KnowledgeServiceConfig(
-        base_url=str(raw.get("base_url", "")).strip(),
+        base_url=normalize_base_url(str(raw.get("base_url", ""))),
         created_at=raw.get("created_at"),
     )
 
@@ -35,8 +45,9 @@ async def get_service_config() -> KnowledgeServiceConfig:
 
 async def save_service_config(cfg: KnowledgeServiceConfig) -> KnowledgeServiceConfig:
     now = _now()
+    base_url = normalize_base_url(cfg.base_url)
     doc = {
-        "base_url": cfg.base_url.strip(),
+        "base_url": base_url,
         "created_at": now,
     }
     await get_db()[_COLLECTION].insert_one(doc)

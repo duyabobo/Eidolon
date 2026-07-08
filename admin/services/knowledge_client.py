@@ -21,7 +21,7 @@ from models.knowledge import (
     KnowledgeDocument,
     KnowledgeDocumentList,
 )
-from services.knowledge_config_store import get_service_config
+from services.knowledge_config_store import get_service_config, normalize_base_url
 from services.mongo_client import get_db
 
 logger = logging.getLogger(__name__)
@@ -44,9 +44,27 @@ def _api_root(base_url: str) -> str:
 
 async def _resolve_base_url() -> str:
     cfg = await get_service_config()
-    if not cfg.base_url:
+    base_url = normalize_base_url(cfg.base_url)
+    if not base_url:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="未配置知识库服务地址")
-    return _api_root(cfg.base_url)
+    return _api_root(base_url)
+
+
+async def _request_json(method: str, url: str, **kwargs: Any) -> httpx.Response:
+    try:
+        async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
+            return await client.request(method, url, **kwargs)
+    except httpx.UnsupportedProtocol as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="知识库服务地址无效，需以 http:// 或 https:// 开头",
+        ) from exc
+    except httpx.RequestError as exc:
+        logger.warning("知识库服务连接失败 url=%s err=%s", url, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"无法连接知识库服务: {exc}",
+        ) from exc
 
 
 def _raise_upstream_error(resp: httpx.Response) -> None:
