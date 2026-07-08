@@ -2,6 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+@layer base {
+  body {
+    @apply antialiased text-ink-900;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(165deg, #f8fafc 0%, #f5f3ff 45%, #fafaf9 100%);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    @apply bg-brand-100 text-brand-700;
+  }
+}
+
+@layer components {
+  .ui-icon-btn {
+    @apply p-2 rounded-lg text-ink-400 transition-all duration-200;
+    @apply hover:text-brand-600 hover:bg-white hover:shadow-sm;
+  }
+
+  .ui-icon-btn-active {
+    @apply text-brand-600 bg-white shadow-sm;
+  }
+
+  .ui-field {
+    @apply text-sm bg-white/80 border border-ink-200/80 rounded-xl px-3 py-1.5;
+    @apply text-ink-700 placeholder:text-ink-400;
+    @apply focus:outline-none focus:ring-2 focus:ring-brand-500/25 focus:border-brand-300;
+    @apply transition-shadow duration-200;
+  }
+
+  .ui-chip {
+    @apply text-xs px-2.5 py-1 rounded-full border font-medium transition-colors duration-200;
+  }
+
+  .ui-btn-primary {
+    @apply px-4 py-2.5 text-sm font-medium text-white rounded-xl;
+    @apply bg-brand-600 hover:bg-brand-700 active:scale-[0.98];
+    @apply disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100;
+    @apply shadow-sm transition-all duration-200;
+  }
+
+  .ui-btn-danger {
+    @apply px-4 py-2.5 text-sm font-medium text-white rounded-xl;
+    @apply bg-rose-500 hover:bg-rose-600 active:scale-[0.98];
+    @apply shadow-sm transition-all duration-200;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+  }
 }

@@ -53,14 +53,14 @@ export default function UserMcpPanel({ userId, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col">
-        <div className="px-5 py-4 border-b flex justify-between items-center">
+    <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white/95 backdrop-blur-xl rounded-2.5xl shadow-panel w-full max-w-lg max-h-[85vh] flex flex-col border border-ink-200/60">
+        <div className="px-5 py-4 border-b border-ink-200/60 flex justify-between items-center">
           <div>
-            <h2 className="font-semibold text-gray-800">MCP 配置</h2>
-            <p className="text-xs text-gray-500">系统 MCP + 你的个人 MCP（均存 MongoDB）</p>
+            <h2 className="font-semibold text-ink-900">MCP 配置</h2>
+            <p className="text-xs text-ink-400">系统 MCP + 你的个人 MCP（均存 MongoDB）</p>
           </div>
-          <button onClick={onClose} className="text-sm text-gray-500">关闭</button>
+          <button onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">

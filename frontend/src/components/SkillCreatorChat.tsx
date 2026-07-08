@@ -85,14 +85,14 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl h-[90vh] flex flex-col">
-        <div className="px-6 py-4 border-b flex items-center justify-between shrink-0">
+    <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white/95 backdrop-blur-xl rounded-2.5xl shadow-panel w-full max-w-4xl h-[90vh] flex flex-col border border-ink-200/60">
+        <div className="px-6 py-4 border-b border-ink-200/60 flex items-center justify-between shrink-0">
           <div>
-            <h2 className="font-semibold text-gray-800">对话创建{scopeLabel}</h2>
-            <p className="text-xs text-gray-500 mt-0.5">通过 skill-creator 对话生成，保存后同步 MongoDB + NFS</p>
+            <h2 className="font-semibold text-ink-900">对话创建{scopeLabel}</h2>
+            <p className="text-xs text-ink-400 mt-0.5">通过 skill-creator 对话生成，保存后同步 MongoDB + NFS</p>
           </div>
-          <button onClick={onClose} className="text-sm text-gray-500 hover:text-gray-700">关闭</button>
+          <button onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
         </div>
 
         <div className="flex-1 flex min-h-0">
@@ -101,8 +101,8 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished }
               {loading && <p className="text-sm text-gray-400 text-center py-8">正在连接 Skill 创建助手…</p>}
               {messages.map((m, i) => (
                 <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap ${
-                    m.role === "user" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-800"
+                  <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap leading-relaxed ${
+                    m.role === "user" ? "bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-soft" : "bg-ink-100/80 text-ink-800 border border-ink-200/60"
                   }`}>
                     {m.content}
                   </div>
