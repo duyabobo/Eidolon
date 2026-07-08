@@ -25,6 +25,8 @@ from services.knowledge_config_store import get_service_config, normalize_base_u
 logger = logging.getLogger(__name__)
 
 _REQUEST_TIMEOUT_SECONDS = 120.0
+# mRAG dataset/list 无 offset，单次尽量拉全（默认上限 100）
+_DATASET_LIST_LIMIT = 100
 
 _DOC_STATUS_MAP = {
     "init": "uploaded",
@@ -214,13 +216,25 @@ async def list_bases(knowledge_key: str, page: int, page_size: int) -> Knowledge
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.get(
             f"{root}/dataset/list",
-            params={"limit": page_size},
+            params={"limit": _DATASET_LIST_LIMIT},
             headers=_knowledge_headers(knowledge_key),
         )
     data = _unwrap_data(resp) or {}
-    items = [_map_dataset(item) for item in data.get("list", [])]
-    total = int(data.get("total") or len(items))
-    return KnowledgeBaseList(items=items, total=total, page=page, page_size=page_size)
+    all_items = [_map_dataset(item) for item in data.get("list", [])]
+    total = int(data.get("total") or len(all_items))
+    if total > len(all_items):
+        logger.warning(
+            "知识库列表未完全返回 total=%d fetched=%d limit=%d",
+            total, len(all_items), _DATASET_LIST_LIMIT,
+        )
+    start = (page - 1) * page_size
+    end = start + page_size
+    return KnowledgeBaseList(
+        items=all_items[start:end],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 async def create_base(knowledge_key: str, body: KnowledgeBaseCreate) -> KnowledgeBase:
@@ -265,19 +279,44 @@ async def get_base(knowledge_key: str, kb_id: str) -> KnowledgeBase:
 
 
 async def update_base(knowledge_key: str, kb_id: str, body: KnowledgeBaseUpdate) -> KnowledgeBase:
-    root = await _resolve_base_url()
+    current = await get_base(knowledge_key, kb_id)
     payload: dict[str, Any] = {"id": kb_id}
+
     if body.name is not None:
-        payload["name"] = body.name
+        new_name = body.name.strip()
+        if new_name != current.name.strip():
+            payload["name"] = new_name
+
     if body.description is not None:
-        payload["intro"] = body.description
+        new_intro = body.description.strip()
+        if new_intro != (current.description or "").strip():
+            payload["intro"] = new_intro
+
+    if len(payload) == 1:
+        logger.info("知识库无变更，跳过 edit: id=%s", kb_id)
+        return current
+
+    root = await _resolve_base_url()
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.post(
             f"{root}/dataset/edit",
             json=payload,
             headers=_knowledge_headers(knowledge_key),
         )
-    raw = _unwrap_data(resp) or {}
+    try:
+        raw = _unwrap_data(resp) or {}
+    except HTTPException as exc:
+        detail = str(exc.detail or "")
+        if "already exists" in detail.lower():
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=(
+                    f"{detail}。"
+                    "若列表中未见同名项，可能是 mRAG 按用户全局校验重名，"
+                    "或列表未展示全部知识库，请尝试其他名称。"
+                ),
+            ) from exc
+        raise
     return _map_dataset(raw)
 
 

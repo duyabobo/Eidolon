@@ -363,7 +363,7 @@ export default function KnowledgePanel({
         return;
       }
       await ensureKnowledgeKey(cfg, userId);
-      const res = await knowledgeApi.listBases();
+      const res = await knowledgeApi.listBases(1, 100);
       let items = res.items;
       if (deepLinkKbId && !items.some((kb) => kb.id === deepLinkKbId)) {
         try {
@@ -391,7 +391,7 @@ export default function KnowledgePanel({
     setMsg(null);
     try {
       await ensureKnowledgeKey(saved, userId, true);
-      const res = await knowledgeApi.listBases();
+      const res = await knowledgeApi.listBases(1, 100);
       setBases(res.items);
     } catch (e) {
       setBases([]);
