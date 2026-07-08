@@ -2,14 +2,16 @@ import { useState } from "react";
 import LlmConfigPanel from "../components/LlmConfigPanel";
 import McpConfigPanel from "../components/McpConfigPanel";
 import SkillsPanel from "../components/SkillsPanel";
+import KnowledgePanel from "../components/KnowledgePanel";
 import { useChatSession } from "../context/ChatSessionContext";
 
-type Tab = "llm" | "mcp" | "skills";
+type Tab = "llm" | "mcp" | "skills" | "knowledge";
 
 const TAB_LABELS: Record<Tab, string> = {
   llm: "LLM",
   mcp: "MCP",
   skills: "Skill",
+  knowledge: "Knowledge",
 };
 
 export default function AdminPage() {
@@ -42,6 +44,7 @@ export default function AdminPage() {
           {tab === "llm" && <LlmConfigPanel />}
           {tab === "mcp" && <McpConfigPanel userId={userId} />}
           {tab === "skills" && <SkillsPanel userId={userId} onSkillsChanged={loadSkills} />}
+          {tab === "knowledge" && <KnowledgePanel />}
         </div>
       </div>
     </div>
