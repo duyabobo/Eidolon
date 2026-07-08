@@ -396,12 +396,20 @@ async def upload_document(knowledge_key: str, kb_id: str, upload: UploadFile) ->
 
 async def delete_document(knowledge_key: str, kb_id: str, doc_id: str) -> None:
     root = await _resolve_base_url()
+    payload = {
+        "doc_ids": [doc_id],
+        "delete_file": False,
+        "delete_llm_cache": False,
+    }
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.delete(
-            f"{root}/documents/{doc_id}",
+        resp = await client.request(
+            "DELETE",
+            f"{root}/documents/delete_document",
+            json=payload,
             headers=_knowledge_headers(knowledge_key),
         )
     _unwrap_data(resp)
+    logger.info("文档已删除 kb_id=%s doc_id=%s", kb_id, doc_id)
 
 
 async def download_document(knowledge_key: str, kb_id: str, doc_id: str) -> Response:
