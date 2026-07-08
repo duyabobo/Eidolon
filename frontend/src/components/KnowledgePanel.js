@@ -67,6 +67,11 @@ function BaseForm({ initial, onSubmit, onCancel, submitLabel, }) {
     const [description, setDescription] = useState(initial?.description ?? "");
     return (_jsxs("div", { className: "border border-ink-200/60 rounded-xl p-4 space-y-3 bg-ink-50/30", children: [_jsx("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "\u77E5\u8BC6\u5E93\u540D\u79F0", className: "ui-field w-full", autoFocus: true }), _jsx("textarea", { value: description, onChange: (e) => setDescription(e.target.value), placeholder: "\u63CF\u8FF0\uFF08\u53EF\u9009\uFF09", rows: 2, className: "ui-field w-full resize-none" }), _jsxs("div", { className: "flex gap-2", children: [_jsx("button", { type: "button", disabled: !name.trim(), onClick: () => onSubmit(name.trim(), description.trim()), className: "ui-btn-primary flex-1", children: submitLabel }), _jsx("button", { type: "button", onClick: onCancel, className: "flex-1 py-2.5 text-sm border border-ink-200 rounded-xl", children: "\u53D6\u6D88" })] })] }));
 }
+const DOC_POLL_INTERVAL_MS = 10000;
+const TERMINAL_DOC_STATUSES = ["indexed", "failed"];
+function isPendingDocument(status) {
+    return !TERMINAL_DOC_STATUSES.includes(status);
+}
 function DocumentSection({ kb, deepLinkDocId, }) {
     const navigate = useNavigate();
     const [docs, setDocs] = useState([]);
@@ -84,14 +89,28 @@ function DocumentSection({ kb, deepLinkDocId, }) {
         setWikiDoc(null);
         navigate("/admin?tab=knowledge");
     }, [navigate]);
-    const load = useCallback(() => {
-        setLoading(true);
-        knowledgeApi.listDocuments(kb.id)
+    const load = useCallback((silent = false) => {
+        if (!silent)
+            setLoading(true);
+        return knowledgeApi.listDocuments(kb.id)
             .then((res) => setDocs(res.items))
-            .catch(() => setDocs([]))
-            .finally(() => setLoading(false));
+            .catch(() => {
+            if (!silent)
+                setDocs([]);
+        })
+            .finally(() => {
+            if (!silent)
+                setLoading(false);
+        });
     }, [kb.id]);
-    useEffect(() => { load(); }, [load]);
+    useEffect(() => { void load(); }, [load]);
+    const hasPendingDocs = docs.some((doc) => isPendingDocument(doc.status));
+    useEffect(() => {
+        if (!hasPendingDocs)
+            return;
+        const timer = setInterval(() => void load(true), DOC_POLL_INTERVAL_MS);
+        return () => clearInterval(timer);
+    }, [hasPendingDocs, load]);
     useEffect(() => {
         if (!deepLinkDocId)
             return;

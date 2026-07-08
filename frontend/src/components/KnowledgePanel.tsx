@@ -148,6 +148,13 @@ function BaseForm({
   );
 }
 
+const DOC_POLL_INTERVAL_MS = 10_000;
+const TERMINAL_DOC_STATUSES: KnowledgeDocument["status"][] = ["indexed", "failed"];
+
+function isPendingDocument(status: KnowledgeDocument["status"]): boolean {
+  return !TERMINAL_DOC_STATUSES.includes(status);
+}
+
 function DocumentSection({
   kb,
   deepLinkDocId,
@@ -174,15 +181,27 @@ function DocumentSection({
     navigate("/admin?tab=knowledge");
   }, [navigate]);
 
-  const load = useCallback(() => {
-    setLoading(true);
-    knowledgeApi.listDocuments(kb.id)
+  const load = useCallback((silent = false) => {
+    if (!silent) setLoading(true);
+    return knowledgeApi.listDocuments(kb.id)
       .then((res) => setDocs(res.items))
-      .catch(() => setDocs([]))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (!silent) setDocs([]);
+      })
+      .finally(() => {
+        if (!silent) setLoading(false);
+      });
   }, [kb.id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
+
+  const hasPendingDocs = docs.some((doc) => isPendingDocument(doc.status));
+
+  useEffect(() => {
+    if (!hasPendingDocs) return;
+    const timer = setInterval(() => void load(true), DOC_POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [hasPendingDocs, load]);
 
   useEffect(() => {
     if (!deepLinkDocId) return;
