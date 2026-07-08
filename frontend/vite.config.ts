@@ -3,6 +3,10 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    // 同名的 .js 为历史产物，优先使用 .tsx/.ts 源码
+    extensions: [".tsx", ".ts", ".jsx", ".js", ".json"],
+  },
   server: {
     port: 3000,
     proxy: {

@@ -169,7 +169,7 @@ export default function KnowledgePanel({ userId, deepLinkKbId, deepLinkDocId, })
                 return;
             }
             await ensureKnowledgeKey(cfg, userId);
-            const res = await knowledgeApi.listBases();
+            const res = await knowledgeApi.listBases(1, 100);
             let items = res.items;
             if (deepLinkKbId && !items.some((kb) => kb.id === deepLinkKbId)) {
                 try {
@@ -198,7 +198,7 @@ export default function KnowledgePanel({ userId, deepLinkKbId, deepLinkDocId, })
         setMsg(null);
         try {
             await ensureKnowledgeKey(saved, userId, true);
-            const res = await knowledgeApi.listBases();
+            const res = await knowledgeApi.listBases(1, 100);
             setBases(res.items);
         }
         catch (e) {
@@ -229,7 +229,6 @@ export default function KnowledgePanel({ userId, deepLinkKbId, deepLinkDocId, })
             await knowledgeApi.updateBase(kbId, { name, description });
             setEditingId(null);
             load();
-            setMsg({ type: "ok", text: "已保存" });
         }
         catch (e) {
             setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
