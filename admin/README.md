@@ -64,6 +64,21 @@ MCP 配置变更后，**下一个新建 session** 的 pi-runtime 会读取最新
 
 ---
 
+### Skill Creator（对话创建，内嵌 skill-creator）
+
+基于 [Cursor skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator)（资源位于 `admin/skill_creator/`），通过 LLM 多轮对话生成 Skill 草稿并发布。
+
+| 接口 | 说明 |
+|------|------|
+| `POST /config/skills/creator/sessions` | 创建对话会话，返回首条助手消息 |
+| `GET /config/skills/creator/sessions/{id}` | 获取会话历史与当前草稿 |
+| `POST /config/skills/creator/sessions/{id}/messages` | 发送用户消息，返回助手回复与可选草稿 |
+| `POST /config/skills/creator/sessions/{id}/publish` | 将草稿发布为 global Skill（写入文件系统 + MongoDB） |
+
+**前置条件**：llm-proxy 已配置可用 LLM Provider（Admin 前端「LLM 配置」页）。
+
+---
+
 ### `GET /health` — 健康检查
 
 ```json
@@ -88,10 +103,11 @@ MCP 配置读取（pi-runtime 侧）：
 
 | 依赖 | 用途 |
 |------|------|
-| MongoDB | 持久化 MCP 配置、Skill 元数据 |
+| MongoDB | 持久化 MCP 配置、Skill 元数据、skill-creator 会话 |
 | 共享文件系统 | 读写 SKILL.md 文件 |
+| llm-proxy | skill-creator 对话创建 Skill 时调用 LLM |
 
-**不依赖**：Redis、gateway、pi-runtime、llm-proxy
+**不依赖**：Redis、gateway、pi-runtime
 
 ---
 
@@ -102,5 +118,6 @@ MCP 配置读取（pi-runtime 侧）：
 | `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27017` |
 | `MONGO_DB` | 数据库名 | `pi_agent` |
 | `SANDBOX_ROOT` | 共享文件系统根目录 | `/data/sandboxes` |
+| `LLM_PROXY_BASE_URL` | skill-creator 调用的 llm-proxy 地址 | `http://llm-proxy:9001` |
 | `ADMIN_HOST` | 监听地址 | `0.0.0.0` |
 | `ADMIN_PORT` | 监听端口 | `9000` |

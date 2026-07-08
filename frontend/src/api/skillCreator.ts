@@ -1,0 +1,55 @@
+export interface SkillDraft {
+  name: string;
+  description: string;
+  content: string;
+  tags?: string[];
+}
+
+export interface SkillCreatorMessage {
+  role: "user" | "assistant";
+  content: string;
+  created_at?: string;
+}
+
+export interface SkillCreatorSession {
+  id: string;
+  messages: SkillCreatorMessage[];
+  draft: SkillDraft | null;
+}
+
+async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const resp = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
+export const skillCreatorApi = {
+  createSession: () =>
+    request<{ session_id: string; message: SkillCreatorMessage }>("/config/skills/creator/sessions", {
+      method: "POST",
+    }),
+
+  getSession: (sessionId: string) =>
+    request<SkillCreatorSession>(`/config/skills/creator/sessions/${encodeURIComponent(sessionId)}`),
+
+  sendMessage: (sessionId: string, content: string) =>
+    request<{ message: SkillCreatorMessage; draft: SkillDraft | null }>(
+      `/config/skills/creator/sessions/${encodeURIComponent(sessionId)}/messages`,
+      { method: "POST", body: JSON.stringify({ content }) },
+    ),
+
+  publish: (
+    sessionId: string,
+    payload: Partial<SkillDraft> & { hidden?: boolean },
+  ) =>
+    request<{ name: string; description: string; tags?: string[]; hidden?: boolean }>(
+      `/config/skills/creator/sessions/${encodeURIComponent(sessionId)}/publish`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+};

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { skillsApi, Skill } from "../api/skills";
+import SkillCreatorChat from "./SkillCreatorChat";
 
 const EMPTY_SKILL: Skill = { name: "", description: "", content: "", tags: [], hidden: false };
 
@@ -8,6 +9,7 @@ export default function SkillsPanel() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Skill | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [showCreator, setShowCreator] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const load = () =>
@@ -87,12 +89,33 @@ export default function SkillsPanel() {
         ))}
       </div>
 
-      <button
-        onClick={openNew}
-        className="px-4 py-2 border-2 border-dashed border-indigo-300 text-indigo-600 text-sm rounded-xl hover:bg-indigo-50 transition-colors w-full"
-      >
-        + 添加 Skill
-      </button>
+      <div className="flex gap-2">
+        <button
+          onClick={() => setShowCreator(true)}
+          className="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm rounded-xl hover:bg-indigo-700 transition-colors"
+        >
+          对话创建 Skill
+        </button>
+        <button
+          onClick={openNew}
+          className="flex-1 px-4 py-2 border-2 border-dashed border-indigo-300 text-indigo-600 text-sm rounded-xl hover:bg-indigo-50 transition-colors"
+        >
+          + 手动添加
+        </button>
+      </div>
+
+      {showCreator && (
+        <SkillCreatorChat
+          onClose={() => setShowCreator(false)}
+          onPublished={(skill) => {
+            setSkills((prev) => {
+              const idx = prev.findIndex((s) => s.name === skill.name);
+              return idx >= 0 ? prev.map((s, i) => (i === idx ? skill : s)) : [...prev, skill];
+            });
+            setMsg({ type: "ok", text: `${skill.name} 已通过对话创建并保存` });
+          }}
+        />
+      )}
 
       {editing && (
         <SkillEditModal

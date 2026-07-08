@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     # 共享文件系统根目录（global/skills/ 放在此处，与 pi-runtime 共享）
     sandbox_root: str = "/data/sandboxes"
 
+    # skill-creator 对话创建 Skill 时调用 llm-proxy
+    llm_proxy_base_url: str = "http://llm-proxy:9001"
+
     class Config:
         env_file = ".env"
         extra = "ignore"
