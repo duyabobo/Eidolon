@@ -9,6 +9,8 @@ class SkillDraft(BaseModel):
     description: str
     content: str
     tags: list[str] = Field(default_factory=list)
+    mcp_servers: list[str] = Field(default_factory=list)
+    mcp_tools_reference: str = ""
 
 
 class SkillCreatorMessage(BaseModel):

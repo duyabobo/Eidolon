@@ -21,7 +21,15 @@ def _normalize_draft(data: dict[str, Any]) -> SkillDraft | None:
         return None
     raw_tags = data.get("tags") or []
     tags = [str(t).strip() for t in raw_tags if str(t).strip()]
-    return SkillDraft(name=name, description=description, content=content, tags=tags)
+    raw_mcp = data.get("mcp_servers") or []
+    mcp_servers = [str(item).strip() for item in raw_mcp if str(item).strip()]
+    return SkillDraft(
+        name=name,
+        description=description,
+        content=content,
+        tags=tags,
+        mcp_servers=mcp_servers,
+    )
 
 
 def extract_skill_draft(text: str) -> SkillDraft | None:

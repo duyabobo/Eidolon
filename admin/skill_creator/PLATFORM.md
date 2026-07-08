@@ -21,6 +21,14 @@
 4. **预览与迭代**：展示要点，请用户确认或修改；根据反馈更新。
 5. **定稿**：用户满意后输出结构化草稿（见下方格式）。
 
+## MCP Server 工具引用（平台自动）
+
+当 Skill 需要依赖某个 **MCP Server** 提供的工具时：
+
+1. **指定 Server**：在对话中说明 MCP Server 名称（须与 Admin 中已配置的名称一致），或在 `skill-draft` 中设置 `mcp_servers: ["server-name"]`。
+2. **平台行为**：每轮用户消息后，平台会调用 MCP 探测接口，将 **实时 tool 列表** 注入你的 system prompt；定稿时会写入 `references/mcp-tools.md` 并在正文追加「MCP 工具参考」摘要。
+3. **你的职责**：在 Skill 正文中说明**何时、如何**选用这些 MCP 工具；若 Server 不可用，仍应输出草稿并注明限制。
+
 ## 输出草稿格式（必须遵守）
 
 当 Skill 内容已足够成熟、用户确认可以保存时，在回复**末尾**追加一个 JSON 代码块，语言标记为 `skill-draft`：
@@ -30,7 +38,8 @@
   "name": "example-skill",
   "description": "当用户需要……时使用",
   "content": "Skill 正文（Markdown，不含 frontmatter）",
-  "tags": ["coding", "example"]
+  "tags": ["coding", "example"],
+  "mcp_servers": ["my-mcp-server"]
 }
 ```
 
@@ -38,6 +47,7 @@
 - 仅在用户明确同意保存/定稿，或你判断草稿已可发布时输出该块。
 - 迭代过程中可多次输出 `skill-draft` 块；平台会取**最新**一块作为预览。
 - `content` 必须是完整可用的 Skill 正文。
+- `mcp_servers`（可选）：依赖的 MCP Server 名称数组；平台会据此拉取 tool 列表并生成引用文档。
 - 除 `skill-draft` 块外，用自然语言向用户说明下一步（例如在 Admin 中点击「保存 Skill」）。
 
 ## 语言

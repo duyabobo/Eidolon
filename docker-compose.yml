@@ -64,6 +64,7 @@ services:
       ADMIN_PORT: "9000"
       SANDBOX_ROOT: "/data/sandboxes"
       LLM_PROXY_BASE_URL: "http://llm-proxy:9001"
+      MCP_PROXY_BASE_URL: "http://mcp-proxy:8080"
     ports:
       - "9000:9000"
     volumes:
@@ -76,6 +77,8 @@ services:
       mongo:
         condition: service_healthy
       llm-proxy:
+        condition: service_healthy
+      mcp-proxy:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/health"]

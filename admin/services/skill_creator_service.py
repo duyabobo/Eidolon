@@ -11,6 +11,13 @@ from models.skill_creator import (
 )
 from services import skill_creator_store
 from services.skill_creator_llm import chat_completion
+from services.skill_creator_mcp import (
+    enrich_draft_with_mcp_reference,
+    fetch_mcp_tools,
+    prepare_mcp_context_for_message,
+    resolve_mcp_server_names,
+    list_configured_mcp_names,
+)
 from services.skill_creator_parser import extract_skill_draft, strip_skill_draft_blocks
 from services.skill_creator_prompt import load_system_prompt
 from services import mongo_client
@@ -50,6 +57,30 @@ def _to_llm_messages(session_messages: list[SkillCreatorMessage]) -> list[dict[s
     return [{"role": m.role, "content": m.content} for m in session_messages if m.content.strip()]
 
 
+def _history_text(session_messages: list[SkillCreatorMessage]) -> str:
+    return "\n".join(m.content for m in session_messages if m.content.strip())
+
+
+async def _finalize_draft_with_mcp(
+    user_id: str | None,
+    draft: SkillDraft | None,
+    user_message: str,
+    history_text: str,
+) -> SkillDraft | None:
+    if draft is None:
+        return None
+
+    configured = await list_configured_mcp_names(user_id)
+    server_names = resolve_mcp_server_names(user_message, draft, history_text, configured)
+    if not server_names and draft.mcp_servers:
+        server_names = draft.mcp_servers
+    if not server_names:
+        return draft
+
+    infos = await fetch_mcp_tools(user_id, server_names)
+    return enrich_draft_with_mcp_reference(draft, infos)
+
+
 async def send_user_message(session_id: str, content: str) -> SendMessageResponse:
     session = await skill_creator_store.get_session(session_id)
     if session is None:
@@ -57,9 +88,19 @@ async def send_user_message(session_id: str, content: str) -> SendMessageRespons
 
     user_message = SkillCreatorMessage(role="user", content=content, created_at=datetime.utcnow())
     llm_messages = _to_llm_messages(session.messages) + [{"role": "user", "content": content}]
+    history_text = _history_text(session.messages)
 
-    raw_reply = await chat_completion(load_system_prompt(), llm_messages)
+    mcp_context, _ = await prepare_mcp_context_for_message(
+        session.user_id,
+        content,
+        session.draft,
+        history_text,
+    )
+    system_prompt = load_system_prompt() + mcp_context
+
+    raw_reply = await chat_completion(system_prompt, llm_messages)
     draft = extract_skill_draft(raw_reply) or session.draft
+    draft = await _finalize_draft_with_mcp(session.user_id, draft, content, history_text)
     display = strip_skill_draft_blocks(raw_reply)
     assistant_message = SkillCreatorMessage(role="assistant", content=display, created_at=datetime.utcnow())
 
@@ -76,6 +117,8 @@ def _merge_draft(session_draft: SkillDraft | None, body: PublishSkillRequest) ->
         description=(body.description or base.description).strip(),
         content=(body.content or base.content).strip(),
         tags=body.tags if body.tags is not None else base.tags,
+        mcp_servers=base.mcp_servers,
+        mcp_tools_reference=base.mcp_tools_reference,
     )
 
 
@@ -92,11 +135,18 @@ async def publish_session(session_id: str, body: PublishSkillRequest) -> SkillMe
     if not draft.content:
         raise ValueError("Skill 正文不能为空")
 
+    history_text = _history_text(session.messages)
+    draft = await _finalize_draft_with_mcp(session.user_id, draft, "", history_text) or draft
+
+    references: dict[str, str] | None = None
+    if draft.mcp_tools_reference.strip():
+        references = {"mcp-tools.md": draft.mcp_tools_reference.strip()}
+
     user_id = session.user_id
     if user_id:
-        write_user_skill(user_id, draft.name, draft.description, draft.content)
+        write_user_skill(user_id, draft.name, draft.description, draft.content, references)
     else:
-        write_skill(draft.name, draft.description, draft.content)
+        write_skill(draft.name, draft.description, draft.content, references)
 
     meta = SkillMeta(
         name=draft.name,

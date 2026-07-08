@@ -44,23 +44,45 @@ def _build_skill_md(name: str, description: str, content: str) -> str:
     return frontmatter + content
 
 
-def write_skill(name: str, description: str, content: str) -> None:
+def write_skill(name: str, description: str, content: str, references: dict[str, str] | None = None) -> None:
     """将系统 skill 写入 global/skills/{name}/SKILL.md"""
-    skill_dir = _skill_dir(name)
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    skill_file = _skill_file(name)
-    skill_file.write_text(_build_skill_md(name, description, content), encoding="utf-8")
-    logger.info("系统 skill 文件已写入: %s", skill_file)
+    _write_skill_files(_skill_dir(name), name, description, content, references)
 
 
-def write_user_skill(user_id: str, name: str, description: str, content: str) -> None:
+def write_user_skill(
+    user_id: str,
+    name: str,
+    description: str,
+    content: str,
+    references: dict[str, str] | None = None,
+) -> None:
     """将用户 skill 写入 users/{user_id}/skills/{name}/SKILL.md"""
-    root = _user_skills_root(user_id)
-    skill_dir = root / name
+    _write_skill_files(_user_skills_root(user_id) / name, name, description, content, references)
+
+
+def _write_skill_files(
+    skill_dir: Path,
+    name: str,
+    description: str,
+    content: str,
+    references: dict[str, str] | None,
+) -> None:
     skill_dir.mkdir(parents=True, exist_ok=True)
     skill_file = skill_dir / "SKILL.md"
     skill_file.write_text(_build_skill_md(name, description, content), encoding="utf-8")
-    logger.info("用户 skill 文件已写入 user=%s path=%s", user_id, skill_file)
+    logger.info("skill 文件已写入: %s", skill_file)
+
+    if not references:
+        return
+    ref_dir = skill_dir / "references"
+    ref_dir.mkdir(parents=True, exist_ok=True)
+    for filename, ref_content in references.items():
+        safe_name = Path(filename).name
+        if not safe_name:
+            continue
+        ref_file = ref_dir / safe_name
+        ref_file.write_text(ref_content, encoding="utf-8")
+        logger.info("skill 引用文档已写入: %s", ref_file)
 
 
 def read_skill_content(name: str) -> str | None:
