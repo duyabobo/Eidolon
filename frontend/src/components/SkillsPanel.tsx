@@ -1,39 +1,51 @@
 import { useEffect, useState } from "react";
-import { skillsApi, Skill } from "../api/skills";
+import { skillsApi, Skill, SkillScope } from "../api/skills";
 import SkillCreatorChat from "./SkillCreatorChat";
 
-export default function SkillsPanel() {
+function ScopeBadge({ scope }: { scope: SkillScope }) {
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+      scope === "user" ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"
+    }`}>
+      {scope === "user" ? "我的" : "系统"}
+    </span>
+  );
+}
+
+interface Props {
+  userId: string;
+  onSkillsChanged?: () => void;
+}
+
+export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreator, setShowCreator] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const load = () =>
-    skillsApi.listAdmin()
+    skillsApi.listForChat(userId.trim() || undefined)
       .then(setSkills)
-      .catch(() => {})
+      .catch(() => setSkills([]))
       .finally(() => setLoading(false));
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [userId]);
 
-  const handleDelete = async (name: string) => {
-    if (!confirm(`确认删除系统 Skill "${name}"？`)) return;
-    await skillsApi.delete(name);
-    setSkills((prev) => prev.filter((s) => s.name !== name));
-    setMsg({ type: "ok", text: `已删除 ${name}` });
+  const handleDelete = async (skill: Skill) => {
+    if (skill.scope === "user") return;
+    if (!confirm(`确认删除系统 Skill "${skill.name}"？`)) return;
+    await skillsApi.delete(skill.name);
+    setSkills((prev) => prev.filter((s) => s.name !== skill.name || s.scope === "user"));
+    setMsg({ type: "ok", text: `已删除 ${skill.name}` });
   };
 
-  if (loading) return <div className="text-sm text-gray-400">加载中…</div>;
+  if (loading) return <div className="text-sm text-ink-400">加载中…</div>;
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-        系统 Skill 仅支持通过 skill-creator 对话创建。保存后元数据写入 MongoDB，正文写入 NFS。
-      </p>
-
       {msg && (
         <p className={`text-sm px-3 py-2 rounded-lg ${
-          msg.type === "ok" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+          msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
         }`}>
           {msg.text}
         </p>
@@ -41,50 +53,64 @@ export default function SkillsPanel() {
 
       <div className="space-y-2">
         {skills.length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-8 border border-dashed border-gray-300 rounded-xl">
-            暂无系统 Skill，点击下方按钮通过对话创建
+          <p className="text-sm text-ink-400 text-center py-8 border border-dashed border-ink-200 rounded-xl">
+            暂无 Skill
           </p>
         )}
-        {skills.map((s) => (
-          <div key={s.name} className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-xs bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">系统</span>
-                <span className="text-sm font-medium text-gray-800">{s.name}</span>
-                {s.hidden && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">隐藏</span>}
-                {(s.tags ?? []).map((t) => (
-                  <span key={t} className="text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">{t}</span>
-                ))}
+        {skills.map((s) => {
+          const scope = s.scope ?? "system";
+          return (
+            <div key={`${scope}-${s.name}`} className="flex items-center gap-3 border border-ink-200/60 rounded-xl px-4 py-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <ScopeBadge scope={scope} />
+                  <span className="text-sm font-medium text-ink-800">{s.name}</span>
+                  {s.hidden && <span className="text-xs bg-ink-100 text-ink-500 px-1.5 py-0.5 rounded">隐藏</span>}
+                  {(s.tags ?? []).map((t) => (
+                    <span key={t} className="text-xs bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded">{t}</span>
+                  ))}
+                </div>
+                <p className="text-xs text-ink-400 mt-0.5 truncate">{s.description}</p>
               </div>
-              <p className="text-xs text-gray-500 mt-0.5 truncate">{s.description}</p>
+              {scope === "system" && (
+                <button
+                  type="button"
+                  onClick={() => handleDelete(s)}
+                  className="text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50 shrink-0"
+                >
+                  删除
+                </button>
+              )}
             </div>
-            <button
-              onClick={() => handleDelete(s.name)}
-              className="text-xs px-3 py-1 border border-red-300 rounded-lg text-red-600 hover:bg-red-50 shrink-0"
-            >
-              删除
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      <button
-        onClick={() => setShowCreator(true)}
-        className="w-full px-4 py-2 bg-indigo-600 text-white text-sm rounded-xl hover:bg-indigo-700 transition-colors"
-      >
-        对话创建系统 Skill
-      </button>
-
-      {showCreator && (
+      {!showCreator ? (
+        <button
+          type="button"
+          onClick={() => {
+            if (!userId.trim()) { setMsg({ type: "err", text: "请先在「历史」页设置用户 ID" }); return; }
+            setShowCreator(true);
+          }}
+          className="w-full py-2.5 border-2 border-dashed border-emerald-300/80 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50/50 transition-colors"
+        >
+          + 创建个人 Skill
+        </button>
+      ) : (
         <SkillCreatorChat
-          scope="system"
+          userId={userId.trim()}
+          scope="user"
+          embedded
           onClose={() => setShowCreator(false)}
           onPublished={(skill) => {
             setSkills((prev) => {
-              const idx = prev.findIndex((s) => s.name === skill.name);
-              return idx >= 0 ? prev.map((s, i) => (i === idx ? skill : s)) : [...prev, skill];
+              const idx = prev.findIndex((s) => s.name === skill.name && s.scope === "user");
+              return idx >= 0 ? prev.map((s, i) => (i === idx ? skill : s)) : [...prev, { ...skill, scope: "user" }];
             });
-            setMsg({ type: "ok", text: `${skill.name} 已通过对话创建并保存` });
+            setShowCreator(false);
+            setMsg({ type: "ok", text: `${skill.name} 已创建，可在对话中输入 / 使用` });
+            onSkillsChanged?.();
           }}
         />
       )}

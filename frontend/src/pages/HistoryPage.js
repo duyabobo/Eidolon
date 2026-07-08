@@ -1,18 +1,22 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useChatSession } from "../context/ChatSessionContext";
 export default function HistoryPage() {
     const navigate = useNavigate();
-    const { userId, setUserId, sessions, currentSessionId, runtimeTick, loadSessions, switchToSession, isSessionGenerating, } = useChatSession();
+    const { userId, setUserId, sessions, currentSessionId, runtimeTick, loadSessions, switchToSession, isSessionGenerating, startNewChat, } = useChatSession();
     const [editing, setEditing] = useState(false);
     const [draftId, setDraftId] = useState(userId);
+    useEffect(() => { if (!editing)
+        setDraftId(userId); }, [userId, editing]);
     const startEdit = () => {
         setDraftId(userId);
         setEditing(true);
     };
     const saveUserId = () => {
         const trimmed = draftId.trim();
+        if (trimmed !== userId.trim())
+            startNewChat();
         setUserId(trimmed);
         setEditing(false);
         if (trimmed)

@@ -1,65 +1,106 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useEffect, useState } from "react";
 import { configApi } from "../api/config";
-const EMPTY_SERVER = {
-    url: "",
-    description: "",
-    enabled: true,
-};
-export default function McpConfigPanel() {
-    const [mcpConfig, setMcpConfig] = useState({ servers: {} });
+import { mcpApi } from "../api/mcp";
+const EMPTY_SERVER = { url: "", description: "", enabled: true };
+function ScopeBadge({ scope }) {
+    return (_jsx("span", { className: `text-[10px] px-1.5 py-0.5 rounded-full font-medium ${scope === "user" ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"}`, children: scope === "user" ? "我的" : "系统" }));
+}
+export default function McpConfigPanel({ userId }) {
+    const [servers, setServers] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [edit, setEdit] = useState(null);
+    const [systemEdit, setSystemEdit] = useState(null);
+    const [showUserForm, setShowUserForm] = useState(false);
+    const [userName, setUserName] = useState("");
+    const [userCfg, setUserCfg] = useState({ ...EMPTY_SERVER });
     const [msg, setMsg] = useState(null);
-    const load = () => configApi.getMcp()
-        .then(setMcpConfig)
-        .catch(() => { })
-        .finally(() => setLoading(false));
-    useEffect(() => { load(); }, []);
-    const openNew = () => setEdit({ name: "", config: { ...EMPTY_SERVER } });
-    const openEdit = (name) => setEdit({ name, config: { ...mcpConfig.servers[name] } });
-    const handleDelete = async (name) => {
-        if (!confirm(`确认删除 MCP server "${name}"？`))
+    const load = async () => {
+        try {
+            const list = await mcpApi.listForChat(userId.trim() || undefined);
+            setServers(list);
+        }
+        catch {
+            setServers([]);
+        }
+        finally {
+            setLoading(false);
+        }
+    };
+    useEffect(() => { load(); }, [userId]);
+    const handleDeleteSystem = async (name) => {
+        if (!confirm(`确认删除系统 MCP "${name}"？`))
             return;
         setMsg(null);
         try {
-            const updated = await configApi.deleteServer(name);
-            setMcpConfig(updated);
+            await configApi.deleteServer(name);
+            await load();
             setMsg({ type: "ok", text: `已删除 ${name}` });
         }
         catch (e) {
             setMsg({ type: "err", text: e instanceof Error ? e.message : "删除失败" });
         }
     };
-    const handleSaveServer = async () => {
-        if (!edit)
+    const handleSaveSystem = async () => {
+        if (!systemEdit)
             return;
-        if (!edit.name.trim()) {
-            setMsg({ type: "err", text: "Server 名称不能为空" });
+        if (!systemEdit.name.trim()) {
+            setMsg({ type: "err", text: "名称不能为空" });
             return;
         }
         setMsg(null);
         try {
-            const updated = await configApi.addServer(edit.name.trim(), edit.config);
-            setMcpConfig(updated);
-            setEdit(null);
-            setMsg({ type: "ok", text: `${edit.name} 已保存，新 session 启动时生效` });
+            await configApi.addServer(systemEdit.name.trim(), systemEdit.config);
+            await load();
+            setSystemEdit(null);
+            setMsg({ type: "ok", text: `${systemEdit.name} 已保存` });
         }
         catch (e) {
             setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
         }
     };
+    const handleSaveUser = async () => {
+        if (!userId.trim()) {
+            setMsg({ type: "err", text: "请先在「历史」页设置用户 ID" });
+            return;
+        }
+        if (!userName.trim() || !userCfg.url?.trim()) {
+            setMsg({ type: "err", text: "名称和 URL 不能为空" });
+            return;
+        }
+        setMsg(null);
+        try {
+            await mcpApi.addUserServer(userId.trim(), userName.trim(), userCfg);
+            await load();
+            setShowUserForm(false);
+            setUserName("");
+            setUserCfg({ ...EMPTY_SERVER });
+            setMsg({ type: "ok", text: "个人 MCP 已保存，新 session 生效" });
+        }
+        catch (e) {
+            setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
+        }
+    };
+    const handleDeleteUser = async (name) => {
+        if (!userId.trim())
+            return;
+        if (!confirm(`确认删除个人 MCP "${name}"？`))
+            return;
+        await mcpApi.deleteUserServer(userId.trim(), name);
+        await load();
+        setMsg({ type: "ok", text: `已删除 ${name}` });
+    };
     if (loading)
-        return _jsx("div", { className: "text-sm text-gray-400", children: "\u52A0\u8F7D\u4E2D\u2026" });
-    const servers = Object.entries(mcpConfig.servers);
-    return (_jsxs("div", { className: "space-y-4", children: [_jsx("p", { className: "text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2", children: "\u7CFB\u7EDF MCP \u914D\u7F6E\u4FDD\u5B58\u5728 MongoDB\uFF08mcp_servers \u96C6\u5408\uFF0Cuser_id \u4E3A\u7A7A\uFF09\u3002\u4FDD\u5B58\u540E mcp-proxy \u6700\u591A 60s \u5185\u81EA\u52A8\u751F\u6548\u3002" }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`, children: msg.text })), _jsxs("div", { className: "space-y-2", children: [servers.length === 0 && (_jsx("p", { className: "text-sm text-gray-400 text-center py-8 border border-dashed border-gray-300 rounded-xl", children: "\u6682\u65E0 MCP Server\uFF0C\u70B9\u51FB\u300C\u6DFB\u52A0\u300D\u65B0\u589E" })), servers.map(([name, cfg]) => (_jsxs("div", { className: "flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm", children: [_jsxs("div", { className: "flex-1 min-w-0", children: [_jsxs("div", { className: "flex items-center gap-2", children: [_jsx("span", { className: "text-xs bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded", children: "\u7CFB\u7EDF" }), _jsx("span", { className: "text-sm font-medium text-gray-800", children: name }), cfg.enabled === false && (_jsx("span", { className: "text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded", children: "\u5DF2\u7981\u7528" }))] }), _jsx("p", { className: "text-xs text-gray-500 truncate mt-0.5", children: cfg.url ?? "" }), cfg.description && (_jsx("p", { className: "text-xs text-gray-400 mt-0.5", children: cfg.description }))] }), _jsxs("div", { className: "flex gap-2 shrink-0", children: [_jsx("button", { onClick: () => openEdit(name), className: "text-xs px-3 py-1 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50", children: "\u7F16\u8F91" }), _jsx("button", { onClick: () => handleDelete(name), className: "text-xs px-3 py-1 border border-red-300 rounded-lg text-red-600 hover:bg-red-50", children: "\u5220\u9664" })] })] }, name)))] }), _jsx("button", { onClick: openNew, className: "px-4 py-2 border-2 border-dashed border-indigo-300 text-indigo-600 text-sm rounded-xl hover:bg-indigo-50 transition-colors w-full", children: "+ \u6DFB\u52A0 MCP Server" }), edit && (_jsx(ServerEditModal, { edit: edit, onChange: setEdit, onSave: handleSaveServer, onCancel: () => setEdit(null) }))] }));
+        return _jsx("div", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u4E2D\u2026" });
+    return (_jsxs("div", { className: "space-y-4", children: [msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), _jsxs("div", { className: "space-y-2", children: [servers.length === 0 && (_jsx("p", { className: "text-sm text-ink-400 text-center py-8 border border-dashed border-ink-200 rounded-xl", children: "\u6682\u65E0 MCP Server" })), servers.map((s) => (_jsxs("div", { className: "flex items-center gap-3 border border-ink-200/60 rounded-xl px-4 py-3", children: [_jsxs("div", { className: "flex-1 min-w-0", children: [_jsxs("div", { className: "flex items-center gap-2 flex-wrap", children: [_jsx(ScopeBadge, { scope: s.scope }), _jsx("span", { className: "text-sm font-medium text-ink-800", children: s.name }), s.enabled === false && (_jsx("span", { className: "text-xs bg-ink-100 text-ink-500 px-1.5 py-0.5 rounded", children: "\u5DF2\u7981\u7528" }))] }), _jsx("p", { className: "text-xs text-ink-400 truncate mt-0.5", children: s.url }), s.description && _jsx("p", { className: "text-xs text-ink-400 mt-0.5", children: s.description })] }), _jsxs("div", { className: "flex gap-2 shrink-0", children: [s.scope === "system" && (_jsxs(_Fragment, { children: [_jsx("button", { type: "button", onClick: () => setSystemEdit({ name: s.name, config: { url: s.url, description: s.description, enabled: s.enabled } }), className: "text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50", children: "\u7F16\u8F91" }), _jsx("button", { type: "button", onClick: () => handleDeleteSystem(s.name), className: "text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50", children: "\u5220\u9664" })] })), s.scope === "user" && (_jsx("button", { type: "button", onClick: () => handleDeleteUser(s.name), className: "text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50", children: "\u5220\u9664" }))] })] }, `${s.scope}-${s.name}`)))] }), showUserForm ? (_jsxs("div", { className: "border border-ink-200/60 rounded-xl p-4 space-y-2", children: [_jsx("p", { className: "text-sm font-medium text-ink-700", children: "\u6DFB\u52A0\u4E2A\u4EBA MCP" }), _jsx("input", { value: userName, onChange: (e) => setUserName(e.target.value), placeholder: "server \u540D\u79F0", className: "ui-field w-full" }), _jsx("input", { value: userCfg.url, onChange: (e) => setUserCfg({ ...userCfg, url: e.target.value }), placeholder: "http://...", className: "ui-field w-full" }), _jsx("input", { value: userCfg.description ?? "", onChange: (e) => setUserCfg({ ...userCfg, description: e.target.value }), placeholder: "\u63CF\u8FF0\uFF08\u53EF\u9009\uFF09", className: "ui-field w-full" }), _jsxs("div", { className: "flex gap-2 pt-1", children: [_jsx("button", { type: "button", onClick: handleSaveUser, className: "ui-btn-primary flex-1", children: "\u4FDD\u5B58" }), _jsx("button", { type: "button", onClick: () => { setShowUserForm(false); setUserName(""); setUserCfg({ ...EMPTY_SERVER }); }, className: "flex-1 py-2.5 text-sm border border-ink-200 rounded-xl text-ink-600", children: "\u53D6\u6D88" })] })] })) : (_jsx("button", { type: "button", onClick: () => {
+                    if (!userId.trim()) {
+                        setMsg({ type: "err", text: "请先在「历史」页设置用户 ID" });
+                        return;
+                    }
+                    setShowUserForm(true);
+                }, className: "w-full py-2.5 border-2 border-dashed border-emerald-300/80 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50/50 transition-colors", children: "+ \u6DFB\u52A0\u4E2A\u4EBA MCP" })), systemEdit && (_jsx(SystemEditModal, { edit: systemEdit, onChange: setSystemEdit, onSave: handleSaveSystem, onCancel: () => setSystemEdit(null) }))] }));
 }
-function ServerEditModal({ edit, onChange, onSave, onCancel, }) {
+function SystemEditModal({ edit, onChange, onSave, onCancel, }) {
     const { name, config: cfg } = edit;
     const set = (patch) => onChange({ ...edit, config: { ...cfg, ...patch } });
-    return (_jsx("div", { className: "fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4", children: _jsxs("div", { className: "bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto", children: [_jsx("div", { className: "px-6 py-4 border-b", children: _jsx("h2", { className: "font-semibold text-gray-800", children: name ? `编辑 ${name}` : "添加 MCP Server" }) }), _jsxs("div", { className: "px-6 py-4 space-y-4", children: [_jsx("p", { className: "text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2", children: "\u4EC5\u652F\u6301 HTTP/SSE transport\uFF08\u8FDC\u7A0B MCP Server\uFF09\u3002stdio \u672C\u5730\u8FDB\u7A0B\u7C7B\u578B\u56E0\u5B89\u5168\u539F\u56E0\u4E0D\u88AB\u5141\u8BB8\u3002" }), _jsx(ModalField, { label: "Server \u540D\u79F0", children: _jsx("input", { value: name, onChange: (e) => onChange({ ...edit, name: e.target.value }), placeholder: "my-mcp-server", className: inputCls }) }), _jsx(ModalField, { label: "URL\uFF08HTTP/SSE \u8FDC\u7A0B\u7AEF\u70B9\uFF09", children: _jsx("input", { value: cfg.url, onChange: (e) => set({ url: e.target.value }), placeholder: "http://mcp-server:8080/sse", className: inputCls }) }), _jsx(ModalField, { label: "\u63CF\u8FF0\uFF08\u53EF\u9009\uFF09", children: _jsx("input", { value: cfg.description ?? "", onChange: (e) => set({ description: e.target.value }), placeholder: "\u5DE5\u5177\u7528\u9014\u8BF4\u660E", className: inputCls }) }), _jsxs("label", { className: "flex items-center gap-2 text-sm text-gray-700", children: [_jsx("input", { type: "checkbox", checked: cfg.enabled !== false, onChange: (e) => set({ enabled: e.target.checked }), className: "rounded" }), "\u542F\u7528\u6B64 Server"] })] }), _jsxs("div", { className: "px-6 py-4 border-t flex justify-end gap-3", children: [_jsx("button", { onClick: onCancel, className: "px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50", children: "\u53D6\u6D88" }), _jsx("button", { onClick: onSave, className: "px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700", children: "\u4FDD\u5B58" })] })] }) }));
+    return (_jsx("div", { className: "fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4", children: _jsxs("div", { className: "bg-white rounded-2xl shadow-panel w-full max-w-lg border border-ink-200/60", children: [_jsx("div", { className: "px-6 py-4 border-b border-ink-200/60", children: _jsxs("h2", { className: "font-semibold text-ink-900", children: ["\u7F16\u8F91\u7CFB\u7EDF MCP \u00B7 ", name] }) }), _jsxs("div", { className: "px-6 py-4 space-y-3", children: [_jsx("input", { value: cfg.url, onChange: (e) => set({ url: e.target.value }), placeholder: "URL", className: "ui-field w-full" }), _jsx("input", { value: cfg.description ?? "", onChange: (e) => set({ description: e.target.value }), placeholder: "\u63CF\u8FF0", className: "ui-field w-full" }), _jsxs("label", { className: "flex items-center gap-2 text-sm text-ink-700", children: [_jsx("input", { type: "checkbox", checked: cfg.enabled !== false, onChange: (e) => set({ enabled: e.target.checked }) }), "\u542F\u7528"] })] }), _jsxs("div", { className: "px-6 py-4 border-t border-ink-200/60 flex justify-end gap-2", children: [_jsx("button", { type: "button", onClick: onCancel, className: "px-4 py-2 text-sm text-ink-600 border border-ink-200 rounded-xl", children: "\u53D6\u6D88" }), _jsx("button", { type: "button", onClick: onSave, className: "ui-btn-primary", children: "\u4FDD\u5B58" })] })] }) }));
 }
-function ModalField({ label, children }) {
-    return (_jsxs("div", { children: [_jsx("label", { className: "block text-sm font-medium text-gray-700 mb-1", children: label }), children] }));
-}
-const inputCls = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400";
