@@ -9,7 +9,7 @@ const TARGET_ID_KEYS = [
     "target",
     "link",
 ];
-const LABEL_KEYS = ["title", "name", "target_title", "label", "text", "source_title"];
+const LABEL_KEYS = ["title", "name", "target_title", "target_name", "label", "text", "source_title"];
 const DESC_KEYS = ["description", "relation", "type", "link_type", "edge_type", "summary", "intro"];
 function pickString(record, keys) {
     for (const key of keys) {

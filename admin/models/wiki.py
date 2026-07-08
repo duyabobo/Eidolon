@@ -57,6 +57,7 @@ class WikiNodeItem(BaseModel):
     body_sections: dict[str, str] = Field(default_factory=dict)
     references: str = ""
     connections: list[Any] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     attachment_oss_url: str = ""
     created_at: str = ""
     doc_lang: str = ""

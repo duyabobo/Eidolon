@@ -1,6 +1,7 @@
 import type { WikiGraphEdge, WikiGraphNode, WikiNodeItem } from "../../api/knowledge";
 import WikiConnectionList from "./WikiConnectionList";
 import WikiMarkdown from "./WikiMarkdown";
+import WikiNodeMeta, { isMetadataBodySection, resolveNodeTitle, resolveNodeType } from "./WikiNodeMeta";
 import { resolveWikiConnections } from "./wikiConnections";
 
 interface WikiNodeDetailProps {
@@ -43,7 +44,8 @@ export default function WikiNodeDetail({
   const bodySections = node
     ? Object.entries(node.body_sections).filter(([key, value]) => {
         if (!value?.trim()) return false;
-        return key.toLowerCase() !== "connections" && key !== "链接";
+        if (key.toLowerCase() === "connections" || key === "链接") return false;
+        return !isMetadataBodySection(key);
       })
     : [];
   const connections = node
@@ -60,11 +62,11 @@ export default function WikiNodeDetail({
       <div className="flex items-center justify-between px-4 py-3 border-b border-ink-200/50 bg-ink-50/40">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-ink-900 truncate">
-            {loading ? "加载节点…" : node?.title ?? "节点详情"}
+            {loading ? "加载节点…" : node ? resolveNodeTitle(node) : "节点详情"}
           </p>
           {node && (
             <p className="text-[11px] text-ink-400 mt-0.5">
-              {node.type || "wiki"} · {node.node_id.slice(0, 8)}…
+              {resolveNodeType(node) || "wiki"} · {node.node_id.slice(0, 8)}…
             </p>
           )}
         </div>
@@ -84,6 +86,8 @@ export default function WikiNodeDetail({
         )}
         {node && !loading && (
           <div className="space-y-5">
+            <WikiNodeMeta node={node} />
+
             {node.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {node.tags.map((tag) => (

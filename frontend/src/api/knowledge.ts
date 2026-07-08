@@ -107,6 +107,7 @@ export interface WikiNodeItem {
   body_sections: Record<string, string>;
   references: string;
   connections: Array<Record<string, unknown> | string>;
+  metadata?: Record<string, unknown>;
   attachment_oss_url: string;
   created_at: string;
   doc_lang: string;
