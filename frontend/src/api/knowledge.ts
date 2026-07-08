@@ -44,6 +44,60 @@ export interface KnowledgeServiceConfig {
   created_at?: string | null;
 }
 
+export interface WikiGraphNode {
+  node_id: string;
+  title: string;
+  type: string;
+  source: string;
+  tree_node_id: string;
+  knowledge_id: string;
+  tags: string[];
+  created_at: string;
+}
+
+export interface WikiGraphEdge {
+  source_id: string;
+  target_id: string;
+  description: string;
+  source_doc_id: string;
+}
+
+export interface WikiDocumentGraph {
+  doc_id: string;
+  node_count: number;
+  edge_count: number;
+  nodes: WikiGraphNode[];
+  edges: WikiGraphEdge[];
+  took_ms: number;
+}
+
+export interface WikiNodeItem {
+  node_id: string;
+  title: string;
+  type: string;
+  source: string;
+  source_doc_id: string;
+  knowledge_id: string;
+  tree_node_id: string;
+  tags: string[];
+  keywords_en: string[];
+  keywords_zh: string[];
+  overview: string;
+  body: string;
+  body_sections: Record<string, string>;
+  references: string;
+  connections: Array<Record<string, string>>;
+  attachment_oss_url: string;
+  created_at: string;
+  doc_lang: string;
+  score: number | null;
+}
+
+export interface WikiNodeDetailResponse {
+  node: WikiNodeItem;
+  took_ms: number;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const resp = await fetch(url, options);
   if (!resp.ok) {
@@ -116,6 +170,20 @@ export const knowledgeApi = {
 
   downloadUrl: (kbId: string, docId: string) =>
     `/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`,
+
+  getWikiGraphByDoc: (docId: string, knowledgeIds?: string[]) =>
+    request<WikiDocumentGraph>("/config/knowledge/wiki/graph/by_doc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ doc_id: docId, knowledge_ids: knowledgeIds }),
+    }),
+
+  getWikiNodeDetail: (nodeId: string, knowledgeIds?: string[]) =>
+    request<WikiNodeDetailResponse>("/config/knowledge/wiki/nodes/detail", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ node_id: nodeId, knowledge_ids: knowledgeIds }),
+    }),
 };
 
 export function formatFileSize(bytes: number): string {

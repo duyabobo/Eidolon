@@ -3,6 +3,7 @@ import {
   knowledgeApi, KnowledgeBase, KnowledgeDocument, KnowledgeServiceConfig,
   formatFileSize, docStatusLabel,
 } from "../api/knowledge";
+import DocumentWikiExplorer from "./knowledge/DocumentWikiExplorer";
 
 const EMPTY_SERVICE: KnowledgeServiceConfig = { base_url: "" };
 
@@ -163,6 +164,7 @@ function DocumentSection({ kb }: { kb: KnowledgeBase }) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [wikiDoc, setWikiDoc] = useState<KnowledgeDocument | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
@@ -196,8 +198,19 @@ function DocumentSection({ kb }: { kb: KnowledgeBase }) {
   const handleDelete = async (doc: KnowledgeDocument) => {
     if (!confirm(`确认删除文档「${doc.name}」？`)) return;
     await knowledgeApi.deleteDocument(kb.id, doc.id);
+    if (wikiDoc?.id === doc.id) setWikiDoc(null);
     load();
   };
+
+  if (wikiDoc) {
+    return (
+      <DocumentWikiExplorer
+        kbId={kb.id}
+        doc={wikiDoc}
+        onBack={() => setWikiDoc(null)}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -205,7 +218,7 @@ function DocumentSection({ kb }: { kb: KnowledgeBase }) {
         <div>
           <p className="text-xs text-ink-400 mt-0.5">{kb.description || "暂无描述"}</p>
           <p className="text-[11px] text-ink-400 mt-1">
-            支持 pdf / docx / txt / md / csv / xlsx / pptx，单文件 ≤ 10MB
+            支持 pdf / docx / txt / md / csv / xlsx / pptx，单文件 ≤ 10MB · 点击文档查看 Wiki 知识图谱
           </p>
         </div>
         <div>
@@ -246,7 +259,11 @@ function DocumentSection({ kb }: { kb: KnowledgeBase }) {
         <div className="space-y-2">
           {docs.map((doc) => (
             <div key={doc.id} className="flex items-center gap-3 border border-ink-200/60 rounded-xl px-4 py-3">
-              <div className="flex-1 min-w-0">
+              <button
+                type="button"
+                onClick={() => setWikiDoc(doc)}
+                className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
+              >
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium text-ink-800 truncate">{doc.name}</span>
                   <StatusBadge status={doc.status} />
@@ -254,8 +271,15 @@ function DocumentSection({ kb }: { kb: KnowledgeBase }) {
                 <p className="text-xs text-ink-400 mt-0.5">
                   {formatFileSize(doc.file_size)} · {new Date(doc.created_at).toLocaleString("zh-CN")}
                 </p>
-              </div>
+              </button>
               <div className="flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setWikiDoc(doc)}
+                  className="text-xs px-3 py-1 border border-violet-200 rounded-lg text-violet-700 hover:bg-violet-50"
+                >
+                  图谱
+                </button>
                 <a
                   href={knowledgeApi.downloadUrl(kb.id, doc.id)}
                   className="text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50"

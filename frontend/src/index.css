@@ -89,4 +89,22 @@
   .step-timeline-body {
     @apply ml-7;
   }
+
+  .wiki-md h1, .wiki-md h2, .wiki-md h3 {
+    @apply font-semibold text-ink-900 mt-4 mb-2;
+  }
+  .wiki-md h1 { @apply text-lg; }
+  .wiki-md h2 { @apply text-base; }
+  .wiki-md h3 { @apply text-sm; }
+  .wiki-md p { @apply text-sm leading-relaxed mb-2; }
+  .wiki-md ul, .wiki-md ol { @apply text-sm pl-5 mb-2 space-y-1; }
+  .wiki-md ul { @apply list-disc; }
+  .wiki-md ol { @apply list-decimal; }
+  .wiki-md code {
+    @apply text-xs bg-ink-100 px-1 py-0.5 rounded font-mono;
+  }
+  .wiki-md pre {
+    @apply text-xs bg-ink-900 text-ink-50 p-3 rounded-lg overflow-x-auto mb-2;
+  }
+  .wiki-md pre code { @apply bg-transparent p-0 text-inherit; }
 }

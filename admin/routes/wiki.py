@@ -1,0 +1,35 @@
+import logging
+
+from fastapi import APIRouter, HTTPException, status
+
+from models.wiki import (
+    WikiDocumentGraphResponse,
+    WikiGraphByDocRequest,
+    WikiNodeDetailRequest,
+    WikiNodeDetailResponse,
+)
+from services import knowledge_config_store, wiki_client
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/config/knowledge/wiki", tags=["knowledge-wiki"])
+
+
+async def _require_remote_mode() -> None:
+    if not await knowledge_config_store.is_remote_mode():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Wiki 知识图谱需配置远程知识库服务地址",
+        )
+
+
+@router.post("/graph/by_doc", response_model=WikiDocumentGraphResponse)
+async def api_wiki_graph_by_doc(body: WikiGraphByDocRequest) -> WikiDocumentGraphResponse:
+    await _require_remote_mode()
+    return await wiki_client.graph_by_doc(body)
+
+
+@router.post("/nodes/detail", response_model=WikiNodeDetailResponse)
+async def api_wiki_node_detail(body: WikiNodeDetailRequest) -> WikiNodeDetailResponse:
+    await _require_remote_mode()
+    return await wiki_client.node_detail(body)

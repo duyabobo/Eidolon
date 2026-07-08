@@ -7,6 +7,7 @@ from logger import setup_logging
 from middleware import AccessLogMiddleware
 from routes.config import router as config_router
 from routes.knowledge import router as knowledge_router
+from routes.wiki import router as wiki_router
 from routes.skill_creator import router as skill_creator_router
 from routes.skills import router as skills_router
 from services import mongo_client
@@ -26,6 +27,7 @@ app.add_middleware(AccessLogMiddleware)
 
 app.include_router(config_router)
 app.include_router(knowledge_router)
+app.include_router(wiki_router)
 app.include_router(skill_creator_router)
 app.include_router(skills_router)
 

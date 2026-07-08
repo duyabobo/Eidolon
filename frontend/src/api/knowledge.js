@@ -40,6 +40,16 @@ export const knowledgeApi = {
     },
     deleteDocument: (kbId, docId) => request(`/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`, { method: "DELETE" }),
     downloadUrl: (kbId, docId) => `/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`,
+    getWikiGraphByDoc: (docId, knowledgeIds) => request("/config/knowledge/wiki/graph/by_doc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ doc_id: docId, knowledge_ids: knowledgeIds }),
+    }),
+    getWikiNodeDetail: (nodeId, knowledgeIds) => request("/config/knowledge/wiki/nodes/detail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ node_id: nodeId, knowledge_ids: knowledgeIds }),
+    }),
 };
 export function formatFileSize(bytes) {
     if (bytes < 1024)
