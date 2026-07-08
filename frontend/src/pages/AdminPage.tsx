@@ -44,7 +44,7 @@ export default function AdminPage() {
           {tab === "llm" && <LlmConfigPanel />}
           {tab === "mcp" && <McpConfigPanel userId={userId} />}
           {tab === "skills" && <SkillsPanel userId={userId} onSkillsChanged={loadSkills} />}
-          {tab === "knowledge" && <KnowledgePanel />}
+          {tab === "knowledge" && <KnowledgePanel userId={userId} />}
         </div>
       </div>
     </div>

@@ -1,10 +1,13 @@
-import { clearCachedKnowledgeKey, getCachedKnowledgeKeyHeader, readCachedKnowledgeKey, writeCachedKnowledgeKey, } from "./knowledgeKeyCache";
+import { clearCachedKnowledgeKey, getCachedKnowledgeKeyHeader, getSceneUidHeader, readCachedKnowledgeKey, setKnowledgeSceneUid, writeCachedKnowledgeKey, } from "./knowledgeKeyCache";
+function apiHeaders(extra) {
+    return { ...getSceneUidHeader(), ...getCachedKnowledgeKeyHeader(), ...extra };
+}
 function jsonHeaders() {
-    return { "Content-Type": "application/json", ...getCachedKnowledgeKeyHeader() };
+    return apiHeaders({ "Content-Type": "application/json" });
 }
 async function request(url, options) {
     const headers = {
-        ...getCachedKnowledgeKeyHeader(),
+        ...apiHeaders(),
         ...options?.headers,
     };
     const resp = await fetch(url, { cache: "no-store", ...options, headers });
@@ -16,37 +19,42 @@ async function request(url, options) {
         return undefined;
     return resp.json();
 }
-/** 远程模式下获取并缓存 knowledge_key；配置变更时需 forceRefresh=true */
-export async function ensureKnowledgeKey(cfg, forceRefresh = false) {
+/** 远程模式下获取并缓存 knowledge_key；userId 来自「历史」页 */
+export async function ensureKnowledgeKey(cfg, userId, forceRefresh = false) {
+    const uid = userId.trim();
+    setKnowledgeSceneUid(uid);
     if (!cfg.base_url?.trim()) {
         clearCachedKnowledgeKey();
         return null;
     }
+    if (!uid) {
+        clearCachedKnowledgeKey();
+        throw new Error("请先在「历史」页设置用户 ID");
+    }
     if (!forceRefresh) {
-        const cached = readCachedKnowledgeKey(cfg);
+        const cached = readCachedKnowledgeKey(cfg, uid);
         if (cached)
             return cached;
     }
     clearCachedKnowledgeKey();
     const resp = await request("/config/knowledge/service/key", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: jsonHeaders(),
     });
-    writeCachedKnowledgeKey(cfg, resp.knowledge_key);
+    writeCachedKnowledgeKey(cfg, uid, resp.knowledge_key);
     return resp.knowledge_key;
 }
 export const knowledgeApi = {
     getServiceConfig: () => request("/config/knowledge/service"),
     listServiceEnvironments: () => request("/config/knowledge/service/environments"),
-    listServiceHistory: (limit = 20) => request(`/config/knowledge/service/history?limit=${limit}`),
     saveServiceConfig: (cfg) => request("/config/knowledge/service", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: jsonHeaders(),
         body: JSON.stringify(cfg),
     }),
     fetchKnowledgeKey: () => request("/config/knowledge/service/key", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: jsonHeaders(),
     }),
     listBases: (page = 1, pageSize = 20) => request(`/config/knowledge/bases?page=${page}&page_size=${pageSize}`),
     createBase: (body) => request("/config/knowledge/bases", {
@@ -68,7 +76,7 @@ export const knowledgeApi = {
             method: "POST",
             body: form,
             cache: "no-store",
-            headers: getCachedKnowledgeKeyHeader(),
+            headers: apiHeaders(),
         });
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
@@ -78,7 +86,7 @@ export const knowledgeApi = {
     },
     deleteDocument: (kbId, docId) => request(`/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`, { method: "DELETE" }),
     downloadDocument: async (kbId, docId, filename) => {
-        const resp = await fetch(`/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`, { cache: "no-store", headers: getCachedKnowledgeKeyHeader() });
+        const resp = await fetch(`/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`, { cache: "no-store", headers: apiHeaders() });
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
             throw new Error(err.detail ?? `HTTP ${resp.status}`);

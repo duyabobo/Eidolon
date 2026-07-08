@@ -14,6 +14,7 @@ KNOWLEDGE_BATCH_PROCESS_TYPE = 1
 DEFAULT_DATASET_AVATAR = "/icon/logo.svg"
 
 KNOWLEDGE_KEY_HEADER = "x-knowledge-key"
+SCENE_UID_HEADER = "x-scene-uid"
 
 KNOWLEDGE_ENVIRONMENT_LABELS = {
     "local": "本地",

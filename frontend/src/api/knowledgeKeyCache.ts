@@ -3,19 +3,29 @@ import type { KnowledgeServiceConfig } from "./knowledge";
 const KEY_STORAGE = "pi_knowledge_key";
 const FP_STORAGE = "pi_knowledge_config_fp";
 
-export function buildConfigFingerprint(cfg: KnowledgeServiceConfig): string {
-  return `${cfg.environment || "local"}|${(cfg.base_url || "").trim()}|${(cfg.scene_uid || "").trim()}`;
+let sceneUid = "";
+
+export function setKnowledgeSceneUid(uid: string): void {
+  sceneUid = (uid || "").trim();
 }
 
-export function readCachedKnowledgeKey(cfg: KnowledgeServiceConfig): string | null {
-  const fp = buildConfigFingerprint(cfg);
+export function getKnowledgeSceneUid(): string {
+  return sceneUid;
+}
+
+export function buildConfigFingerprint(cfg: KnowledgeServiceConfig, uid: string): string {
+  return `${cfg.environment || "local"}|${(cfg.base_url || "").trim()}|${(uid || "").trim()}`;
+}
+
+export function readCachedKnowledgeKey(cfg: KnowledgeServiceConfig, uid: string): string | null {
+  const fp = buildConfigFingerprint(cfg, uid);
   if (sessionStorage.getItem(FP_STORAGE) !== fp) return null;
   return sessionStorage.getItem(KEY_STORAGE);
 }
 
-export function writeCachedKnowledgeKey(cfg: KnowledgeServiceConfig, key: string): void {
+export function writeCachedKnowledgeKey(cfg: KnowledgeServiceConfig, uid: string, key: string): void {
   sessionStorage.setItem(KEY_STORAGE, key);
-  sessionStorage.setItem(FP_STORAGE, buildConfigFingerprint(cfg));
+  sessionStorage.setItem(FP_STORAGE, buildConfigFingerprint(cfg, uid));
 }
 
 export function clearCachedKnowledgeKey(): void {
@@ -26,4 +36,8 @@ export function clearCachedKnowledgeKey(): void {
 export function getCachedKnowledgeKeyHeader(): Record<string, string> {
   const key = sessionStorage.getItem(KEY_STORAGE);
   return key ? { "X-Knowledge-Key": key } : {};
+}
+
+export function getSceneUidHeader(): Record<string, string> {
+  return sceneUid ? { "X-Scene-Uid": sceneUid } : {};
 }

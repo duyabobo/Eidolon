@@ -67,7 +67,7 @@ export default function HistoryPage() {
                   ) : (
                     <p className="text-sm text-ink-400">尚未设置，请先填写用户 ID</p>
                   )}
-                  <p className="text-xs text-ink-400 mt-1">用于区分个人 Skill、MCP 与对话记录</p>
+                  <p className="text-xs text-ink-400 mt-1">用于区分个人 Skill、MCP、知识库与对话记录</p>
                 </div>
                 <button type="button" onClick={startEdit} className="ui-chip bg-ink-50 text-ink-600 border-ink-200/80 hover:bg-ink-100">
                   {userId.trim() ? "修改" : "设置"}

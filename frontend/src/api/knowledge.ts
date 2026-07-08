@@ -1,7 +1,9 @@
 import {
   clearCachedKnowledgeKey,
   getCachedKnowledgeKeyHeader,
+  getSceneUidHeader,
   readCachedKnowledgeKey,
+  setKnowledgeSceneUid,
   writeCachedKnowledgeKey,
 } from "./knowledgeKeyCache";
 
@@ -49,7 +51,6 @@ export interface KnowledgeDocumentList {
 export interface KnowledgeServiceConfig {
   base_url: string;
   environment?: "local" | "prod" | "test";
-  scene_uid?: string;
   created_at?: string | null;
 }
 
@@ -57,14 +58,6 @@ export interface KnowledgeEnvironmentOption {
   id: "local" | "prod" | "test";
   label: string;
   base_url: string;
-}
-
-export interface KnowledgeServiceConfigHistoryItem {
-  id: string;
-  base_url: string;
-  environment: "local" | "prod" | "test";
-  scene_uid: string;
-  created_at: string;
 }
 
 export interface KnowledgeKeyResponse {
@@ -125,13 +118,17 @@ export interface WikiNodeDetailResponse {
   took_ms: number;
 }
 
+function apiHeaders(extra?: Record<string, string>): Record<string, string> {
+  return { ...getSceneUidHeader(), ...getCachedKnowledgeKeyHeader(), ...extra };
+}
+
 function jsonHeaders(): Record<string, string> {
-  return { "Content-Type": "application/json", ...getCachedKnowledgeKeyHeader() };
+  return apiHeaders({ "Content-Type": "application/json" });
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const headers = {
-    ...getCachedKnowledgeKeyHeader(),
+    ...apiHeaders(),
     ...(options?.headers as Record<string, string> | undefined),
   };
   const resp = await fetch(url, { cache: "no-store", ...options, headers });
@@ -143,25 +140,33 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return resp.json();
 }
 
-/** 远程模式下获取并缓存 knowledge_key；配置变更时需 forceRefresh=true */
+/** 远程模式下获取并缓存 knowledge_key；userId 来自「历史」页 */
 export async function ensureKnowledgeKey(
   cfg: KnowledgeServiceConfig,
+  userId: string,
   forceRefresh = false,
 ): Promise<string | null> {
+  const uid = userId.trim();
+  setKnowledgeSceneUid(uid);
+
   if (!cfg.base_url?.trim()) {
     clearCachedKnowledgeKey();
     return null;
   }
+  if (!uid) {
+    clearCachedKnowledgeKey();
+    throw new Error("请先在「历史」页设置用户 ID");
+  }
   if (!forceRefresh) {
-    const cached = readCachedKnowledgeKey(cfg);
+    const cached = readCachedKnowledgeKey(cfg, uid);
     if (cached) return cached;
   }
   clearCachedKnowledgeKey();
   const resp = await request<KnowledgeKeyResponse>("/config/knowledge/service/key", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
   });
-  writeCachedKnowledgeKey(cfg, resp.knowledge_key);
+  writeCachedKnowledgeKey(cfg, uid, resp.knowledge_key);
   return resp.knowledge_key;
 }
 
@@ -171,22 +176,17 @@ export const knowledgeApi = {
   listServiceEnvironments: () =>
     request<{ items: KnowledgeEnvironmentOption[] }>("/config/knowledge/service/environments"),
 
-  listServiceHistory: (limit = 20) =>
-    request<{ items: KnowledgeServiceConfigHistoryItem[] }>(
-      `/config/knowledge/service/history?limit=${limit}`,
-    ),
-
   saveServiceConfig: (cfg: KnowledgeServiceConfig) =>
     request<KnowledgeServiceConfig>("/config/knowledge/service", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(cfg),
     }),
 
   fetchKnowledgeKey: () =>
     request<KnowledgeKeyResponse>("/config/knowledge/service/key", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
     }),
 
   listBases: (page = 1, pageSize = 20) =>
@@ -228,7 +228,7 @@ export const knowledgeApi = {
         method: "POST",
         body: form,
         cache: "no-store",
-        headers: getCachedKnowledgeKeyHeader(),
+        headers: apiHeaders(),
       },
     );
     if (!resp.ok) {
@@ -247,7 +247,7 @@ export const knowledgeApi = {
   downloadDocument: async (kbId: string, docId: string, filename: string): Promise<void> => {
     const resp = await fetch(
       `/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`,
-      { cache: "no-store", headers: getCachedKnowledgeKeyHeader() },
+      { cache: "no-store", headers: apiHeaders() },
     );
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));

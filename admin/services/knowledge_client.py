@@ -20,7 +20,7 @@ from models.knowledge import (
     KnowledgeDocumentList,
     KnowledgeKeyResponse,
 )
-from services.knowledge_config_store import get_service_config, normalize_base_url, resolve_scene_uid
+from services.knowledge_config_store import get_service_config, normalize_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -158,12 +158,14 @@ def _map_document(kb_id: str, raw: dict) -> KnowledgeDocument:
     )
 
 
-async def fetch_knowledge_key() -> KnowledgeKeyResponse:
-    """按当前服务配置调用 mRAG get_or_create_knowledge_key（不缓存）。"""
-    scene_uid = await resolve_scene_uid()
+async def fetch_knowledge_key(scene_uid: str) -> KnowledgeKeyResponse:
+    """按当前服务配置与用户 scene_uid 调用 mRAG get_or_create_knowledge_key。"""
+    uid = scene_uid.strip()
+    if not uid:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scene_uid 不能为空")
     root = await _resolve_base_url()
     payload = {
-        "scene_uid": scene_uid,
+        "scene_uid": uid,
         "scene_type": KNOWLEDGE_SCENE_TYPE,
     }
     resp = await _request_json(
@@ -175,7 +177,7 @@ async def fetch_knowledge_key() -> KnowledgeKeyResponse:
     knowledge_key = str((data or {}).get("knowledge_key") or "")
     if not knowledge_key:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="知识库服务未返回 knowledge_key")
-    logger.info("已获取 knowledge_key scene_uid=%s scene_type=%s", scene_uid, KNOWLEDGE_SCENE_TYPE)
+    logger.info("已获取 knowledge_key scene_uid=%s scene_type=%s", uid, KNOWLEDGE_SCENE_TYPE)
     return KnowledgeKeyResponse(knowledge_key=knowledge_key)
 
 

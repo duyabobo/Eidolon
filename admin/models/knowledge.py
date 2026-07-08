@@ -65,7 +65,6 @@ class KnowledgeServiceConfig(BaseModel):
     """知识库后端服务地址（为空时使用 admin 本地存储）"""
     base_url: str = Field(default="", max_length=512)
     environment: KnowledgeEnvironment = "local"
-    scene_uid: str = Field(default="", max_length=128)
     created_at: datetime | None = None
 
 
@@ -77,18 +76,6 @@ class KnowledgeEnvironmentOption(BaseModel):
 
 class KnowledgeEnvironmentList(BaseModel):
     items: list[KnowledgeEnvironmentOption]
-
-
-class KnowledgeServiceConfigHistoryItem(BaseModel):
-    id: str
-    base_url: str
-    environment: KnowledgeEnvironment = "local"
-    scene_uid: str = ""
-    created_at: datetime
-
-
-class KnowledgeServiceConfigHistoryList(BaseModel):
-    items: list[KnowledgeServiceConfigHistoryItem]
 
 
 class KnowledgeKeyResponse(BaseModel):

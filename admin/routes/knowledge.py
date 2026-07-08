@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, Header, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
 
-from constants.knowledge import KNOWLEDGE_KEY_HEADER
+from constants.knowledge import KNOWLEDGE_KEY_HEADER, SCENE_UID_HEADER
 from models.knowledge import (
     KnowledgeBase,
     KnowledgeBaseCreate,
@@ -15,9 +15,8 @@ from models.knowledge import (
     KnowledgeEnvironmentList,
     KnowledgeKeyResponse,
     KnowledgeServiceConfig,
-    KnowledgeServiceConfigHistoryList,
 )
-from routes.knowledge_deps import require_knowledge_key
+from routes.knowledge_deps import require_knowledge_key, require_scene_uid
 from services import knowledge_client, knowledge_config_store, mongo_client
 from services.knowledge_store import delete_base as local_delete_base
 from services.knowledge_store import delete_document as local_delete_document
@@ -49,19 +48,14 @@ async def api_list_knowledge_environments() -> KnowledgeEnvironmentList:
     return knowledge_config_store.list_environment_options()
 
 
-@router.get("/service/history", response_model=KnowledgeServiceConfigHistoryList)
-async def api_list_service_config_history(
-    limit: int = Query(default=20, ge=1, le=100),
-) -> KnowledgeServiceConfigHistoryList:
-    return await knowledge_config_store.list_service_config_history(limit)
-
-
 @router.post("/service/key", response_model=KnowledgeKeyResponse)
-async def api_fetch_knowledge_key() -> KnowledgeKeyResponse:
+async def api_fetch_knowledge_key(
+    x_scene_uid: Annotated[str | None, Header(alias=SCENE_UID_HEADER)] = None,
+) -> KnowledgeKeyResponse:
     if not await knowledge_config_store.is_remote_mode():
         from fastapi import HTTPException
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="本地模式无需 knowledge_key")
-    return await knowledge_client.fetch_knowledge_key()
+    return await knowledge_client.fetch_knowledge_key(require_scene_uid(x_scene_uid))
 
 
 @router.get("/bases", response_model=KnowledgeBaseList)
