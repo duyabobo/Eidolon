@@ -166,7 +166,7 @@ function DocumentSection({
   const [docs, setDocs] = useState<KnowledgeDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
   const [wikiDoc, setWikiDoc] = useState<KnowledgeDocument | null>(null);
   const [wikiLoading, setWikiLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -215,7 +215,7 @@ function DocumentSection({
       .then(setWikiDoc)
       .catch(() => {
         setWikiDoc(null);
-        setMsg({ type: "err", text: "文档不存在或无法加载" });
+        setErrMsg("文档不存在或无法加载");
       })
       .finally(() => setWikiLoading(false));
   }, [deepLinkDocId, docs, kb.id]);
@@ -223,14 +223,15 @@ function DocumentSection({
   const handleUpload = async (files: FileList | null) => {
     if (!files?.length) return;
     setUploading(true);
-    setMsg(null);
+    setErrMsg(null);
     try {
       for (const file of Array.from(files)) {
         await knowledgeApi.uploadDocument(kb.id, file);
       }
-      load();
+      setErrMsg(null);
+      await load();
     } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "上传失败" });
+      setErrMsg(e instanceof Error ? e.message : "上传失败");
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -287,11 +288,9 @@ function DocumentSection({
         </div>
       </div>
 
-      {msg && (
-        <p className={`text-sm px-3 py-2 rounded-lg ${
-          msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
-        }`}>
-          {msg.text}
+      {errMsg && (
+        <p className="text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700">
+          {errMsg}
         </p>
       )}
 
@@ -364,7 +363,7 @@ export default function KnowledgePanel({
   const [selectedId, setSelectedId] = useState<string | null>(deepLinkKbId ?? null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (deepLinkKbId) setSelectedId(deepLinkKbId);
@@ -372,12 +371,12 @@ export default function KnowledgePanel({
 
   const load = useCallback(async () => {
     setLoading(true);
-    setMsg(null);
+    setErrMsg(null);
     try {
       const cfg = await knowledgeApi.getServiceConfig();
       if (cfg.base_url?.trim() && !userId.trim()) {
         setBases([]);
-        setMsg({ type: "err", text: "请先在「历史」页设置用户 ID" });
+        setErrMsg("请先在「历史」页设置用户 ID");
         return;
       }
       await ensureKnowledgeKey(cfg, userId);
@@ -388,13 +387,13 @@ export default function KnowledgePanel({
           const kb = await knowledgeApi.getBase(deepLinkKbId);
           items = [...items, kb];
         } catch {
-          setMsg({ type: "err", text: "知识库不存在或无法访问" });
+          setErrMsg("知识库不存在或无法访问");
         }
       }
       setBases(items);
     } catch (e) {
       setBases([]);
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "加载知识库失败" });
+      setErrMsg(e instanceof Error ? e.message : "加载知识库失败");
     } finally {
       setLoading(false);
     }
@@ -406,14 +405,14 @@ export default function KnowledgePanel({
     setSelectedId(null);
     setEditingId(null);
     setLoading(true);
-    setMsg(null);
+    setErrMsg(null);
     try {
       await ensureKnowledgeKey(saved, userId, true);
       const res = await knowledgeApi.listBases(1, 100);
       setBases(res.items);
     } catch (e) {
       setBases([]);
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "刷新知识库失败" });
+      setErrMsg(e instanceof Error ? e.message : "刷新知识库失败");
     } finally {
       setLoading(false);
     }
@@ -422,26 +421,25 @@ export default function KnowledgePanel({
   const selected = bases.find((b) => b.id === selectedId) ?? null;
 
   const handleCreate = async (name: string, description: string) => {
-    setMsg(null);
+    setErrMsg(null);
     try {
       const kb = await knowledgeApi.createBase({ name, description, type: "document" });
       setShowCreate(false);
       setSelectedId(kb.id);
       load();
-      setMsg({ type: "ok", text: `知识库「${name}」已创建` });
     } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "创建失败" });
+      setErrMsg(e instanceof Error ? e.message : "创建失败");
     }
   };
 
   const handleUpdate = async (kbId: string, name: string, description: string) => {
-    setMsg(null);
+    setErrMsg(null);
     try {
       await knowledgeApi.updateBase(kbId, { name, description });
       setEditingId(null);
       load();
     } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
+      setErrMsg(e instanceof Error ? e.message : "保存失败");
     }
   };
 
@@ -450,6 +448,11 @@ export default function KnowledgePanel({
     await knowledgeApi.deleteBase(kb.id);
     if (selectedId === kb.id) setSelectedId(null);
     load();
+  };
+
+  const openKnowledgeBase = (kbId: string) => {
+    setErrMsg(null);
+    setSelectedId(kbId);
   };
 
   const handleBackToBaseList = () => {
@@ -482,13 +485,6 @@ export default function KnowledgePanel({
           <h2 className="text-base font-semibold text-ink-900">{selected.name}</h2>
           <span className="text-xs text-ink-400">{selected.document_count} 个文档</span>
         </div>
-        {msg && (
-          <p className={`text-sm px-3 py-2 rounded-lg ${
-            msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
-          }`}>
-            {msg.text}
-          </p>
-        )}
         <DocumentSection kb={selected} deepLinkDocId={deepLinkDocId} />
       </div>
     );
@@ -498,11 +494,9 @@ export default function KnowledgePanel({
     <div className="space-y-4">
       <KnowledgeServiceSection userId={userId} onSaved={handleServiceConfigSaved} />
 
-      {msg && (
-        <p className={`text-sm px-3 py-2 rounded-lg ${
-          msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
-        }`}>
-          {msg.text}
+      {errMsg && (
+        <p className="text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700">
+          {errMsg}
         </p>
       )}
 
@@ -539,7 +533,7 @@ export default function KnowledgePanel({
                 <div className="flex items-center gap-3 px-4 py-3">
                   <button
                     type="button"
-                    onClick={() => setSelectedId(kb.id)}
+                    onClick={() => openKnowledgeBase(kb.id)}
                     className="flex-1 min-w-0 text-left"
                   >
                     <p className="text-sm font-medium text-ink-800 truncate">{kb.name}</p>
@@ -550,7 +544,7 @@ export default function KnowledgePanel({
                   <div className="flex gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setSelectedId(kb.id)}
+                      onClick={() => openKnowledgeBase(kb.id)}
                       className="text-xs px-3 py-1 border border-brand-200 rounded-lg text-brand-700 hover:bg-brand-50"
                     >
                       文档
