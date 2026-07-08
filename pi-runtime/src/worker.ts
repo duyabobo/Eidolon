@@ -190,6 +190,33 @@ async function startAndRegisterSession(
   return running;
 }
 
+/** pi 进程意外退出后重建（保留沙盒 workspace 与 Redis 订阅） */
+async function restartPiForSession(running: RunningSession, skillIds: string[]): Promise<RunningSession> {
+  const { sessionId, userId } = running;
+  console.warn(`[worker] session=${sessionId}: pi 进程已退出，自动重建`);
+
+  unregisterSessionLlmBridge(sessionId);
+  unregisterSessionMcpBridge(sessionId);
+  await running.piHandle.close().catch(() => {});
+
+  registerSessionLlmBridge(
+    sessionId,
+    process.env.LLM_PROXY_HOST ?? "llm-proxy",
+    Number(process.env.LLM_PROXY_PORT ?? 9001),
+  );
+  registerSessionMcpBridge(
+    sessionId,
+    userId,
+    process.env.MCP_PROXY_HOST ?? "mcp-proxy",
+    Number(process.env.MCP_PROXY_PORT ?? 8080),
+  );
+
+  const sandboxPaths = await createSandbox(userId, sessionId);
+  running.piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);
+  console.log(`[worker] session=${sessionId}: pi 进程重建完成`);
+  return running;
+}
+
 // ── 处理新 session（第一条消息，创建 pi 进程）───────────────────────────────
 
 async function openSession(payload: NewSessionPayload): Promise<void> {
@@ -216,6 +243,8 @@ async function handleNewMessage(payload: NewMessagePayload): Promise<void> {
     console.warn(`[worker] session=${session_id}: pi 进程不存在，自动重建`);
     running = await startAndRegisterSession(session_id, user_id, skill_ids);
     console.log(`[worker] session=${session_id}: pi 进程重建完成`);
+  } else if (!running.piHandle.isAlive()) {
+    running = await restartPiForSession(running, skill_ids);
   }
 
   resetInactivityTimer(running);

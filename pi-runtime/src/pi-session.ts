@@ -68,6 +68,8 @@ export interface PiSessionHandle {
   sendTurn(turnId: string, message: string, outputStream: SessionOutputStream): Promise<void>;
   /** 关闭 pi 进程，清理 pi config 目录（sandbox workspace 由 worker 负责清理） */
   close(): Promise<void>;
+  /** pi 子进程是否仍在运行 */
+  isAlive(): boolean;
 }
 
 // ── 内部：当前轮次状态 ────────────────────────────────────────────────────────
@@ -220,7 +222,8 @@ function buildMemoryArgs(userMemoryDir: string): string[] {
  * 进程重启后加载同一文件，完整恢复 messages[]，实现短期记忆跨重启保留。
  */
 function buildSessionArgs(userPiSessionsDir: string, sessionId: string): string[] {
-  return ["--session-dir", userPiSessionsDir, "--session", sessionId];
+  // --session-id：不存在时自动创建；--session 仅加载已有会话，首条消息会失败
+  return ["--session-dir", userPiSessionsDir, "--session-id", sessionId];
 }
 
 // ── 启动 pi 进程，返回多轮会话句柄 ───────────────────────────────────────────
@@ -387,6 +390,10 @@ export async function startPiSession(
       console.log(`[pi-session] session=${sessionId}: 关闭 pi 进程`);
       piProcess.stdin!.end();
       await piExitPromise;
+    },
+
+    isAlive(): boolean {
+      return piProcess.exitCode === null && piProcess.signalCode === null;
     },
   };
 }

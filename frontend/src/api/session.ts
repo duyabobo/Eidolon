@@ -119,19 +119,30 @@ export function streamTurn(
   onError: (msg: string) => void,
 ): () => void {
   const es = new EventSource(`/sessions/${sessionId}/turns/${turnId}/stream`);
+  let closed = false;
+
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    es.close();
+  };
 
   const handlers: Record<string, (e: MessageEvent) => void> = {
     token:       (e) => onEvent({ event: "token",       data: e.data }),
     thinking:    (e) => onEvent({ event: "thinking",    data: e.data }),
     tool_call:   (e) => onEvent({ event: "tool_call",   data: e.data }),
     tool_result: (e) => onEvent({ event: "tool_result", data: e.data }),
-    done:        ()  => { onDone(); es.close(); },
-    error:       (e) => { onError(e.data || "执行出错"); es.close(); },
+    done:        ()  => { onDone(); close(); },
+    error:       (e) => { onError(e.data || "执行出错"); close(); },
     heartbeat:   ()  => {},
   };
 
   Object.entries(handlers).forEach(([ev, fn]) => es.addEventListener(ev, fn));
-  es.onerror = () => { onError("SSE 连接中断"); es.close(); };
+  es.onerror = () => {
+    if (closed) return;
+    onError("SSE 连接中断");
+    close();
+  };
 
-  return () => es.close();
+  return () => close();
 }
