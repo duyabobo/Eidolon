@@ -56,3 +56,9 @@ class KnowledgeDocumentList(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class KnowledgeServiceConfig(BaseModel):
+    """知识库后端服务地址（为空时使用 admin 本地存储）"""
+    base_url: str = Field(default="", max_length=512, description="知识库 API 根地址，如 http://knowledge:8080/v1/knowledge")
+    created_at: datetime | None = None

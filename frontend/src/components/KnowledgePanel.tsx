@@ -1,8 +1,104 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  knowledgeApi, KnowledgeBase, KnowledgeDocument,
+  knowledgeApi, KnowledgeBase, KnowledgeDocument, KnowledgeServiceConfig,
   formatFileSize, docStatusLabel,
 } from "../api/knowledge";
+
+const EMPTY_SERVICE: KnowledgeServiceConfig = { base_url: "" };
+
+function KnowledgeServiceSection({ onSaved }: { onSaved: () => void }) {
+  const [form, setForm] = useState<KnowledgeServiceConfig>(EMPTY_SERVICE);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  useEffect(() => {
+    knowledgeApi.getServiceConfig()
+      .then(setForm)
+      .catch(() => setForm(EMPTY_SERVICE))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setMsg(null);
+    try {
+      const saved = await knowledgeApi.saveServiceConfig({ base_url: form.base_url.trim() });
+      setForm(saved);
+      setMsg({
+        type: "ok",
+        text: saved.base_url
+          ? "知识库服务地址已保存（新增配置记录），后续操作将转发至远程服务。"
+          : "已切换为本地模式（新增配置记录）。",
+      });
+      onSaved();
+    } catch (e) {
+      setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isRemote = Boolean(form.base_url.trim());
+
+  return (
+    <div className="border border-ink-200/60 rounded-xl p-4 space-y-3 bg-ink-50/40">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-ink-800">知识库服务</p>
+          <p className="text-xs text-ink-400 mt-0.5">
+            {isRemote ? "远程模式：请求转发至下方地址" : "本地模式：数据存 MongoDB + global/knowledge/"}
+            {form.created_at && (
+              <> · 当前配置于 {new Date(form.created_at).toLocaleString("zh-CN")}</>
+            )}
+          </p>
+        </div>
+        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+          isRemote ? "bg-violet-50 text-violet-700" : "bg-ink-100 text-ink-600"
+        }`}>
+          {isRemote ? "远程" : "本地"}
+        </span>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-ink-400">加载配置…</p>
+      ) : (
+        <>
+          <div>
+            <label className="block text-xs font-medium text-ink-600 mb-1">服务地址（Base URL）</label>
+            <input
+              type="url"
+              value={form.base_url}
+              onChange={(e) => setForm({ base_url: e.target.value })}
+              placeholder="留空使用本地存储，如 http://knowledge:8080/v1/knowledge"
+              className="ui-field w-full"
+            />
+            <p className="text-[11px] text-ink-400 mt-1">
+              远程 API 路径约定：{"{base_url}"}/bases、{"{base_url}"}/bases/{"{kb_id}"}/documents
+            </p>
+          </div>
+
+          {msg && (
+            <p className={`text-sm px-3 py-2 rounded-lg ${
+              msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+            }`}>
+              {msg.text}
+            </p>
+          )}
+
+          <button
+            type="button"
+            disabled={saving}
+            onClick={handleSave}
+            className="ui-btn-primary text-sm"
+          >
+            {saving ? "保存中…" : "保存服务地址"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
 
 function StatusBadge({ status }: { status: KnowledgeDocument["status"] }) {
   const cls = {
@@ -235,11 +331,19 @@ export default function KnowledgePanel() {
     load();
   };
 
-  if (loading) return <div className="text-sm text-ink-400">加载中…</div>;
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <KnowledgeServiceSection onSaved={load} />
+        <div className="text-sm text-ink-400">加载知识库…</div>
+      </div>
+    );
+  }
 
   if (selected) {
     return (
       <div className="space-y-4">
+        <KnowledgeServiceSection onSaved={load} />
         <button
           type="button"
           onClick={() => setSelectedId(null)}
@@ -265,9 +369,7 @@ export default function KnowledgePanel() {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-ink-500">
-        本地知识库：元数据存 MongoDB，文档文件存共享目录（global/knowledge/）。
-      </p>
+      <KnowledgeServiceSection onSaved={load} />
 
       {msg && (
         <p className={`text-sm px-3 py-2 rounded-lg ${

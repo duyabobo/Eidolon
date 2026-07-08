@@ -39,6 +39,11 @@ export interface KnowledgeDocumentList {
   page_size: number;
 }
 
+export interface KnowledgeServiceConfig {
+  base_url: string;
+  created_at?: string | null;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const resp = await fetch(url, options);
   if (!resp.ok) {
@@ -50,6 +55,15 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const knowledgeApi = {
+  getServiceConfig: () => request<KnowledgeServiceConfig>("/config/knowledge/service"),
+
+  saveServiceConfig: (cfg: KnowledgeServiceConfig) =>
+    request<KnowledgeServiceConfig>("/config/knowledge/service", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg),
+    }),
+
   listBases: (page = 1, pageSize = 20) =>
     request<KnowledgeBaseList>(`/config/knowledge/bases?page=${page}&page_size=${pageSize}`),
 

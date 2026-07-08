@@ -1,6 +1,42 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { knowledgeApi, formatFileSize, docStatusLabel, } from "../api/knowledge";
+const EMPTY_SERVICE = { base_url: "" };
+function KnowledgeServiceSection({ onSaved }) {
+    const [form, setForm] = useState(EMPTY_SERVICE);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [msg, setMsg] = useState(null);
+    useEffect(() => {
+        knowledgeApi.getServiceConfig()
+            .then(setForm)
+            .catch(() => setForm(EMPTY_SERVICE))
+            .finally(() => setLoading(false));
+    }, []);
+    const handleSave = async () => {
+        setSaving(true);
+        setMsg(null);
+        try {
+            const saved = await knowledgeApi.saveServiceConfig({ base_url: form.base_url.trim() });
+            setForm(saved);
+            setMsg({
+                type: "ok",
+                text: saved.base_url
+                    ? "知识库服务地址已保存（新增配置记录），后续操作将转发至远程服务。"
+                    : "已切换为本地模式（新增配置记录）。",
+            });
+            onSaved();
+        }
+        catch (e) {
+            setMsg({ type: "err", text: e instanceof Error ? e.message : "保存失败" });
+        }
+        finally {
+            setSaving(false);
+        }
+    };
+    const isRemote = Boolean(form.base_url.trim());
+    return (_jsxs("div", { className: "border border-ink-200/60 rounded-xl p-4 space-y-3 bg-ink-50/40", children: [_jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsxs("div", { children: [_jsx("p", { className: "text-sm font-medium text-ink-800", children: "\u77E5\u8BC6\u5E93\u670D\u52A1" }), _jsxs("p", { className: "text-xs text-ink-400 mt-0.5", children: [isRemote ? "远程模式：请求转发至下方地址" : "本地模式：数据存 MongoDB + global/knowledge/", form.created_at && (_jsxs(_Fragment, { children: [" \u00B7 \u5F53\u524D\u914D\u7F6E\u4E8E ", new Date(form.created_at).toLocaleString("zh-CN")] }))] })] }), _jsx("span", { className: `text-[10px] px-2 py-0.5 rounded-full font-medium ${isRemote ? "bg-violet-50 text-violet-700" : "bg-ink-100 text-ink-600"}`, children: isRemote ? "远程" : "本地" })] }), loading ? (_jsx("p", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u914D\u7F6E\u2026" })) : (_jsxs(_Fragment, { children: [_jsxs("div", { children: [_jsx("label", { className: "block text-xs font-medium text-ink-600 mb-1", children: "\u670D\u52A1\u5730\u5740\uFF08Base URL\uFF09" }), _jsx("input", { type: "url", value: form.base_url, onChange: (e) => setForm({ base_url: e.target.value }), placeholder: "\u7559\u7A7A\u4F7F\u7528\u672C\u5730\u5B58\u50A8\uFF0C\u5982 http://knowledge:8080/v1/knowledge", className: "ui-field w-full" }), _jsxs("p", { className: "text-[11px] text-ink-400 mt-1", children: ["\u8FDC\u7A0B API \u8DEF\u5F84\u7EA6\u5B9A\uFF1A", "{base_url}", "/bases\u3001", "{base_url}", "/bases/", "{kb_id}", "/documents"] })] }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), _jsx("button", { type: "button", disabled: saving, onClick: handleSave, className: "ui-btn-primary text-sm", children: saving ? "保存中…" : "保存服务地址" })] }))] }));
+}
 function StatusBadge({ status }) {
     const cls = {
         uploaded: "bg-sky-50 text-sky-700",
@@ -107,10 +143,11 @@ export default function KnowledgePanel() {
             setSelectedId(null);
         load();
     };
-    if (loading)
-        return _jsx("div", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u4E2D\u2026" });
-    if (selected) {
-        return (_jsxs("div", { className: "space-y-4", children: [_jsx("button", { type: "button", onClick: () => setSelectedId(null), className: "text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1", children: "\u2190 \u8FD4\u56DE\u77E5\u8BC6\u5E93\u5217\u8868" }), _jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsx("h2", { className: "text-base font-semibold text-ink-900", children: selected.name }), _jsxs("span", { className: "text-xs text-ink-400", children: [selected.document_count, " \u4E2A\u6587\u6863"] })] }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), _jsx(DocumentSection, { kb: selected })] }));
+    if (loading) {
+        return (_jsxs("div", { className: "space-y-4", children: [_jsx(KnowledgeServiceSection, { onSaved: load }), _jsx("div", { className: "text-sm text-ink-400", children: "\u52A0\u8F7D\u77E5\u8BC6\u5E93\u2026" })] }));
     }
-    return (_jsxs("div", { className: "space-y-4", children: [_jsx("p", { className: "text-xs text-ink-500", children: "\u672C\u5730\u77E5\u8BC6\u5E93\uFF1A\u5143\u6570\u636E\u5B58 MongoDB\uFF0C\u6587\u6863\u6587\u4EF6\u5B58\u5171\u4EAB\u76EE\u5F55\uFF08global/knowledge/\uFF09\u3002" }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), showCreate ? (_jsx(BaseForm, { submitLabel: "\u521B\u5EFA", onSubmit: handleCreate, onCancel: () => setShowCreate(false) })) : (_jsx("button", { type: "button", onClick: () => setShowCreate(true), className: "w-full py-2.5 border-2 border-dashed border-brand-300/80 text-brand-700 text-sm rounded-xl hover:bg-brand-50/50 transition-colors", children: "+ \u65B0\u5EFA\u77E5\u8BC6\u5E93" })), bases.length === 0 ? (_jsx("p", { className: "text-sm text-ink-400 text-center py-10 border border-dashed border-ink-200 rounded-xl", children: "\u6682\u65E0\u77E5\u8BC6\u5E93" })) : (_jsx("div", { className: "space-y-2", children: bases.map((kb) => (_jsx("div", { className: "border border-ink-200/60 rounded-xl overflow-hidden", children: editingId === kb.id ? (_jsx("div", { className: "p-4", children: _jsx(BaseForm, { initial: { name: kb.name, description: kb.description }, submitLabel: "\u4FDD\u5B58", onSubmit: (name, desc) => handleUpdate(kb.id, name, desc), onCancel: () => setEditingId(null) }) })) : (_jsxs("div", { className: "flex items-center gap-3 px-4 py-3", children: [_jsxs("button", { type: "button", onClick: () => setSelectedId(kb.id), className: "flex-1 min-w-0 text-left", children: [_jsx("p", { className: "text-sm font-medium text-ink-800 truncate", children: kb.name }), _jsxs("p", { className: "text-xs text-ink-400 mt-0.5 truncate", children: [kb.description || "无描述", " \u00B7 ", kb.document_count, " \u4E2A\u6587\u6863"] })] }), _jsxs("div", { className: "flex gap-2 shrink-0", children: [_jsx("button", { type: "button", onClick: () => setSelectedId(kb.id), className: "text-xs px-3 py-1 border border-brand-200 rounded-lg text-brand-700 hover:bg-brand-50", children: "\u6587\u6863" }), _jsx("button", { type: "button", onClick: () => setEditingId(kb.id), className: "text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50", children: "\u7F16\u8F91" }), _jsx("button", { type: "button", onClick: () => handleDelete(kb), className: "text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50", children: "\u5220\u9664" })] })] })) }, kb.id))) }))] }));
+    if (selected) {
+        return (_jsxs("div", { className: "space-y-4", children: [_jsx(KnowledgeServiceSection, { onSaved: load }), _jsx("button", { type: "button", onClick: () => setSelectedId(null), className: "text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1", children: "\u2190 \u8FD4\u56DE\u77E5\u8BC6\u5E93\u5217\u8868" }), _jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsx("h2", { className: "text-base font-semibold text-ink-900", children: selected.name }), _jsxs("span", { className: "text-xs text-ink-400", children: [selected.document_count, " \u4E2A\u6587\u6863"] })] }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), _jsx(DocumentSection, { kb: selected })] }));
+    }
+    return (_jsxs("div", { className: "space-y-4", children: [_jsx(KnowledgeServiceSection, { onSaved: load }), msg && (_jsx("p", { className: `text-sm px-3 py-2 rounded-lg ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`, children: msg.text })), showCreate ? (_jsx(BaseForm, { submitLabel: "\u521B\u5EFA", onSubmit: handleCreate, onCancel: () => setShowCreate(false) })) : (_jsx("button", { type: "button", onClick: () => setShowCreate(true), className: "w-full py-2.5 border-2 border-dashed border-brand-300/80 text-brand-700 text-sm rounded-xl hover:bg-brand-50/50 transition-colors", children: "+ \u65B0\u5EFA\u77E5\u8BC6\u5E93" })), bases.length === 0 ? (_jsx("p", { className: "text-sm text-ink-400 text-center py-10 border border-dashed border-ink-200 rounded-xl", children: "\u6682\u65E0\u77E5\u8BC6\u5E93" })) : (_jsx("div", { className: "space-y-2", children: bases.map((kb) => (_jsx("div", { className: "border border-ink-200/60 rounded-xl overflow-hidden", children: editingId === kb.id ? (_jsx("div", { className: "p-4", children: _jsx(BaseForm, { initial: { name: kb.name, description: kb.description }, submitLabel: "\u4FDD\u5B58", onSubmit: (name, desc) => handleUpdate(kb.id, name, desc), onCancel: () => setEditingId(null) }) })) : (_jsxs("div", { className: "flex items-center gap-3 px-4 py-3", children: [_jsxs("button", { type: "button", onClick: () => setSelectedId(kb.id), className: "flex-1 min-w-0 text-left", children: [_jsx("p", { className: "text-sm font-medium text-ink-800 truncate", children: kb.name }), _jsxs("p", { className: "text-xs text-ink-400 mt-0.5 truncate", children: [kb.description || "无描述", " \u00B7 ", kb.document_count, " \u4E2A\u6587\u6863"] })] }), _jsxs("div", { className: "flex gap-2 shrink-0", children: [_jsx("button", { type: "button", onClick: () => setSelectedId(kb.id), className: "text-xs px-3 py-1 border border-brand-200 rounded-lg text-brand-700 hover:bg-brand-50", children: "\u6587\u6863" }), _jsx("button", { type: "button", onClick: () => setEditingId(kb.id), className: "text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50", children: "\u7F16\u8F91" }), _jsx("button", { type: "button", onClick: () => handleDelete(kb), className: "text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50", children: "\u5220\u9664" })] })] })) }, kb.id))) }))] }));
 }

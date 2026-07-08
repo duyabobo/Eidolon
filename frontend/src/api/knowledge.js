@@ -9,6 +9,12 @@ async function request(url, options) {
     return resp.json();
 }
 export const knowledgeApi = {
+    getServiceConfig: () => request("/config/knowledge/service"),
+    saveServiceConfig: (cfg) => request("/config/knowledge/service", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cfg),
+    }),
     listBases: (page = 1, pageSize = 20) => request(`/config/knowledge/bases?page=${page}&page_size=${pageSize}`),
     createBase: (body) => request("/config/knowledge/bases", {
         method: "POST",
