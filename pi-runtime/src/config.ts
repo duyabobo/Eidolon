@@ -9,5 +9,11 @@ export const config = {
   },
   sandbox: {
     root: process.env.SANDBOX_ROOT ?? "/data/sandboxes",
+    cgroup: {
+      enabled: (process.env.SANDBOX_CGROUP_ENABLED ?? "true").toLowerCase() !== "false",
+      basePath: process.env.SANDBOX_CGROUP_BASE ?? "",
+      memoryMax: process.env.SANDBOX_CGROUP_MEMORY_MAX ?? "512M",
+      cpuMax: process.env.SANDBOX_CGROUP_CPU_MAX ?? "max",
+    },
   },
 } as const;

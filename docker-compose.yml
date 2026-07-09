@@ -146,8 +146,14 @@ services:
       LLM_PROXY_PORT: "9001"
       MCP_PROXY_HOST: "mcp-proxy"
       MCP_PROXY_PORT: "8080"
+      # 每个 session 沙盒 cgroup 资源上限（cgroup v2；不可用时自动降级）
+      SANDBOX_CGROUP_ENABLED: "true"
+      SANDBOX_CGROUP_MEMORY_MAX: "512M"
+      SANDBOX_CGROUP_CPU_MAX: "max"
     # bwrap 需要 user namespace，privileged 模式提供必要的内核能力
     privileged: true
+    # 使用宿主机 cgroup 命名空间，便于解析真实 cgroup 路径（子 cgroup 仍需 Docker 委托控制器）
+    cgroup: host
     volumes:
       # 共享持久化卷，完整挂载 /data/sandboxes 根目录：
       #   users/{uid}/workspace/  home/  skills/  sessions/ 

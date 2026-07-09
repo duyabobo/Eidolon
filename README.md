@@ -111,3 +111,13 @@ pi-agent-platform/
 ├── mcp-proxy/             # FastAPI MCP 聚合代理 
 └── pi-runtime/            # Node.js Pi Agent 执行引擎 
 ```
+
+---
+
+## 文档
+
+| 文档 | 说明 |
+|------|------|
+| [docs/agent-system-architecture.md](docs/agent-system-architecture.md) | 系统架构设计 |
+| [docs/pi-internal-flow.md](docs/pi-internal-flow.md) | Pi 内部执行流程 |
+| [docs/sandbox-cgroup-delegation.md](docs/sandbox-cgroup-delegation.md) | 沙盒 session cgroup 宿主机委托配置 |

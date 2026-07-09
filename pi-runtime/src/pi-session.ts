@@ -6,6 +6,10 @@ import { SandboxPaths, buildOuterSandboxArgs } from "./sandbox";
 import { SessionOutputStream } from "./output-stream";
 import { sessionLlmSockForSandbox } from "./session-llm-bridge";
 import { sessionMcpSockForSandbox } from "./session-mcp-bridge";
+import {
+  attachPidToSessionCgroup,
+  planSessionResourceLimits,
+} from "./session-cgroup";
 
 // ── Pi RPC 协议类型 ───────────────────────────────────────────────────────────
 
@@ -276,15 +280,28 @@ export async function startPiSession(
   // sandbox-init.sh 负责：启用 loopback、启动 TCP↔Unix socket 桥、exec pi
   const sandboxInitScript = "/app/extensions/sandbox-init/sandbox-init.sh";
 
-  const piProcess: ChildProcess = spawn(
-    "bwrap",
-    [...outerBwrapArgs, sandboxInitScript, "pi", ...piArgs],
-    {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: piEnv,
-      cwd: sandboxPaths.workspace,
-    }
-  );
+  const { cgroup: sessionCgroup, prlimitArgs } = await planSessionResourceLimits(sessionId);
+  let cgroupDestroyed = false;
+  const destroySessionCgroup = async () => {
+    if (cgroupDestroyed || !sessionCgroup) return;
+    cgroupDestroyed = true;
+    await sessionCgroup.destroy();
+    console.log(`[pi-session] session=${sessionId}: cgroup 已释放`);
+  };
+
+  const bwrapCommandArgs = [...outerBwrapArgs, sandboxInitScript, "pi", ...piArgs];
+  const spawnCommand = prlimitArgs.length > 0 ? "prlimit" : "bwrap";
+  const spawnArgs = prlimitArgs.length > 0 ? [...prlimitArgs, "bwrap", ...bwrapCommandArgs] : bwrapCommandArgs;
+
+  const piProcess: ChildProcess = spawn(spawnCommand, spawnArgs, {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: piEnv,
+    cwd: sandboxPaths.workspace,
+  });
+
+  if (sessionCgroup && piProcess.pid) {
+    await attachPidToSessionCgroup(sessionCgroup, piProcess.pid, sessionId);
+  }
 
   console.log(`[pi-session] session=${sessionId}: pi 进程已启动 pid=${piProcess.pid}`);
 
@@ -357,6 +374,7 @@ export async function startPiSession(
       activeTurn = null;
     }
     await cleanupPiConfigDir(sessionId).catch(() => {});
+    await destroySessionCgroup();
     piExitResolve();
   });
 
@@ -367,6 +385,7 @@ export async function startPiSession(
       activeTurn = null;
     }
     await cleanupPiConfigDir(sessionId).catch(() => {});
+    await destroySessionCgroup();
     piExitResolve();
   });
 
@@ -397,6 +416,7 @@ export async function startPiSession(
       console.log(`[pi-session] session=${sessionId}: 关闭 pi 进程`);
       piProcess.stdin!.end();
       await piExitPromise;
+      await destroySessionCgroup();
     },
 
     isAlive(): boolean {

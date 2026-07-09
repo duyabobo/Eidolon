@@ -130,6 +130,26 @@ pi 进程本身运行在外层 bwrap 沙盒内，不仅 bash 命令被隔离，p
 | 外部网络 / 互联网 | `--unshare-net` |
 | MCP Server（直连） | 无路由，只能经由 mcp-proxy |
 
+### Session 资源上限（cgroup v2）
+
+每个 session 的 bwrap 根进程在 spawn 后会加入独立 cgroup，限制整棵进程树（pi + bash 子进程）的 **内存 / CPU**：
+
+| 限制项 | 环境变量 | 默认 |
+|--------|---------|------|
+| 开关 | `SANDBOX_CGROUP_ENABLED` | `true` |
+| 内存 | `SANDBOX_CGROUP_MEMORY_MAX` | `512M` |
+| CPU | `SANDBOX_CGROUP_CPU_MAX` | `max`（不限） |
+
+- cgroup 路径：`{父 cgroup}/pi-sessions/{sessionId}/`
+- 父 cgroup 默认从 `/proc/self/cgroup` 自动解析；可显式设置 `SANDBOX_CGROUP_BASE`
+- **不限制磁盘**：workspace 在 NFS/卷上，配额需另行实现
+- 若容器无 cgroup 写权限或创建失败，**自动降级**为 `prlimit --as` 内存限制（Docker 默认环境常见）
+- session 结束（进程退出或 `close()`）时删除对应 cgroup
+
+CPU 格式示例（cgroup v2 `cpu.max`）：`100000 100000` 表示约 1 核；`50000 100000` 表示约 0.5 核。
+
+**宿主机委托配置**（启用完整 cgroup + CPU 配额）：见 [docs/sandbox-cgroup-delegation.md](../docs/sandbox-cgroup-delegation.md)。
+
 ### bwrap 扩展（extensions/bwrap）
 
 pi 在外层沙盒内运行时（`PI_OUTER_SANDBOX=1`）：
@@ -216,6 +236,10 @@ volumes:
 | `LLM_PROXY_PORT` | llm-proxy 端口 | `9001` |
 | `MCP_PROXY_HOST` | mcp-proxy 主机名 | `mcp-proxy` |
 | `MCP_PROXY_PORT` | mcp-proxy 端口 | `8080` |
+| `SANDBOX_CGROUP_ENABLED` | 是否启用 session cgroup 限制 | `true` |
+| `SANDBOX_CGROUP_MEMORY_MAX` | 单 session 内存上限（如 `512M`、`1G`） | `512M` |
+| `SANDBOX_CGROUP_CPU_MAX` | 单 session CPU 上限（cgroup v2 格式，如 `100000 100000`；`max` 不限） | `max` |
+| `SANDBOX_CGROUP_BASE` | cgroup 父路径（空则自动检测） | 空 |
 
 ---
 
