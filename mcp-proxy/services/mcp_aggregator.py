@@ -1,14 +1,14 @@
 """
 MCP 聚合器：连接多个后端 MCP Server，汇总工具列表，路由工具调用。
 
-连接生命周期管理：
-  - 使用 AsyncExitStack 持有所有后端的 streamable_http_client 和 ClientSession
-  - refresh() 时先 aclose() 旧 ExitStack（关闭所有连接），再重新建立
-  - 这样 callTool() 可以直接复用已持久化的 session，无需每次重连
+刷新触发条件（满足任一即触发）：
+  1. 距上次刷新超过 TTL（默认 300s）
+  2. 有 Server 被显式标记为失效（_invalidated_servers 非空）
 
-刷新策略：
-  - refresh_if_stale() 按 TTL 懒刷新，避免每次请求都重连
+并发安全：asyncio.Lock + 双重检查，保证同一时刻只有一个 refresh 执行。
+性能：asyncio.gather 并行连接所有 Server，大幅降低多 Server 场景下的加载延迟。
 """
+import asyncio
 import logging
 import time
 from contextlib import AsyncExitStack
@@ -37,19 +37,50 @@ class McpAggregator:
         self._tool_map: dict[str, _ToolEntry] = {}
         self._exit_stack: AsyncExitStack = AsyncExitStack()
         self._last_refresh_at: float = 0.0
+        self._invalidated_servers: set[str] = set()
+        self._lock: asyncio.Lock = asyncio.Lock()
+
+    def needs_refresh(self) -> bool:
+        """TTL 到期 或 有 Server 被手动失效时需要刷新。"""
+        return (
+            time.monotonic() - self._last_refresh_at >= self._refresh_interval_s
+            or bool(self._invalidated_servers)
+        )
+
+    def invalidate(self) -> None:
+        """全量失效：清零 TTL，下次 refresh_if_stale 时重建所有 Server。"""
+        self._last_refresh_at = 0.0
+        self._invalidated_servers.clear()
+
+    def invalidate_server(self, server_name: str) -> None:
+        """标记单个 Server 失效：add/delete/test 后调用，下次请求时触发重建。"""
+        self._invalidated_servers.add(server_name)
+        logger.info("Server 缓存标记失效: %s", server_name)
 
     async def refresh_if_stale(self, servers: list[McpServerEntry]) -> None:
-        if time.monotonic() - self._last_refresh_at < self._refresh_interval_s:
+        if not self.needs_refresh():
             return
-        await self.refresh(servers)
+        async with self._lock:
+            if not self.needs_refresh():  # 获锁后再次检查，避免重复刷新
+                return
+            await self._do_refresh(servers)
 
-    async def refresh(self, servers: list[McpServerEntry]) -> None:
-        await self._exit_stack.aclose()
+    async def force_refresh(self, servers: list[McpServerEntry]) -> None:
+        """忽略 TTL，立即重建（用于启动预热）。"""
+        async with self._lock:
+            await self._do_refresh(servers)
+
+    async def _do_refresh(self, servers: list[McpServerEntry]) -> None:
+        old_stack = self._exit_stack
         self._exit_stack = AsyncExitStack()
         self._tool_map.clear()
+        self._invalidated_servers.clear()  # 刷新完成后清除失效标记
+        await old_stack.aclose()
 
-        for server in servers:
-            await self._connect_and_load_tools(server)
+        await asyncio.gather(
+            *(self._connect_and_load_tools(server) for server in servers),
+            return_exceptions=True,
+        )
 
         self._last_refresh_at = time.monotonic()
         logger.info("刷新完成，共 %d 个工具", len(self._tool_map))
@@ -87,8 +118,6 @@ class McpAggregator:
                     tool=tool, server_name=server.name, session=session
                 )
                 loaded += 1
-
             logger.info("server=%s: 加载 %d 个工具", server.name, loaded)
         except Exception as e:
-            # 单个 server 连接失败不影响其他 server，降级处理
             logger.error("连接 MCP server 失败: name=%s url=%s err=%s", server.name, server.url, e)

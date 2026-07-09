@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from models.mcp import McpScope, McpServerCreateRequest, McpServerItem, McpServerStatusItem, McpServerStatusResponse
 from services import mcp_mongo
-from services.mcp_proxy_client import fetch_server_status, probe_single_server
+from services.mcp_proxy_client import fetch_server_status, invalidate_cache, probe_single_server
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ async def mcp_servers_status(
     user_id: str | None = Query(None, description="用户 ID，合并探测系统与个人 MCP"),
     include_disabled: bool = Query(False, description="是否探测已禁用的 Server"),
 ) -> McpServerStatusResponse:
+    # probe 完成后 mcp-proxy 侧会自动失效缓存（见 mcp-proxy/main.py /servers/status）
     return await fetch_server_status(user_id, include_disabled=include_disabled)
 
 
@@ -36,6 +37,7 @@ async def mcp_server_status(
     if scope == McpScope.USER and not (user_id and user_id.strip()):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user scope 需要 user_id")
 
+    # probe 完成后 mcp-proxy 侧会自动失效缓存
     return await probe_single_server(user_id, name.strip(), scope)
 
 
@@ -50,9 +52,11 @@ async def add_user_mcp_server(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_id 不能为空")
     if not name.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="名称不能为空")
-    return await mcp_mongo.upsert_user_server(
+    result = await mcp_mongo.upsert_user_server(
         uid, name.strip(), body.url.strip(), body.description, body.enabled, body.api_key
     )
+    await invalidate_cache(uid, name.strip())  # 精确失效该 Server
+    return result
 
 
 @router.delete("/servers/{name}", status_code=status.HTTP_204_NO_CONTENT)
@@ -66,3 +70,4 @@ async def delete_user_mcp_server(
     deleted = await mcp_mongo.delete_user_server(uid, name.strip())
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{name}' 不存在")
+    await invalidate_cache(uid, name.strip())  # 精确失效该 Server

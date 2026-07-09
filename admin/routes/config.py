@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, status
 from models.config import McpConfig, McpServerConfig
 from services import mongo_client
 from services.mcp_mongo import delete_server, list_system_config, upsert_server
+from services.mcp_proxy_client import invalidate_cache
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ async def update_mcp_config(body: McpConfig) -> McpConfig:
     for name, cfg in body.servers.items():
         await upsert_server(db, name, cfg, None)
     logger.info("系统 MCP 配置已全量替换，共 %d 个 server", len(body.servers))
+    await invalidate_cache(None)
     return body
 
 
@@ -39,6 +41,7 @@ async def update_mcp_config(body: McpConfig) -> McpConfig:
 async def add_or_update_mcp_server(name: str, body: McpServerConfig) -> McpConfig:
     await upsert_server(mongo_client.get_db(), name, body, None)
     logger.info("系统 MCP server 已添加/更新: %s", name)
+    await invalidate_cache(None, name)  # 精确失效该 Server
     return await list_system_config(mongo_client.get_db())
 
 
@@ -48,4 +51,5 @@ async def delete_mcp_server(name: str) -> McpConfig:
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{name}' 不存在")
     logger.info("系统 MCP server 已删除: %s", name)
+    await invalidate_cache(None, name)  # 精确失效该 Server
     return await list_system_config(mongo_client.get_db())

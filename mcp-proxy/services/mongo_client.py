@@ -119,3 +119,18 @@ def filter_servers_by_names(
 async def read_enabled_mcp_servers(user_id: str | None = None) -> list[McpServerEntry]:
     """读取已启用的 MCP Server（供 pi 聚合调用）。"""
     return await read_mcp_servers(user_id, include_disabled=False)
+
+
+async def list_user_ids_with_mcp() -> list[str]:
+    """返回有 MCP Server 配置的所有 user_id（用于启动预热）。"""
+    db = _get_db()
+    pipeline = [
+        {"$match": {"user_id": {"$ne": None, "$exists": True, "$ne": ""}}},
+        {"$group": {"_id": "$user_id"}},
+    ]
+    result: list[str] = []
+    async for doc in db[_COLLECTION].aggregate(pipeline):
+        uid = doc.get("_id")
+        if uid and str(uid).strip():
+            result.append(str(uid).strip())
+    return result
