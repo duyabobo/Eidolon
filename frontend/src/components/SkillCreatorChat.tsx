@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Skill, SkillScope } from "../api/skills";
+import { SkillScope } from "../api/skills";
 import { SkillCreatorMessage, SkillDraft, skillCreatorApi } from "../api/skillCreator";
 
 interface Props {
   userId?: string;
   scope: SkillScope;
   onClose: () => void;
-  onPublished: (skill: Skill) => void;
+  onPublished: (skill: { name: string; description: string; tags: string[]; hidden: boolean; scope: SkillScope; user_id: string | null }) => void;
   embedded?: boolean;
 }
 
@@ -20,6 +20,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const abortCtrlRef = useRef<AbortController | null>(null);
 
   const scopeLabel = scope === "user" ? "我的 Skill" : "系统 Skill";
 
@@ -48,18 +49,40 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
   const handleSend = async () => {
     const text = input.trim();
     if (!text || !sessionId || sending) return;
+
     setInput("");
     setSending(true);
     setError(null);
     setMessages((prev) => [...prev, { role: "user", content: text }]);
+
+    const ctrl = new AbortController();
+    abortCtrlRef.current = ctrl;
+
     try {
-      const res = await skillCreatorApi.sendMessage(sessionId, text);
+      const res = await skillCreatorApi.sendMessage(sessionId, text, ctrl.signal);
       setMessages((prev) => [...prev, res.message]);
       if (res.draft) setDraft(res.draft);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "发送失败");
+      if (e instanceof Error && e.name === "AbortError") {
+        // 用户主动中断，不展示错误
+      } else {
+        setError(e instanceof Error ? e.message : "发送失败");
+      }
     } finally {
+      abortCtrlRef.current = null;
       setSending(false);
+    }
+  };
+
+  const handleInterrupt = () => {
+    abortCtrlRef.current?.abort();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 中文输入法组合期间的 Enter 不触发发送
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      handleSend();
     }
   };
 
@@ -72,8 +95,8 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
       onPublished({
         name: saved.name,
         description: saved.description,
-        tags: saved.tags,
-        hidden: saved.hidden,
+        tags: saved.tags ?? [],
+        hidden: saved.hidden ?? false,
         scope,
         user_id: saved.user_id ?? userId ?? null,
       });
@@ -97,82 +120,93 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
         <button type="button" onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
       </div>
 
-        <div className="flex-1 flex min-h-0">
-          <div className="flex-1 flex flex-col border-r min-w-0">
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-              {loading && <p className="text-sm text-gray-400 text-center py-8">正在连接 Skill 创建助手…</p>}
-              {messages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap leading-relaxed ${
-                    m.role === "user" ? "bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-soft" : "bg-ink-100/80 text-ink-800 border border-ink-200/60"
-                  }`}>
-                    {m.content}
-                  </div>
+      <div className="flex-1 flex min-h-0">
+        <div className="flex-1 flex flex-col border-r min-w-0">
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+            {loading && <p className="text-sm text-gray-400 text-center py-8">正在连接 Skill 创建助手…</p>}
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap leading-relaxed ${
+                  m.role === "user"
+                    ? "bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-soft"
+                    : "bg-ink-100/80 text-ink-800 border border-ink-200/60"
+                }`}>
+                  {m.content}
                 </div>
-              ))}
-              {sending && <p className="text-xs text-gray-400">助手思考中…</p>}
-              <div ref={bottomRef} />
-            </div>
+              </div>
+            ))}
+            {sending && <p className="text-xs text-gray-400">助手思考中…</p>}
+            <div ref={bottomRef} />
+          </div>
 
-            {error && (
-              <p className="mx-4 mb-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
-            )}
+          {error && (
+            <p className="mx-4 mb-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+          )}
 
-            <div className="px-4 py-3 border-t flex gap-2 shrink-0">
-              <textarea
-                rows={2}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
-                }}
-                placeholder="描述你想创建的 Skill…"
-                disabled={loading || sending || !sessionId}
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
+          <div className="px-4 py-3 border-t flex gap-2 items-end shrink-0">
+            <textarea
+              rows={2}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="描述你想创建的 Skill…  Shift+Enter 换行"
+              disabled={loading || !sessionId}
+              className="flex-1 resize-none bg-transparent border border-ink-200/80 rounded-xl px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-300 transition-all duration-200 disabled:opacity-60"
+            />
+            {sending ? (
               <button
+                type="button"
+                onClick={handleInterrupt}
+                className="ui-btn-danger shrink-0"
+              >
+                中断
+              </button>
+            ) : (
+              <button
+                type="button"
                 onClick={handleSend}
-                disabled={loading || sending || !sessionId || !input.trim()}
-                className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 shrink-0"
+                disabled={loading || !sessionId || !input.trim()}
+                className="ui-btn-primary shrink-0"
               >
                 发送
               </button>
-            </div>
-          </div>
-
-          <div className="w-80 flex flex-col shrink-0 bg-gray-50">
-            <div className="px-4 py-3 border-b">
-              <h3 className="text-sm font-medium text-gray-700">草稿预览</h3>
-              <p className="text-xs text-gray-500 mt-0.5">继续对话完善，定稿后保存</p>
-            </div>
-            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 text-xs">
-              {!draft ? (
-                <p className="text-gray-400 text-center py-8">对话生成 Skill 后显示在此</p>
-              ) : (
-                <>
-                  <PreviewRow label="名称" value={draft.name} />
-                  <PreviewRow label="描述" value={draft.description} />
-                  {(draft.tags ?? []).length > 0 && (
-                    <PreviewRow label="标签" value={(draft.tags ?? []).join(", ")} />
-                  )}
-                  <div>
-                    <p className="font-medium text-gray-600 mb-1">正文</p>
-                    <pre className="bg-white border rounded-lg p-2 text-[10px] whitespace-pre-wrap max-h-48 overflow-y-auto font-mono">{draft.content}</pre>
-                  </div>
-                </>
-              )}
-            </div>
-            <div className="px-4 py-3 border-t">
-              <button
-                onClick={handlePublish}
-                disabled={!draft || publishing}
-                className="w-full px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
-              >
-                {publishing ? "保存中…" : "保存 Skill"}
-              </button>
-            </div>
+            )}
           </div>
         </div>
+
+        <div className="w-80 flex flex-col shrink-0 bg-gray-50">
+          <div className="px-4 py-3 border-b">
+            <h3 className="text-sm font-medium text-gray-700">草稿预览</h3>
+            <p className="text-xs text-gray-500 mt-0.5">继续对话完善，定稿后保存</p>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 text-xs">
+            {!draft ? (
+              <p className="text-gray-400 text-center py-8">对话生成 Skill 后显示在此</p>
+            ) : (
+              <>
+                <PreviewRow label="名称" value={draft.name} />
+                <PreviewRow label="描述" value={draft.description} />
+                {(draft.tags ?? []).length > 0 && (
+                  <PreviewRow label="标签" value={(draft.tags ?? []).join(", ")} />
+                )}
+                <div>
+                  <p className="font-medium text-gray-600 mb-1">正文</p>
+                  <pre className="bg-white border rounded-lg p-2 text-[10px] whitespace-pre-wrap max-h-48 overflow-y-auto font-mono">{draft.content}</pre>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="px-4 py-3 border-t">
+            <button
+              onClick={handlePublish}
+              disabled={!draft || publishing}
+              className="w-full ui-btn-primary"
+            >
+              {publishing ? "保存中…" : "保存 Skill"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 

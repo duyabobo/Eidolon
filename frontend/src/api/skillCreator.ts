@@ -44,10 +44,10 @@ export const skillCreatorApi = {
   getSession: (sessionId: string) =>
     request<SkillCreatorSession>(`/config/skills/creator/sessions/${encodeURIComponent(sessionId)}`),
 
-  sendMessage: (sessionId: string, content: string) =>
+  sendMessage: (sessionId: string, content: string, signal?: AbortSignal) =>
     request<{ message: SkillCreatorMessage; draft: SkillDraft | null }>(
       `/config/skills/creator/sessions/${encodeURIComponent(sessionId)}/messages`,
-      { method: "POST", body: JSON.stringify({ content }) },
+      { method: "POST", body: JSON.stringify({ content }), signal },
     ),
 
   publish: (sessionId: string, payload: Partial<SkillDraft> & { hidden?: boolean } = {}) =>

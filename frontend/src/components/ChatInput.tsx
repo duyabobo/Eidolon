@@ -97,7 +97,7 @@ export default function ChatInput({
         setMenuIndex((i) => (i - 1 + filteredSkills.length) % filteredSkills.length);
         return;
       }
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         applySkill(filteredSkills[menuIndex]);
         return;
@@ -113,7 +113,7 @@ export default function ChatInput({
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
