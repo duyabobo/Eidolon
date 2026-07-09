@@ -32,10 +32,6 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return resp.json();
 }
 
-function withUserQuery(userId?: string) {
-  return userId?.trim() ? `?user_id=${encodeURIComponent(userId.trim())}` : "";
-}
-
 export const skillCreatorApi = {
   /** 获取或创建会话。forceNew=true 时强制新建（新建对话按钮使用）。*/
   openSession: (userId?: string, forceNew = false) => {
