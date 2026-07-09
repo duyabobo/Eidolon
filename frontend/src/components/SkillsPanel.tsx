@@ -57,7 +57,7 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
         <ConfigListToolbar
           left={<p className="text-xs text-ink-500">系统 Skill 与当前用户的个人 Skill</p>}
           right={(
-            <ConfigPrimaryBtn onClick={openCreator} disabled={showCreator}>
+            <ConfigPrimaryBtn onClick={() => openCreator()} disabled={showCreator}>
               添加
             </ConfigPrimaryBtn>
           )}
