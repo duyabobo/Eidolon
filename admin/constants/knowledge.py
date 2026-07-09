@@ -1,9 +1,9 @@
 """知识库外部服务（mRAG）约定常量。"""
 
 from config import settings
+from pi_shared.knowledge_constants import KNOWLEDGE_SCENE_TYPE
 
 # 用户注册 scene_type（POST /dataset/get_or_create_knowledge_key）
-KNOWLEDGE_SCENE_TYPE = "LLM_WIKI_PI"
 
 # 平台级 scene_uid（管理页知识库操作用）
 KNOWLEDGE_PLATFORM_SCENE_UID = "llm_wiki_pi"

@@ -20,6 +20,7 @@ from mcp.types import Tool
 
 from services.mcp_connection import open_mcp_session
 from services.mongo_client import McpServerEntry
+from services.tool_args import normalize_tool_arguments
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,8 @@ class McpAggregator:
         if entry is None:
             raise ValueError(f"工具未找到: {name}")
         logger.info("调用工具: %s → server=%s", name, entry.server_name)
-        result = await entry.session.call_tool(name, arguments=args)
+        normalized_args = normalize_tool_arguments(name, args)
+        result = await entry.session.call_tool(name, arguments=normalized_args)
         return result.model_dump(by_alias=True, exclude_none=True)
 
     async def close(self) -> None:
