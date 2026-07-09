@@ -1,4 +1,3 @@
-import { useRef, useEffect } from "react";
 import { useChatSession } from "../context/ChatSessionContext";
 import MessageList from "../components/chat/MessageList";
 import ChatInput from "../components/ChatInput";
@@ -9,12 +8,6 @@ export default function ChatPage() {
     selectedSkillRef, setSelectedSkillRef,
     send, interrupt,
   } = useChatSession();
-
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
 
   return (
     <div className="flex flex-col h-full">
@@ -33,7 +26,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      <MessageList messages={messages} bottomRef={bottomRef} />
+      <MessageList messages={messages} />
 
       <div className="shrink-0 border-t border-ink-200/60 bg-white/80 backdrop-blur-xl py-4">
         <div className="page-content">

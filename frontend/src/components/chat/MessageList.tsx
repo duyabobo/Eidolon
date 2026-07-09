@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useEffect } from "react";
 import type { Message } from "../../context/ChatSessionContext";
 import ChatMarkdown from "./ChatMarkdown";
 import ExecutionSteps from "./ExecutionSteps";
@@ -92,14 +92,63 @@ function AssistantTurnBlock({ turn }: { turn: AssistantTurn }) {
 
 interface Props {
   messages: Message[];
-  bottomRef: React.RefObject<HTMLDivElement>;
 }
 
-export default function MessageList({ messages, bottomRef }: Props) {
+const SCROLL_PIN_THRESHOLD_PX = 80;
+
+function isPinnedToBottom(container: HTMLElement): boolean {
+  const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
+  return distance <= SCROLL_PIN_THRESHOLD_PX;
+}
+
+function scrollToBottom(container: HTMLElement, behavior: ScrollBehavior) {
+  container.scrollTo({ top: container.scrollHeight, behavior });
+}
+
+export default function MessageList({ messages }: Props) {
   const displayItems = useMemo(() => groupMessages(messages), [messages]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedToBottomRef = useRef(true);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const onScroll = () => {
+      const pinned = isPinnedToBottom(container);
+      const wasPinned = pinnedToBottomRef.current;
+      pinnedToBottomRef.current = pinned;
+      if (pinned && !wasPinned) {
+        scrollToBottom(container, "auto");
+      }
+    };
+
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const last = messages[messages.length - 1];
+    const userJustSent = last?.role === "user";
+
+    if (userJustSent) {
+      pinnedToBottomRef.current = true;
+      scrollToBottom(container, "smooth");
+      return;
+    }
+
+    const pinned = isPinnedToBottom(container);
+    pinnedToBottomRef.current = pinned;
+    if (pinned) {
+      scrollToBottom(container, "auto");
+    }
+  }, [messages]);
 
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
       <div className="page-content py-6 space-y-5">
         {messages.length === 0 && (
           <div className="text-center mt-24 px-4">
@@ -124,7 +173,6 @@ export default function MessageList({ messages, bottomRef }: Props) {
           }
           return <AssistantTurnBlock key={i} turn={item.turn} />;
         })}
-        <div ref={bottomRef} />
       </div>
     </div>
   );
