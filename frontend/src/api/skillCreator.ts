@@ -16,6 +16,8 @@ export interface SkillCreatorSession {
   user_id?: string | null;
   messages: SkillCreatorMessage[];
   draft: SkillDraft | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -35,11 +37,14 @@ function withUserQuery(userId?: string) {
 }
 
 export const skillCreatorApi = {
-  createSession: (userId?: string) =>
-    request<{ session_id: string; message: SkillCreatorMessage }>(
-      `/config/skills/creator/sessions${withUserQuery(userId)}`,
-      { method: "POST" },
-    ),
+  /** 获取或创建会话。forceNew=true 时强制新建（新建对话按钮使用）。*/
+  openSession: (userId?: string, forceNew = false) => {
+    const params = new URLSearchParams();
+    if (userId?.trim()) params.set("user_id", userId.trim());
+    if (forceNew) params.set("force_new", "true");
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    return request<SkillCreatorSession>(`/config/skills/creator/sessions${qs}`, { method: "POST" });
+  },
 
   getSession: (sessionId: string) =>
     request<SkillCreatorSession>(`/config/skills/creator/sessions/${encodeURIComponent(sessionId)}`),

@@ -4,7 +4,6 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from models.config import SkillMeta
 from models.skill_creator import (
-    CreateSessionResponse,
     PublishSkillRequest,
     SendMessageRequest,
     SendMessageResponse,
@@ -17,17 +16,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/config/skills/creator", tags=["skill-creator"])
 
 
-@router.post("/sessions", response_model=CreateSessionResponse)
+@router.post("/sessions", response_model=SkillCreatorSession)
 async def create_session(
     user_id: str | None = Query(None, description="用户 ID；不传则创建系统 Skill"),
-) -> CreateSessionResponse:
-    """创建 skill-creator 对话会话。发布时同步写入 MongoDB 元数据 + NFS 正文。"""
+    force_new: bool = Query(False, description="强制新建会话，忽略已有会话"),
+) -> SkillCreatorSession:
+    """获取或新建 skill-creator 会话。
+
+    默认复用该用户最近的会话（即开即用，无 LLM 等待）；
+    force_new=true 时强制新建（对应前端「新建对话」操作）。
+    """
     uid = user_id.strip() if user_id else None
-    try:
-        return await skill_creator_service.start_session(uid)
-    except RuntimeError as exc:
-        logger.exception("创建 skill-creator 会话失败")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return await skill_creator_service.start_session(uid, force_new=force_new)
 
 
 @router.get("/sessions/{session_id}", response_model=SkillCreatorSession)

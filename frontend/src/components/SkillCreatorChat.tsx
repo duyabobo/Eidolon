@@ -24,14 +24,17 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
 
   const scopeLabel = scope === "user" ? "我的 Skill" : "系统 Skill";
 
-  useEffect(() => {
+  const openSession = (forceNew = false) => {
+    setLoading(true);
+    setError(null);
     let cancelled = false;
     skillCreatorApi
-      .createSession(userId)
-      .then((res) => {
+      .openSession(userId, forceNew)
+      .then((session) => {
         if (cancelled) return;
-        setSessionId(res.session_id);
-        setMessages([res.message]);
+        setSessionId(session.id);
+        setMessages(session.messages);
+        if (session.draft) setDraft(session.draft);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : "无法启动 Skill 创建助手");
@@ -40,6 +43,11 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
+  };
+
+  useEffect(() => {
+    return openSession(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   useEffect(() => {
@@ -117,7 +125,21 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
           <h2 className="font-semibold text-ink-900">对话创建{scopeLabel}</h2>
           <p className="text-xs text-ink-400 mt-0.5">通过 skill-creator 对话生成，保存后同步 MongoDB + NFS</p>
         </div>
-        <button type="button" onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(null);
+              setInput("");
+              openSession(true);
+            }}
+            disabled={loading || sending}
+            className="text-xs text-ink-400 hover:text-brand-600 disabled:opacity-40 transition-colors"
+          >
+            新建对话
+          </button>
+          <button type="button" onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
+        </div>
       </div>
 
       <div className="flex-1 flex min-h-0">

@@ -29,6 +29,19 @@ async def get_session(session_id: str) -> SkillCreatorSession | None:
     return SkillCreatorSession.model_validate(doc)
 
 
+async def get_latest_session(user_id: str | None) -> SkillCreatorSession | None:
+    """返回该用户最近更新的会话，不存在则返回 None。"""
+    if user_id:
+        query = {"user_id": user_id}
+    else:
+        query = {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}]}
+    doc = await get_db()[_COLLECTION].find_one(query, sort=[("updated_at", -1)])
+    if not doc:
+        return None
+    doc.pop("_id", None)
+    return SkillCreatorSession.model_validate(doc)
+
+
 async def append_messages(
     session_id: str,
     user_message: SkillCreatorMessage,

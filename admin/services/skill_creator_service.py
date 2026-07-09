@@ -3,10 +3,10 @@ from datetime import datetime
 
 from models.config import SkillMeta
 from models.skill_creator import (
-    CreateSessionResponse,
     PublishSkillRequest,
     SendMessageResponse,
     SkillCreatorMessage,
+    SkillCreatorSession,
     SkillDraft,
 )
 from services import skill_creator_store
@@ -26,27 +26,35 @@ from services.skills_fs import write_skill, write_user_skill
 logger = logging.getLogger(__name__)
 
 _WELCOME_SYSTEM = (
-    "管理员刚打开 Skill 创建助手。请用简短友好的语气欢迎，"
-    "说明你会通过对话帮助创建系统级 Skill，并询问他们想创建什么能力/场景。"
+    "你好！我是 Skill 创建助手，可以帮你通过对话生成系统级 Skill。\n"
+    "请告诉我你想创建什么能力或场景的 Skill？"
 )
 _WELCOME_USER = (
-    "用户刚打开 Skill 创建助手。请用简短友好的语气欢迎，"
-    "说明你会通过对话帮助创建属于该用户的私有 Skill，并询问他们想创建什么能力/场景。"
+    "你好！我是 Skill 创建助手，可以帮你通过对话生成私有 Skill。\n"
+    "请告诉我你想创建什么能力或场景的 Skill？"
 )
 
 
-async def start_session(user_id: str | None = None) -> CreateSessionResponse:
+async def start_session(user_id: str | None = None, force_new: bool = False) -> SkillCreatorSession:
+    """获取或创建 skill-creator 会话。
+
+    - force_new=False（默认）：复用该用户最近的会话，不存在时才新建
+    - force_new=True：强制新建，用于「新建对话」按钮
+    欢迎语使用静态文本，不调用 LLM，保证即开即用。
+    """
+    if not force_new:
+        existing = await skill_creator_store.get_latest_session(user_id)
+        if existing:
+            logger.info("复用 skill-creator 会话: %s user_id=%s", existing.id, user_id)
+            return existing
+
     session = await skill_creator_store.create_session(user_id)
-    welcome = _WELCOME_USER if user_id else _WELCOME_SYSTEM
-    raw_reply = await chat_completion(
-        load_system_prompt(),
-        [{"role": "user", "content": welcome}],
-    )
-    draft = extract_skill_draft(raw_reply)
-    display = strip_skill_draft_blocks(raw_reply)
-    assistant = SkillCreatorMessage(role="assistant", content=display, created_at=datetime.utcnow())
-    await skill_creator_store.set_initial_message(session.id, assistant, draft)
-    return CreateSessionResponse(session_id=session.id, message=assistant)
+    welcome_text = _WELCOME_USER if user_id else _WELCOME_SYSTEM
+    welcome = SkillCreatorMessage(role="assistant", content=welcome_text, created_at=datetime.utcnow())
+    await skill_creator_store.set_initial_message(session.id, welcome, None)
+    session.messages = [welcome]
+    logger.info("skill-creator 新会话已创建: %s user_id=%s force_new=%s", session.id, user_id, force_new)
+    return session
 
 
 async def get_session(session_id: str):
