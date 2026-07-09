@@ -137,8 +137,8 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* 已发布后才允许新建，避免意外丢弃未保存的草稿 */}
-          {isPublished && (
+          {/* 已发布后才允许新建，编辑模式下不提供（新建会脱离当前 skill 上下文） */}
+          {isPublished && !isEditMode && (
             <button
               type="button"
               onClick={() => {
