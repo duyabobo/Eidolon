@@ -60,16 +60,16 @@ export class SessionOutputStream {
   }
 
   async pushDone(): Promise<void> {
+    await this._flushSnapshot();
     await this.push({ event_type: "done", content: "" });
     console.log(`[stream] session ${this.sessionId}: done 事件已推送，累计 ${this.pushCount} 条`);
-    await this._flushSnapshot();
     await this.redis.del(`session:${this.sessionId}:active_turn`).catch(() => {});
   }
 
   async pushError(message: string): Promise<void> {
+    await this._flushSnapshot();
     await this.push({ event_type: "error", content: message });
     console.error(`[stream] session ${this.sessionId}: error 事件已推送: ${message}`);
-    await this._flushSnapshot();
     await this.redis.del(`session:${this.sessionId}:active_turn`).catch(() => {});
   }
 
