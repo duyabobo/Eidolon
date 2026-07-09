@@ -27,9 +27,10 @@
  * ═══════════════════════════════════════════════════════════════
  *
  * 沙盒特性（由 worker 在启动 pi 进程前注入环境变量）：
- *   PI_SANDBOX_WORKSPACE → session 专属工作目录
- *   PI_SANDBOX_HOME      → session 专属 home
- *   PI_SANDBOX_TMP       → session 临时目录
+ *   PI_SANDBOX_WORKSPACE   → session 专属工作目录
+ *   PI_SANDBOX_HOME        → session 专属 home
+ *   PI_SANDBOX_TMP         → session 临时目录
+ *   PI_SANDBOX_USER_MEMORY → 用户级长期记忆目录（MEMORY.md，跨 session）
  *   --unshare-net        → 禁止网络访问
  *   --unshare-pid        → 独立 PID 空间
  *   --tmpfs sandboxRoot  → 对沙盒内隐藏其他 session/user 目录
@@ -53,6 +54,7 @@ const sandboxRoot = process.env.PI_SANDBOX_ROOT ?? "/data/sandboxes";
 const sandboxWorkspace = process.env.PI_SANDBOX_WORKSPACE ?? "";
 const sandboxHome = process.env.PI_SANDBOX_HOME ?? "";
 const sandboxTmp = process.env.PI_SANDBOX_TMP ?? "";
+const sandboxUserMemory = process.env.PI_SANDBOX_USER_MEMORY ?? "";
 const piCodingAgentDir = process.env.PI_CODING_AGENT_DIR ?? "";
 
 /**

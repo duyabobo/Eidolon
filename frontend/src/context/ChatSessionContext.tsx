@@ -26,10 +26,23 @@ interface SessionRuntime {
   activeTurnId: string | null;
   isLoading: boolean;
   closeStream: (() => void) | null;
+  selectedSkillRef: string;
 }
 
-function emptyRuntime(messages: Message[] = []): SessionRuntime {
-  return { messages, activeTurnId: null, isLoading: false, closeStream: null };
+function emptyRuntime(messages: Message[] = [], selectedSkillRef = ""): SessionRuntime {
+  return { messages, activeTurnId: null, isLoading: false, closeStream: null, selectedSkillRef };
+}
+
+function loadPersistedSkillRef(sessionId: string): string {
+  return localStorage.getItem(`pi_skill_ref_${sessionId}`) ?? "";
+}
+
+function savePersistedSkillRef(sessionId: string, ref: string): void {
+  if (ref) {
+    localStorage.setItem(`pi_skill_ref_${sessionId}`, ref);
+  } else {
+    localStorage.removeItem(`pi_skill_ref_${sessionId}`);
+  }
 }
 
 export function buildMessagesFromSnapshot(
@@ -195,7 +208,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [selectedSkillRef, setSelectedSkillRef] = useState("");
+  const [selectedSkillRef, setSelectedSkillRefState] = useState("");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(
     () => localStorage.getItem("pi_session_id"),
@@ -207,6 +220,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   const closeStreamRef = useRef<(() => void) | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const isLoadingRef = useRef(false);
+  const selectedSkillRefRef = useRef<string>("");
   const sessionRuntimeRef = useRef<Map<string, SessionRuntime>>(new Map());
   const attachTurnStreamRef = useRef<(sid: string, turnId: string, lastSeq?: string) => void>(() => {});
   const restoredRef = useRef(false);
@@ -219,6 +233,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
+  useEffect(() => { selectedSkillRefRef.current = selectedSkillRef; }, [selectedSkillRef]);
 
   const syncVisibleSessionState = useCallback((sid: string | null) => {
     if (!sid) {
@@ -236,12 +251,15 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   const persistCurrentSession = useCallback(() => {
     const sid = sessionIdRef.current;
     if (!sid) return;
+    const skillRef = selectedSkillRefRef.current;
     sessionRuntimeRef.current.set(sid, {
       messages: messagesRef.current,
       activeTurnId: activeTurnIdRef.current,
       isLoading: isLoadingRef.current,
       closeStream: closeStreamRef.current,
+      selectedSkillRef: skillRef,
     });
+    savePersistedSkillRef(sid, skillRef);
     closeStreamRef.current = null;
     activeTurnIdRef.current = null;
   }, []);
@@ -266,9 +284,12 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     try {
       const list = await skillsApi.listForChat(userId);
       setSkills(list);
-      setSelectedSkillRef((prev) =>
-        prev && list.some((s) => toSkillRef(s.scope ?? "system", s.name) === prev) ? prev : "",
-      );
+      // 若当前选中的 skill 已不在列表中（被删除等），清空选择
+      const current = selectedSkillRefRef.current;
+      if (current && !list.some((s) => toSkillRef(s.scope ?? "system", s.name) === current)) {
+        selectedSkillRefRef.current = "";
+        setSelectedSkillRefState("");
+      }
     } catch {
       setSkills([]);
     }
@@ -391,7 +412,11 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     const msgs = buildMessagesFromSnapshot(detail.request, detail.events_snapshot);
     messagesRef.current = msgs;
     setMessages(msgs);
-    sessionRuntimeRef.current.set(savedSessionId, emptyRuntime(msgs));
+
+    const skillRef = loadPersistedSkillRef(savedSessionId);
+    selectedSkillRefRef.current = skillRef;
+    setSelectedSkillRefState(skillRef);
+    sessionRuntimeRef.current.set(savedSessionId, emptyRuntime(msgs, skillRef));
 
     const activeTurnId = await getActiveTurn(savedSessionId);
     if (activeTurnId) {
@@ -420,7 +445,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     setMessages([]);
     syncVisibleSessionState(null);
     setError("");
-    setSelectedSkillRef("");
+    selectedSkillRefRef.current = "";
+    setSelectedSkillRefState("");
   }, [persistCurrentSession, syncVisibleSessionState]);
 
   const switchToSession = useCallback(async (s: SessionSummary) => {
@@ -437,10 +463,16 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     if (cached) {
       messagesRef.current = cached.messages;
       setMessages(cached.messages);
+      const skillRef = cached.selectedSkillRef ?? loadPersistedSkillRef(s.session_id);
+      selectedSkillRefRef.current = skillRef;
+      setSelectedSkillRefState(skillRef);
       syncVisibleSessionState(s.session_id);
       return;
     }
 
+    const skillRef = loadPersistedSkillRef(s.session_id);
+    selectedSkillRefRef.current = skillRef;
+    setSelectedSkillRefState(skillRef);
     syncVisibleSessionState(s.session_id);
     messagesRef.current = [];
     setMessages([]);
@@ -465,6 +497,17 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   const setUserId = useCallback((newId: string) => {
     setUserIdState(newId);
     localStorage.setItem("pi_user_id", newId);
+  }, []);
+
+  const setSelectedSkillRef = useCallback((ref: string) => {
+    setSelectedSkillRefState(ref);
+    selectedSkillRefRef.current = ref;
+    const sid = sessionIdRef.current;
+    if (sid) {
+      const runtime = sessionRuntimeRef.current.get(sid) ?? emptyRuntime(messagesRef.current);
+      sessionRuntimeRef.current.set(sid, { ...runtime, selectedSkillRef: ref });
+      savePersistedSkillRef(sid, ref);
+    }
   }, []);
 
   const interrupt = useCallback(async () => {

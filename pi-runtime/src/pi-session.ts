@@ -262,6 +262,7 @@ export async function startPiSession(
     PI_SANDBOX_WORKSPACE: sandboxPaths.workspace,
     PI_SANDBOX_HOME: sandboxPaths.home,
     PI_SANDBOX_TMP: sandboxPaths.sessionTmp,
+    PI_SANDBOX_USER_MEMORY: sandboxPaths.userMemory,
     PI_CODING_AGENT_DIR: piConfigDir,
     PI_OUTER_SANDBOX: "1",
     PI_SOCKS_LLM: sessionLlmSockForSandbox(sessionId),
