@@ -5,9 +5,11 @@ import { ConfigPrimaryBtn, ConfigToolbarBtn } from "./config/ConfigActionBtn";
 import { ScopeBadge } from "./config/ConfigListItem";
 import {
   ConfigEmptyState,
+  ConfigListPagination,
   ConfigListToolbar,
   ConfigPanelLayout,
 } from "./config/ConfigPanelLayout";
+import { CONFIG_PAGE_SIZE, useClientPagination } from "./config/useClientPagination";
 import { McpEditModal, McpServerRow } from "./McpServerUi";
 import { serverStatusKey } from "./mcpManagerUtils";
 import { useMcpManager } from "./useMcpManager";
@@ -143,6 +145,8 @@ export default function McpConfigPanel({ userId }: Props) {
     }
   };
 
+  const pagination = useClientPagination(servers, CONFIG_PAGE_SIZE);
+
   return (
     <ConfigPanelLayout
       loading={loading}
@@ -158,9 +162,17 @@ export default function McpConfigPanel({ userId }: Props) {
               >
                 {probingAll ? "测试中…" : "测试全部"}
               </ConfigToolbarBtn>
-              <ConfigPrimaryBtn onClick={openUserCreate}>+ 添加 MCP</ConfigPrimaryBtn>
+              <ConfigPrimaryBtn onClick={openUserCreate}>添加</ConfigPrimaryBtn>
             </>
           )}
+        />
+      )}
+      pagination={(
+        <ConfigListPagination
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          onPageChange={pagination.setPage}
         />
       )}
     >
@@ -168,7 +180,7 @@ export default function McpConfigPanel({ userId }: Props) {
         <ConfigEmptyState message="暂无 MCP Server" />
       ) : (
         <div className="space-y-2">
-          {servers.map((server) => {
+          {pagination.slice.map((server) => {
             const key = serverStatusKey(server);
             return (
               <McpServerRow

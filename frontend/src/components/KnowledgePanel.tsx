@@ -14,9 +14,10 @@ import {
   ConfigPanelLayout,
 } from "./config/ConfigPanelLayout";
 import DocumentWikiExplorer from "./knowledge/DocumentWikiExplorer";
+import { CONFIG_PAGE_SIZE } from "./config/useClientPagination";
 
 const EMPTY_SERVICE: KnowledgeServiceConfig = { base_url: "", environment: "local" };
-const PAGE_SIZE = 10;
+const PAGE_SIZE = CONFIG_PAGE_SIZE;
 
 function StatusBadge({ status }: { status: KnowledgeDocument["status"] }) {
   const cls = {
@@ -234,7 +235,7 @@ function DocumentSection({
                 onChange={(e) => void handleUpload(e.target.files)}
               />
               <ConfigPrimaryBtn disabled={uploading} onClick={() => fileRef.current?.click()}>
-                {uploading ? "上传中…" : "上传文档"}
+                {uploading ? "添加中…" : "添加"}
               </ConfigPrimaryBtn>
             </>
           )}
@@ -253,7 +254,7 @@ function DocumentSection({
         支持 pdf / docx / txt / md / csv / xlsx / pptx，单文件 ≤ 10MB
       </p>
       {docs.length === 0 ? (
-        <ConfigEmptyState message="暂无文档，点击「上传文档」添加" />
+        <ConfigEmptyState message="暂无文档，点击「添加」上传" />
       ) : (
         <div className="space-y-2">
           {docs.map((doc) => (
@@ -296,6 +297,8 @@ export default function KnowledgePanel({
   const [selectedId, setSelectedId] = useState<string | null>(deepLinkKbId ?? null);
   const [baseModal, setBaseModal] = useState<{ mode: "create" } | { mode: "edit"; kb: KnowledgeBase } | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [selectedKb, setSelectedKb] = useState<KnowledgeBase | null>(null);
+  const [selectedKbLoading, setSelectedKbLoading] = useState(false);
 
   const [serviceForm, setServiceForm] = useState<KnowledgeServiceConfig>(EMPTY_SERVICE);
   const [envOptions, setEnvOptions] = useState<Array<{ id: KnowledgeServiceConfig["environment"]; label: string; base_url: string }>>([]);
@@ -360,6 +363,28 @@ export default function KnowledgePanel({
 
   useEffect(() => { void loadBases(page); }, [loadBases, page]);
 
+  useEffect(() => {
+    if (!selectedId) {
+      setSelectedKb(null);
+      return;
+    }
+    const fromList = bases.find((b) => b.id === selectedId);
+    if (fromList) {
+      setSelectedKb(fromList);
+      return;
+    }
+    setSelectedKbLoading(true);
+    knowledgeApi.getBase(selectedId)
+      .then(setSelectedKb)
+      .catch(() => {
+        setSelectedKb(null);
+        setErrMsg("知识库不存在或无法访问");
+        setSelectedId(null);
+        navigate("/admin?tab=knowledge");
+      })
+      .finally(() => setSelectedKbLoading(false));
+  }, [selectedId, bases, navigate]);
+
   const handleEnvironmentChange = async (environment: KnowledgeServiceConfig["environment"]) => {
     if (!environment || environment === serviceForm.environment) return;
     if (environment !== "local" && !userId.trim()) {
@@ -382,7 +407,7 @@ export default function KnowledgePanel({
     }
   };
 
-  const selected = bases.find((b) => b.id === selectedId) ?? null;
+  const selected = selectedKb;
 
   const handleCreate = async (name: string, description: string) => {
     setErrMsg(null);
@@ -443,6 +468,10 @@ export default function KnowledgePanel({
     </select>
   );
 
+  if (selectedId && selectedKbLoading) {
+    return <p className="text-sm text-ink-400 py-6">加载知识库…</p>;
+  }
+
   if (selected) {
     return (
       <DocumentSection
@@ -461,7 +490,7 @@ export default function KnowledgePanel({
       toolbar={(
         <ConfigListToolbar
           left={envSelect}
-          right={<ConfigPrimaryBtn onClick={() => setBaseModal({ mode: "create" })}>+ 新建知识库</ConfigPrimaryBtn>}
+          right={<ConfigPrimaryBtn onClick={() => setBaseModal({ mode: "create" })}>添加</ConfigPrimaryBtn>}
         />
       )}
       pagination={(

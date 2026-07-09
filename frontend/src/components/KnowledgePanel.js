@@ -7,8 +7,9 @@ import { ConfigActionBtn, ConfigPrimaryBtn, ConfigToolbarBtn } from "./config/Co
 import { ConfigListItem } from "./config/ConfigListItem";
 import { ConfigEmptyState, ConfigListPagination, ConfigListToolbar, ConfigPanelLayout, } from "./config/ConfigPanelLayout";
 import DocumentWikiExplorer from "./knowledge/DocumentWikiExplorer";
+import { CONFIG_PAGE_SIZE } from "./config/useClientPagination";
 const EMPTY_SERVICE = { base_url: "", environment: "local" };
-const PAGE_SIZE = 10;
+const PAGE_SIZE = CONFIG_PAGE_SIZE;
 function StatusBadge({ status }) {
     const cls = {
         uploaded: "bg-sky-50 text-sky-700",
@@ -126,7 +127,7 @@ function DocumentSection({ kb, deepLinkDocId, onBack, }) {
     if (wikiDoc) {
         return (_jsx(DocumentWikiExplorer, { kbId: kb.id, doc: wikiDoc, onBack: closeWiki }));
     }
-    return (_jsxs(ConfigPanelLayout, { loading: loading, loadingText: "\u52A0\u8F7D\u6587\u6863\u2026", errMsg: errMsg, toolbar: (_jsx(ConfigListToolbar, { left: (_jsxs(_Fragment, { children: [_jsx(ConfigToolbarBtn, { onClick: onBack, children: "\u2190 \u8FD4\u56DE\u5217\u8868" }), _jsx("span", { className: "text-sm font-medium text-ink-800 truncate", children: kb.name }), _jsxs("span", { className: "text-xs text-ink-400", children: [total, " \u4E2A\u6587\u6863"] })] })), right: (_jsxs(_Fragment, { children: [_jsx("input", { ref: fileRef, type: "file", multiple: true, accept: ".pdf,.docx,.txt,.md,.csv,.xlsx,.pptx", className: "hidden", onChange: (e) => void handleUpload(e.target.files) }), _jsx(ConfigPrimaryBtn, { disabled: uploading, onClick: () => fileRef.current?.click(), children: uploading ? "上传中…" : "上传文档" })] })) })), pagination: (_jsx(ConfigListPagination, { page: page, pageSize: PAGE_SIZE, total: total, onPageChange: setPage })), children: [_jsx("p", { className: "text-xs text-ink-400 -mt-2", children: "\u652F\u6301 pdf / docx / txt / md / csv / xlsx / pptx\uFF0C\u5355\u6587\u4EF6 \u2264 10MB" }), docs.length === 0 ? (_jsx(ConfigEmptyState, { message: "\u6682\u65E0\u6587\u6863\uFF0C\u70B9\u51FB\u300C\u4E0A\u4F20\u6587\u6863\u300D\u6DFB\u52A0" })) : (_jsx("div", { className: "space-y-2", children: docs.map((doc) => (_jsx(ConfigListItem, { title: doc.name, meta: _jsx(StatusBadge, { status: doc.status }), subtitle: `${formatFileSize(doc.file_size)} · ${new Date(doc.created_at).toLocaleString("zh-CN")}`, actions: (_jsxs(_Fragment, { children: [_jsx(ConfigActionBtn, { variant: "violet", onClick: () => openWiki(doc), children: "\u56FE\u8C31" }), _jsx(ConfigActionBtn, { onClick: () => knowledgeApi.downloadDocument(kb.id, doc.id, doc.name), children: "\u4E0B\u8F7D" }), _jsx(ConfigActionBtn, { variant: "danger", onClick: () => void handleDelete(doc), children: "\u5220\u9664" })] })) }, doc.id))) }))] }));
+    return (_jsxs(ConfigPanelLayout, { loading: loading, loadingText: "\u52A0\u8F7D\u6587\u6863\u2026", errMsg: errMsg, toolbar: (_jsx(ConfigListToolbar, { left: (_jsxs(_Fragment, { children: [_jsx(ConfigToolbarBtn, { onClick: onBack, children: "\u2190 \u8FD4\u56DE\u5217\u8868" }), _jsx("span", { className: "text-sm font-medium text-ink-800 truncate", children: kb.name }), _jsxs("span", { className: "text-xs text-ink-400", children: [total, " \u4E2A\u6587\u6863"] })] })), right: (_jsxs(_Fragment, { children: [_jsx("input", { ref: fileRef, type: "file", multiple: true, accept: ".pdf,.docx,.txt,.md,.csv,.xlsx,.pptx", className: "hidden", onChange: (e) => void handleUpload(e.target.files) }), _jsx(ConfigPrimaryBtn, { disabled: uploading, onClick: () => fileRef.current?.click(), children: uploading ? "添加中…" : "添加" })] })) })), pagination: (_jsx(ConfigListPagination, { page: page, pageSize: PAGE_SIZE, total: total, onPageChange: setPage })), children: [_jsx("p", { className: "text-xs text-ink-400 -mt-2", children: "\u652F\u6301 pdf / docx / txt / md / csv / xlsx / pptx\uFF0C\u5355\u6587\u4EF6 \u2264 10MB" }), docs.length === 0 ? (_jsx(ConfigEmptyState, { message: "\u6682\u65E0\u6587\u6863\uFF0C\u70B9\u51FB\u300C\u6DFB\u52A0\u300D\u4E0A\u4F20" })) : (_jsx("div", { className: "space-y-2", children: docs.map((doc) => (_jsx(ConfigListItem, { title: doc.name, meta: _jsx(StatusBadge, { status: doc.status }), subtitle: `${formatFileSize(doc.file_size)} · ${new Date(doc.created_at).toLocaleString("zh-CN")}`, actions: (_jsxs(_Fragment, { children: [_jsx(ConfigActionBtn, { variant: "violet", onClick: () => openWiki(doc), children: "\u56FE\u8C31" }), _jsx(ConfigActionBtn, { onClick: () => knowledgeApi.downloadDocument(kb.id, doc.id, doc.name), children: "\u4E0B\u8F7D" }), _jsx(ConfigActionBtn, { variant: "danger", onClick: () => void handleDelete(doc), children: "\u5220\u9664" })] })) }, doc.id))) }))] }));
 }
 export default function KnowledgePanel({ userId, deepLinkKbId, deepLinkDocId, }) {
     const navigate = useNavigate();
@@ -137,6 +138,8 @@ export default function KnowledgePanel({ userId, deepLinkKbId, deepLinkDocId, })
     const [selectedId, setSelectedId] = useState(deepLinkKbId ?? null);
     const [baseModal, setBaseModal] = useState(null);
     const [errMsg, setErrMsg] = useState(null);
+    const [selectedKb, setSelectedKb] = useState(null);
+    const [selectedKbLoading, setSelectedKbLoading] = useState(false);
     const [serviceForm, setServiceForm] = useState(EMPTY_SERVICE);
     const [envOptions, setEnvOptions] = useState([]);
     const [envLoading, setEnvLoading] = useState(true);
@@ -200,6 +203,27 @@ export default function KnowledgePanel({ userId, deepLinkKbId, deepLinkDocId, })
         }
     }, [userId, deepLinkKbId, page]);
     useEffect(() => { void loadBases(page); }, [loadBases, page]);
+    useEffect(() => {
+        if (!selectedId) {
+            setSelectedKb(null);
+            return;
+        }
+        const fromList = bases.find((b) => b.id === selectedId);
+        if (fromList) {
+            setSelectedKb(fromList);
+            return;
+        }
+        setSelectedKbLoading(true);
+        knowledgeApi.getBase(selectedId)
+            .then(setSelectedKb)
+            .catch(() => {
+            setSelectedKb(null);
+            setErrMsg("知识库不存在或无法访问");
+            setSelectedId(null);
+            navigate("/admin?tab=knowledge");
+        })
+            .finally(() => setSelectedKbLoading(false));
+    }, [selectedId, bases, navigate]);
     const handleEnvironmentChange = async (environment) => {
         if (!environment || environment === serviceForm.environment)
             return;
@@ -224,7 +248,7 @@ export default function KnowledgePanel({ userId, deepLinkKbId, deepLinkDocId, })
             setEnvSaving(false);
         }
     };
-    const selected = bases.find((b) => b.id === selectedId) ?? null;
+    const selected = selectedKb;
     const handleCreate = async (name, description) => {
         setErrMsg(null);
         try {
@@ -271,8 +295,11 @@ export default function KnowledgePanel({ userId, deepLinkKbId, deepLinkDocId, })
             { id: "prod", label: "线上", base_url: "" },
             { id: "test", label: "测试", base_url: "" },
         ]).map((opt) => (_jsx("option", { value: opt.id, children: opt.label }, opt.id))) }));
+    if (selectedId && selectedKbLoading) {
+        return _jsx("p", { className: "text-sm text-ink-400 py-6", children: "\u52A0\u8F7D\u77E5\u8BC6\u5E93\u2026" });
+    }
     if (selected) {
         return (_jsx(DocumentSection, { kb: selected, deepLinkDocId: deepLinkDocId, onBack: handleBackToBaseList }));
     }
-    return (_jsxs(ConfigPanelLayout, { loading: loading || envLoading, loadingText: "\u52A0\u8F7D\u77E5\u8BC6\u5E93\u2026", errMsg: errMsg, toolbar: (_jsx(ConfigListToolbar, { left: envSelect, right: _jsx(ConfigPrimaryBtn, { onClick: () => setBaseModal({ mode: "create" }), children: "+ \u65B0\u5EFA\u77E5\u8BC6\u5E93" }) })), pagination: (_jsx(ConfigListPagination, { page: page, pageSize: PAGE_SIZE, total: total, onPageChange: setPage })), children: [bases.length === 0 ? (_jsx(ConfigEmptyState, { message: "\u6682\u65E0\u77E5\u8BC6\u5E93" })) : (_jsx("div", { className: "space-y-2", children: bases.map((kb) => (_jsx(ConfigListItem, { title: kb.name, subtitle: `${kb.description || "无描述"} · ${kb.document_count} 个文档`, actions: (_jsxs(_Fragment, { children: [_jsx(ConfigActionBtn, { variant: "brand", onClick: () => openKnowledgeBase(kb.id), children: "\u6587\u6863" }), _jsx(ConfigActionBtn, { onClick: () => setBaseModal({ mode: "edit", kb }), children: "\u7F16\u8F91" }), _jsx(ConfigActionBtn, { variant: "danger", onClick: () => void handleDelete(kb), children: "\u5220\u9664" })] })) }, kb.id))) })), baseModal?.mode === "create" && (_jsx(BaseModal, { title: "\u65B0\u5EFA\u77E5\u8BC6\u5E93", submitLabel: "\u521B\u5EFA", onSubmit: handleCreate, onCancel: () => setBaseModal(null) })), baseModal?.mode === "edit" && (_jsx(BaseModal, { title: `编辑 · ${baseModal.kb.name}`, initial: { name: baseModal.kb.name, description: baseModal.kb.description }, submitLabel: "\u4FDD\u5B58", onSubmit: (name, desc) => void handleUpdate(baseModal.kb.id, name, desc), onCancel: () => setBaseModal(null) }))] }));
+    return (_jsxs(ConfigPanelLayout, { loading: loading || envLoading, loadingText: "\u52A0\u8F7D\u77E5\u8BC6\u5E93\u2026", errMsg: errMsg, toolbar: (_jsx(ConfigListToolbar, { left: envSelect, right: _jsx(ConfigPrimaryBtn, { onClick: () => setBaseModal({ mode: "create" }), children: "\u6DFB\u52A0" }) })), pagination: (_jsx(ConfigListPagination, { page: page, pageSize: PAGE_SIZE, total: total, onPageChange: setPage })), children: [bases.length === 0 ? (_jsx(ConfigEmptyState, { message: "\u6682\u65E0\u77E5\u8BC6\u5E93" })) : (_jsx("div", { className: "space-y-2", children: bases.map((kb) => (_jsx(ConfigListItem, { title: kb.name, subtitle: `${kb.description || "无描述"} · ${kb.document_count} 个文档`, actions: (_jsxs(_Fragment, { children: [_jsx(ConfigActionBtn, { variant: "brand", onClick: () => openKnowledgeBase(kb.id), children: "\u6587\u6863" }), _jsx(ConfigActionBtn, { onClick: () => setBaseModal({ mode: "edit", kb }), children: "\u7F16\u8F91" }), _jsx(ConfigActionBtn, { variant: "danger", onClick: () => void handleDelete(kb), children: "\u5220\u9664" })] })) }, kb.id))) })), baseModal?.mode === "create" && (_jsx(BaseModal, { title: "\u65B0\u5EFA\u77E5\u8BC6\u5E93", submitLabel: "\u521B\u5EFA", onSubmit: handleCreate, onCancel: () => setBaseModal(null) })), baseModal?.mode === "edit" && (_jsx(BaseModal, { title: `编辑 · ${baseModal.kb.name}`, initial: { name: baseModal.kb.name, description: baseModal.kb.description }, submitLabel: "\u4FDD\u5B58", onSubmit: (name, desc) => void handleUpdate(baseModal.kb.id, name, desc), onCancel: () => setBaseModal(null) }))] }));
 }

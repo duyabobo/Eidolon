@@ -42,7 +42,11 @@ export function ConfigToolbarBtn({ className = "", children, ...rest }: ButtonHT
 
 export function ConfigPrimaryBtn({ className = "", children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button type="button" className={`ui-btn-primary text-sm ${className}`} {...rest}>
+    <button
+      type="button"
+      className={`text-xs px-3 py-1.5 font-medium text-white rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${className}`}
+      {...rest}
+    >
       {children}
     </button>
   );

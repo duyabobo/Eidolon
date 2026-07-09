@@ -4,9 +4,11 @@ import { ConfigActionBtn, ConfigPrimaryBtn } from "./config/ConfigActionBtn";
 import { ConfigListItem } from "./config/ConfigListItem";
 import {
   ConfigEmptyState,
+  ConfigListPagination,
   ConfigListToolbar,
   ConfigPanelLayout,
 } from "./config/ConfigPanelLayout";
+import { CONFIG_PAGE_SIZE, useClientPagination } from "./config/useClientPagination";
 
 const EMPTY_FORM: LlmProfileCreate = {
   name: "",
@@ -112,6 +114,8 @@ export default function LlmConfigPanel() {
     }
   };
 
+  const pagination = useClientPagination(profiles, CONFIG_PAGE_SIZE);
+
   return (
     <ConfigPanelLayout
       loading={loading}
@@ -120,7 +124,15 @@ export default function LlmConfigPanel() {
       toolbar={(
         <ConfigListToolbar
           left={<p className="text-xs text-ink-500">选择当前生效的 LLM 配置（单选）</p>}
-          right={<ConfigPrimaryBtn onClick={openCreate}>+ 添加</ConfigPrimaryBtn>}
+          right={<ConfigPrimaryBtn onClick={openCreate}>添加</ConfigPrimaryBtn>}
+        />
+      )}
+      pagination={(
+        <ConfigListPagination
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          onPageChange={pagination.setPage}
         />
       )}
     >
@@ -128,10 +140,9 @@ export default function LlmConfigPanel() {
         <ConfigEmptyState message="暂无 LLM 配置，点击「添加」创建" />
       ) : (
         <div className="space-y-2">
-          {profiles.map((profile) => (
+          {pagination.slice.map((profile) => (
             <ConfigListItem
               key={profile.id}
-              highlighted={activeId === profile.id}
               leading={(
                 <input
                   type="radio"
@@ -142,6 +153,13 @@ export default function LlmConfigPanel() {
                 />
               )}
               title={profile.name}
+              meta={
+                activeId === profile.id ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-brand-50 text-brand-700">
+                    当前生效
+                  </span>
+                ) : undefined
+              }
               subtitle={`${profile.protocol} · ${profile.model} · ${profile.base_url}`}
               actions={(
                 <>

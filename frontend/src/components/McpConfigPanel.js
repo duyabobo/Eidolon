@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { configApi } from "../api/config";
 import { ConfigPrimaryBtn, ConfigToolbarBtn } from "./config/ConfigActionBtn";
 import { ScopeBadge } from "./config/ConfigListItem";
-import { ConfigEmptyState, ConfigListToolbar, ConfigPanelLayout, } from "./config/ConfigPanelLayout";
+import { ConfigEmptyState, ConfigListPagination, ConfigListToolbar, ConfigPanelLayout, } from "./config/ConfigPanelLayout";
+import { CONFIG_PAGE_SIZE, useClientPagination } from "./config/useClientPagination";
 import { McpEditModal, McpServerRow } from "./McpServerUi";
 import { serverStatusKey } from "./mcpManagerUtils";
 import { useMcpManager } from "./useMcpManager";
@@ -107,7 +108,8 @@ export default function McpConfigPanel({ userId }) {
             setErrMsg(e instanceof Error ? e.message : "更新失败");
         }
     };
-    return (_jsxs(ConfigPanelLayout, { loading: loading, errMsg: errMsg, toolbar: (_jsx(ConfigListToolbar, { left: _jsx("p", { className: "text-xs text-ink-500", children: "\u542B\u5DF2\u7981\u7528 Server\uFF1B\u53EF\u7528\u6027\u9700\u624B\u52A8\u6D4B\u8BD5\u540E\u5237\u65B0 tool \u5217\u8868" }), right: (_jsxs(_Fragment, { children: [_jsx(ConfigToolbarBtn, { onClick: () => void probeAll(), disabled: probingAll || servers.length === 0, children: probingAll ? "测试中…" : "测试全部" }), _jsx(ConfigPrimaryBtn, { onClick: openUserCreate, children: "+ \u6DFB\u52A0 MCP" })] })) })), children: [servers.length === 0 ? (_jsx(ConfigEmptyState, { message: "\u6682\u65E0 MCP Server" })) : (_jsx("div", { className: "space-y-2", children: servers.map((server) => {
+    const pagination = useClientPagination(servers, CONFIG_PAGE_SIZE);
+    return (_jsxs(ConfigPanelLayout, { loading: loading, errMsg: errMsg, toolbar: (_jsx(ConfigListToolbar, { left: _jsx("p", { className: "text-xs text-ink-500", children: "\u542B\u5DF2\u7981\u7528 Server\uFF1B\u53EF\u7528\u6027\u9700\u624B\u52A8\u6D4B\u8BD5\u540E\u5237\u65B0 tool \u5217\u8868" }), right: (_jsxs(_Fragment, { children: [_jsx(ConfigToolbarBtn, { onClick: () => void probeAll(), disabled: probingAll || servers.length === 0, children: probingAll ? "测试中…" : "测试全部" }), _jsx(ConfigPrimaryBtn, { onClick: openUserCreate, children: "\u6DFB\u52A0" })] })) })), pagination: (_jsx(ConfigListPagination, { page: pagination.page, pageSize: pagination.pageSize, total: pagination.total, onPageChange: pagination.setPage })), children: [servers.length === 0 ? (_jsx(ConfigEmptyState, { message: "\u6682\u65E0 MCP Server" })) : (_jsx("div", { className: "space-y-2", children: pagination.slice.map((server) => {
                     const key = serverStatusKey(server);
                     return (_jsx(McpServerRow, { server: server, status: statusMap[key], probing: probingKeys.has(key), toolsExpanded: expandedToolKeys.has(key), scopeBadge: _jsx(ScopeBadge, { scope: server.scope }), onToggleEnabled: (enabled) => void handleToggleEnabled(server, enabled), onProbe: () => void probeOne(server), onToggleTools: () => toggleExpandedTools(key), onEdit: () => (server.scope === "system" ? void openSystemEdit(server) : openUserEdit(server)), onDelete: () => void handleDelete(server) }, key));
                 }) })), edit && (_jsx(McpEditModal, { title: edit.isNew

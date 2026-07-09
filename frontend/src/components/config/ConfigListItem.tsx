@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
 interface Props {
-  highlighted?: boolean;
   leading?: ReactNode;
   title: ReactNode;
   subtitle?: ReactNode;
@@ -11,7 +10,6 @@ interface Props {
 }
 
 export function ConfigListItem({
-  highlighted,
   leading,
   title,
   subtitle,
@@ -19,9 +17,7 @@ export function ConfigListItem({
   extra,
   actions,
 }: Props) {
-  const cls = `flex items-start gap-3 border rounded-xl px-4 py-3 ${
-    highlighted ? "border-brand-300 bg-brand-50/40" : "border-ink-200/60"
-  }`;
+  const cls = "flex items-start gap-3 border border-ink-200/60 rounded-xl px-4 py-3 bg-white";
 
   return (
     <div className={cls}>

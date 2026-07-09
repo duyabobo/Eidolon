@@ -4,9 +4,11 @@ import { ConfigActionBtn, ConfigPrimaryBtn } from "./config/ConfigActionBtn";
 import { ConfigListItem, ScopeBadge } from "./config/ConfigListItem";
 import {
   ConfigEmptyState,
+  ConfigListPagination,
   ConfigListToolbar,
   ConfigPanelLayout,
 } from "./config/ConfigPanelLayout";
+import { CONFIG_PAGE_SIZE, useClientPagination } from "./config/useClientPagination";
 import SkillCreatorChat from "./SkillCreatorChat";
 
 interface Props {
@@ -43,6 +45,8 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
     setShowCreator(true);
   };
 
+  const pagination = useClientPagination(skills, CONFIG_PAGE_SIZE);
+
   return (
     <ConfigPanelLayout
       loading={loading}
@@ -52,9 +56,17 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
           left={<p className="text-xs text-ink-500">系统 Skill 与当前用户的个人 Skill</p>}
           right={(
             <ConfigPrimaryBtn onClick={openCreator} disabled={showCreator}>
-              + 创建 Skill
+              添加
             </ConfigPrimaryBtn>
           )}
+        />
+      )}
+      pagination={(
+        <ConfigListPagination
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          onPageChange={pagination.setPage}
         />
       )}
     >
@@ -62,7 +74,7 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
         <ConfigEmptyState message="暂无 Skill" />
       ) : (
         <div className="space-y-2">
-          {skills.map((s) => {
+          {pagination.slice.map((s) => {
             const scope = (s.scope ?? "system") as SkillScope;
             return (
               <ConfigListItem

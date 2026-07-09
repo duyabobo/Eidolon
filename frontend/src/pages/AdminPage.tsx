@@ -26,15 +26,15 @@ export default function AdminPage() {
   const [searchParams] = useSearchParams();
   const tabFromQuery = parseTab(searchParams.get("tab"));
   const [tab, setTab] = useState<Tab>(
-    kbId && docId ? "knowledge" : tabFromQuery ?? "llm",
+    kbId ? "knowledge" : tabFromQuery ?? "llm",
   );
   const { userId, loadSkills } = useChatSession();
 
   useEffect(() => {
-    if (kbId && docId) {
+    if (kbId) {
       setTab("knowledge");
     }
-  }, [kbId, docId]);
+  }, [kbId]);
 
   return (
     <div className="h-full overflow-y-auto scrollbar-thin">

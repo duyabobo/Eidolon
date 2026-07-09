@@ -14,5 +14,5 @@ export function ConfigToolbarBtn({ className = "", children, ...rest }) {
     return (_jsx("button", { type: "button", className: `text-sm px-3 py-1.5 border border-ink-200 rounded-lg text-ink-700 hover:bg-ink-50 disabled:opacity-50 ${className}`, ...rest, children: children }));
 }
 export function ConfigPrimaryBtn({ className = "", children, ...rest }) {
-    return (_jsx("button", { type: "button", className: `ui-btn-primary text-sm ${className}`, ...rest, children: children }));
+    return (_jsx("button", { type: "button", className: `text-xs px-3 py-1.5 font-medium text-white rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${className}`, ...rest, children: children }));
 }

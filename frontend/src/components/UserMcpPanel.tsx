@@ -138,7 +138,7 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
         onClick={() => setEdit({ name: "", isNew: true, config: { ...EMPTY } })}
         className="w-full py-2.5 border-2 border-dashed border-emerald-300/80 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50/50 transition-colors"
       >
-        + 添加个人 MCP
+        添加
       </button>
 
       {loading && <p className="text-xs text-ink-400 text-center">加载中…</p>}
