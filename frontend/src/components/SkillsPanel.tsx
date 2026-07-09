@@ -20,6 +20,7 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreator, setShowCreator] = useState(false);
+  const [editSkillName, setEditSkillName] = useState<string | undefined>(undefined);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
   const load = () =>
@@ -37,11 +38,12 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
     setSkills((prev) => prev.filter((s) => s.name !== skill.name || s.scope === "user"));
   };
 
-  const openCreator = () => {
+  const openCreator = (skillName?: string) => {
     if (!userId.trim()) {
       setErrMsg("请先在「历史」页设置用户 ID");
       return;
     }
+    setEditSkillName(skillName);
     setShowCreator(true);
   };
 
@@ -93,11 +95,15 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
                 )}
                 subtitle={s.description}
                 actions={
-                  scope === "system" ? (
+                  scope === "user" ? (
+                    <ConfigActionBtn variant="default" onClick={() => openCreator(s.name)}>
+                      编辑
+                    </ConfigActionBtn>
+                  ) : (
                     <ConfigActionBtn variant="danger" onClick={() => void handleDelete(s)}>
                       删除
                     </ConfigActionBtn>
-                  ) : undefined
+                  )
                 }
               />
             );
@@ -110,13 +116,18 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
           userId={userId.trim()}
           scope="user"
           embedded
-          onClose={() => setShowCreator(false)}
+          editSkillName={editSkillName}
+          onClose={() => {
+            setShowCreator(false);
+            setEditSkillName(undefined);
+          }}
           onPublished={(skill) => {
             setSkills((prev) => {
               const idx = prev.findIndex((s) => s.name === skill.name && s.scope === "user");
               return idx >= 0 ? prev.map((s, i) => (i === idx ? skill : s)) : [...prev, { ...skill, scope: "user" }];
             });
             setShowCreator(false);
+            setEditSkillName(undefined);
             onSkillsChanged?.();
           }}
         />

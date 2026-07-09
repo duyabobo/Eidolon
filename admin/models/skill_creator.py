@@ -24,6 +24,10 @@ class SkillCreatorSession(BaseModel):
     user_id: str | None = None
     messages: list[SkillCreatorMessage] = Field(default_factory=list)
     draft: SkillDraft | None = None
+    # 发布状态：False 表示草稿进行中，True 表示已发布为 Skill
+    published: bool = False
+    # 发布后记录对应的 Skill 名称，用于"编辑已保存 Skill"时精确查找会话
+    skill_name: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

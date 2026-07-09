@@ -35,25 +35,43 @@ _WELCOME_USER = (
 )
 
 
-async def start_session(user_id: str | None = None, force_new: bool = False) -> SkillCreatorSession:
+async def start_session(
+    user_id: str | None = None,
+    force_new: bool = False,
+    skill_name: str | None = None,
+) -> SkillCreatorSession:
     """获取或创建 skill-creator 会话。
 
-    - force_new=False（默认）：复用该用户最近的会话，不存在时才新建
-    - force_new=True：强制新建，用于「新建对话」按钮
+    优先级：
+    1. skill_name 指定：加载该 Skill 对应的会话（编辑已保存 Skill）
+    2. force_new=True：强制新建（放弃当前草稿，开始全新会话）
+    3. 默认：复用最近的未发布草稿；若无则新建
+
     欢迎语使用静态文本，不调用 LLM，保证即开即用。
     """
-    if not force_new:
-        existing = await skill_creator_store.get_latest_session(user_id)
+    if skill_name:
+        existing = await skill_creator_store.get_session_by_skill_name(user_id, skill_name)
         if existing:
-            logger.info("复用 skill-creator 会话: %s user_id=%s", existing.id, user_id)
+            logger.info("复用 skill-creator 会话（编辑模式）: %s skill=%s", existing.id, skill_name)
             return existing
+        # 该 Skill 没有对应会话（旧数据），新建一个并预填 skill_name 以便后续关联
+        logger.info("未找到 skill=%s 的会话，新建", skill_name)
+
+    elif not force_new:
+        unpublished = await skill_creator_store.get_latest_unpublished_session(user_id)
+        if unpublished:
+            logger.info("复用未发布 skill-creator 会话: %s user_id=%s", unpublished.id, user_id)
+            return unpublished
 
     session = await skill_creator_store.create_session(user_id)
     welcome_text = _WELCOME_USER if user_id else _WELCOME_SYSTEM
     welcome = SkillCreatorMessage(role="assistant", content=welcome_text, created_at=datetime.utcnow())
     await skill_creator_store.set_initial_message(session.id, welcome, None)
     session.messages = [welcome]
-    logger.info("skill-creator 新会话已创建: %s user_id=%s force_new=%s", session.id, user_id, force_new)
+    logger.info(
+        "skill-creator 新会话已创建: %s user_id=%s force_new=%s skill_name=%s",
+        session.id, user_id, force_new, skill_name,
+    )
     return session
 
 
@@ -172,6 +190,7 @@ async def publish_session(session_id: str, body: PublishSkillRequest) -> SkillMe
         hidden=body.hidden if not user_id else False,
     )
     saved = await mongo_client.save_skill_meta(meta)
+    await skill_creator_store.mark_published(session_id, draft.name)
     logger.info(
         "skill-creator 已发布 skill: %s user_id=%s session=%s",
         draft.name,

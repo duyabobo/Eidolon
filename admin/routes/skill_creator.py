@@ -19,15 +19,19 @@ router = APIRouter(prefix="/config/skills/creator", tags=["skill-creator"])
 @router.post("/sessions", response_model=SkillCreatorSession)
 async def create_session(
     user_id: str | None = Query(None, description="用户 ID；不传则创建系统 Skill"),
-    force_new: bool = Query(False, description="强制新建会话，忽略已有会话"),
+    force_new: bool = Query(False, description="强制新建会话（「新建对话」按钮使用）"),
+    skill_name: str | None = Query(None, description="编辑已保存的 Skill 时传入，精确加载对应会话"),
 ) -> SkillCreatorSession:
     """获取或新建 skill-creator 会话。
 
-    默认复用该用户最近的会话（即开即用，无 LLM 等待）；
-    force_new=true 时强制新建（对应前端「新建对话」操作）。
+    优先级：
+    - skill_name 指定：加载该 Skill 的会话（编辑模式）
+    - force_new=true：强制新建
+    - 默认：复用未发布草稿，无则新建
     """
     uid = user_id.strip() if user_id else None
-    return await skill_creator_service.start_session(uid, force_new=force_new)
+    sn = skill_name.strip() if skill_name else None
+    return await skill_creator_service.start_session(uid, force_new=force_new, skill_name=sn)
 
 
 @router.get("/sessions/{session_id}", response_model=SkillCreatorSession)

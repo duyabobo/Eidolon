@@ -16,6 +16,8 @@ export interface SkillCreatorSession {
   user_id?: string | null;
   messages: SkillCreatorMessage[];
   draft: SkillDraft | null;
+  published: boolean;
+  skill_name?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -33,11 +35,17 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const skillCreatorApi = {
-  /** 获取或创建会话。forceNew=true 时强制新建（新建对话按钮使用）。*/
-  openSession: (userId?: string, forceNew = false) => {
+  /**
+   * 获取或创建 skill-creator 会话。
+   * - skillName 指定时：加载该 Skill 的会话（编辑模式）
+   * - forceNew=true：强制新建（新建对话按钮使用）
+   * - 默认：复用未发布草稿，无则新建
+   */
+  openSession: (userId?: string, forceNew = false, skillName?: string) => {
     const params = new URLSearchParams();
     if (userId?.trim()) params.set("user_id", userId.trim());
     if (forceNew) params.set("force_new", "true");
+    if (skillName?.trim()) params.set("skill_name", skillName.trim());
     const qs = params.toString() ? `?${params.toString()}` : "";
     return request<SkillCreatorSession>(`/config/skills/creator/sessions${qs}`, { method: "POST" });
   },

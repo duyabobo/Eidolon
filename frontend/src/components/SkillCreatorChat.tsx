@@ -8,9 +8,11 @@ interface Props {
   onClose: () => void;
   onPublished: (skill: { name: string; description: string; tags: string[]; hidden: boolean; scope: SkillScope; user_id: string | null }) => void;
   embedded?: boolean;
+  /** 编辑已保存的 Skill 时传入 skill 名称，加载对应的历史会话 */
+  editSkillName?: string;
 }
 
-export default function SkillCreatorChat({ userId, scope, onClose, onPublished, embedded = false }: Props) {
+export default function SkillCreatorChat({ userId, scope, onClose, onPublished, embedded = false, editSkillName }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<SkillCreatorMessage[]>([]);
   const [draft, setDraft] = useState<SkillDraft | null>(null);
@@ -19,22 +21,26 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
   const [sending, setSending] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 当前会话是否已发布（已发布时才显示「新建对话」按钮）
+  const [isPublished, setIsPublished] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortCtrlRef = useRef<AbortController | null>(null);
 
   const scopeLabel = scope === "user" ? "我的 Skill" : "系统 Skill";
+  const isEditMode = !!editSkillName;
 
-  const openSession = (forceNew = false) => {
+  const openSession = (forceNew = false, skillName?: string) => {
     setLoading(true);
     setError(null);
     let cancelled = false;
     skillCreatorApi
-      .openSession(userId, forceNew)
+      .openSession(userId, forceNew, skillName)
       .then((session) => {
         if (cancelled) return;
         setSessionId(session.id);
         setMessages(session.messages);
-        if (session.draft) setDraft(session.draft);
+        setDraft(session.draft ?? null);
+        setIsPublished(session.published ?? false);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : "无法启动 Skill 创建助手");
@@ -46,9 +52,9 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
   };
 
   useEffect(() => {
-    return openSession(false);
+    return openSession(false, editSkillName);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [userId, editSkillName]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -100,6 +106,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
     setError(null);
     try {
       const saved = await skillCreatorApi.publish(sessionId, {});
+      setIsPublished(true);
       onPublished({
         name: saved.name,
         description: saved.description,
@@ -122,22 +129,30 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
     }`}>
       <div className="px-6 py-4 border-b border-ink-200/60 flex items-center justify-between shrink-0">
         <div>
-          <h2 className="font-semibold text-ink-900">对话创建{scopeLabel}</h2>
-          <p className="text-xs text-ink-400 mt-0.5">通过 skill-creator 对话生成，保存后同步 MongoDB + NFS</p>
+          <h2 className="font-semibold text-ink-900">
+            {isEditMode ? `编辑 Skill：${editSkillName}` : `对话创建${scopeLabel}`}
+          </h2>
+          <p className="text-xs text-ink-400 mt-0.5">
+            {isEditMode ? "继续对话完善已保存的 Skill，修改后重新保存" : "通过 skill-creator 对话生成，保存后同步 MongoDB + NFS"}
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              setDraft(null);
-              setInput("");
-              openSession(true);
-            }}
-            disabled={loading || sending}
-            className="text-xs text-ink-400 hover:text-brand-600 disabled:opacity-40 transition-colors"
-          >
-            新建对话
-          </button>
+          {/* 已发布后才允许新建，避免意外丢弃未保存的草稿 */}
+          {isPublished && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(null);
+                setInput("");
+                setIsPublished(false);
+                openSession(true);
+              }}
+              disabled={loading || sending}
+              className="text-xs text-ink-400 hover:text-brand-600 disabled:opacity-40 transition-colors"
+            >
+              新建对话
+            </button>
+          )}
           <button type="button" onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
         </div>
       </div>
