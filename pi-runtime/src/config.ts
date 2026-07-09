@@ -14,6 +14,8 @@ export const config = {
       basePath: process.env.SANDBOX_CGROUP_BASE ?? "",
       memoryMax: process.env.SANDBOX_CGROUP_MEMORY_MAX ?? "512M",
       cpuMax: process.env.SANDBOX_CGROUP_CPU_MAX ?? "max",
+      /** RLIMIT_AS 降级默认关闭：会限制 bwrap+pi+bridge 整树，512M 易导致 node OOM */
+      prlimitFallback: (process.env.SANDBOX_PRLIMIT_FALLBACK ?? "false").toLowerCase() === "true",
     },
   },
 } as const;

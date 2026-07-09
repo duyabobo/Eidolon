@@ -143,7 +143,8 @@ function buildPrlimitFallback(memoryMaxBytes: number | null): string[] {
   if (memoryMaxBytes === null) {
     return [];
   }
-  return ["--as", String(memoryMaxBytes)];
+  // util-linux prlimit 要求 --as=N 或 --as N -- cmd；分开传 --as 与数值会被当成要执行的命令名
+  return [`--as=${memoryMaxBytes}`, "--"];
 }
 
 /** 优先 cgroup；失败且配置了内存上限时用 prlimit 降级（Docker 默认环境常见） */
@@ -158,12 +159,20 @@ export async function planSessionResourceLimits(sessionId: string): Promise<Sess
   }
 
   const prlimitArgs = buildPrlimitFallback(memoryMaxBytes);
-  if (prlimitArgs.length > 0) {
+  if (prlimitArgs.length > 0 && config.sandbox.cgroup.prlimitFallback) {
     console.warn(
       `[cgroup] session=${sessionId}: cgroup 不可用，降级 prlimit --as=${memoryMaxBytes}（RLIMIT_AS）`,
     );
+    return { cgroup: null, prlimitArgs };
   }
-  return { cgroup: null, prlimitArgs };
+
+  if (memoryMaxBytes !== null) {
+    console.warn(
+      `[cgroup] session=${sessionId}: cgroup 不可用，已跳过资源限制（需宿主机 cgroup 委托；` +
+      "或显式设置 SANDBOX_PRLIMIT_FALLBACK=true 并调大 SANDBOX_CGROUP_MEMORY_MAX）",
+    );
+  }
+  return { cgroup: null, prlimitArgs: [] };
 }
 
 export async function attachPidToSessionCgroup(
