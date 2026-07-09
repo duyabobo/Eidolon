@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { configApi, McpServerConfig } from "../api/config";
 import type { McpServerItem } from "../api/mcp";
+import { ConfigPrimaryBtn, ConfigToolbarBtn } from "./config/ConfigActionBtn";
+import { ScopeBadge } from "./config/ConfigListItem";
+import {
+  ConfigEmptyState,
+  ConfigListToolbar,
+  ConfigPanelLayout,
+} from "./config/ConfigPanelLayout";
 import { McpEditModal, McpServerRow } from "./McpServerUi";
 import { serverStatusKey } from "./mcpManagerUtils";
 import { useMcpManager } from "./useMcpManager";
@@ -16,16 +23,6 @@ type EditState = {
 
 interface Props {
   userId: string;
-}
-
-function ScopeBadge({ scope }: { scope: "system" | "user" }) {
-  return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-      scope === "user" ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"
-    }`}>
-      {scope === "user" ? "我的" : "系统"}
-    </span>
-  );
 }
 
 export default function McpConfigPanel({ userId }: Props) {
@@ -146,63 +143,51 @@ export default function McpConfigPanel({ userId }: Props) {
     }
   };
 
-  if (loading) return <div className="text-sm text-ink-400">加载中…</div>;
-
   return (
-    <div className="space-y-4">
-      {errMsg && (
-        <p className="text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700">
-          {errMsg}
-        </p>
+    <ConfigPanelLayout
+      loading={loading}
+      errMsg={errMsg}
+      toolbar={(
+        <ConfigListToolbar
+          left={<p className="text-xs text-ink-500">含已禁用 Server；可用性需手动测试后刷新 tool 列表</p>}
+          right={(
+            <>
+              <ConfigToolbarBtn
+                onClick={() => void probeAll()}
+                disabled={probingAll || servers.length === 0}
+              >
+                {probingAll ? "测试中…" : "测试全部"}
+              </ConfigToolbarBtn>
+              <ConfigPrimaryBtn onClick={openUserCreate}>+ 添加 MCP</ConfigPrimaryBtn>
+            </>
+          )}
+        />
       )}
-
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-ink-500">
-          含已禁用 Server；可用性需手动测试后刷新 tool 列表
-        </p>
-        <button
-          type="button"
-          onClick={() => void probeAll()}
-          disabled={probingAll || servers.length === 0}
-          className="text-xs px-3 py-1.5 border border-sky-200 rounded-lg text-sky-700 hover:bg-sky-50 disabled:opacity-50 shrink-0"
-        >
-          {probingAll ? "测试中…" : "测试全部"}
-        </button>
-      </div>
-
-      <div className="space-y-2">
-        {servers.length === 0 && (
-          <p className="text-sm text-ink-400 text-center py-8 border border-dashed border-ink-200 rounded-xl">
-            暂无 MCP Server
-          </p>
-        )}
-        {servers.map((server) => {
-          const key = serverStatusKey(server);
-          return (
-            <McpServerRow
-              key={key}
-              server={server}
-              status={statusMap[key]}
-              probing={probingKeys.has(key)}
-              toolsExpanded={expandedToolKeys.has(key)}
-              scopeBadge={<ScopeBadge scope={server.scope} />}
-              onToggleEnabled={(enabled) => void handleToggleEnabled(server, enabled)}
-              onProbe={() => void probeOne(server)}
-              onToggleTools={() => toggleExpandedTools(key)}
-              onEdit={() => (server.scope === "system" ? void openSystemEdit(server) : openUserEdit(server))}
-              onDelete={() => void handleDelete(server)}
-            />
-          );
-        })}
-      </div>
-
-      <button
-        type="button"
-        onClick={openUserCreate}
-        className="w-full py-2.5 border-2 border-dashed border-emerald-300/80 text-emerald-700 text-sm rounded-xl hover:bg-emerald-50/50 transition-colors"
-      >
-        + 添加个人 MCP
-      </button>
+    >
+      {servers.length === 0 ? (
+        <ConfigEmptyState message="暂无 MCP Server" />
+      ) : (
+        <div className="space-y-2">
+          {servers.map((server) => {
+            const key = serverStatusKey(server);
+            return (
+              <McpServerRow
+                key={key}
+                server={server}
+                status={statusMap[key]}
+                probing={probingKeys.has(key)}
+                toolsExpanded={expandedToolKeys.has(key)}
+                scopeBadge={<ScopeBadge scope={server.scope} />}
+                onToggleEnabled={(enabled) => void handleToggleEnabled(server, enabled)}
+                onProbe={() => void probeOne(server)}
+                onToggleTools={() => toggleExpandedTools(key)}
+                onEdit={() => (server.scope === "system" ? void openSystemEdit(server) : openUserEdit(server))}
+                onDelete={() => void handleDelete(server)}
+              />
+            );
+          })}
+        </div>
+      )}
 
       {edit && (
         <McpEditModal
@@ -222,6 +207,6 @@ export default function McpConfigPanel({ userId }: Props) {
           onCancel={() => setEdit(null)}
         />
       )}
-    </div>
+    </ConfigPanelLayout>
   );
 }

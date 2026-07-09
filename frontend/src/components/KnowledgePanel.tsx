@@ -5,90 +5,18 @@ import {
   ensureKnowledgeKey, formatFileSize, docStatusLabel,
 } from "../api/knowledge";
 import { setKnowledgeSceneUid } from "../api/knowledgeKeyCache";
+import { ConfigActionBtn, ConfigPrimaryBtn, ConfigToolbarBtn } from "./config/ConfigActionBtn";
+import { ConfigListItem } from "./config/ConfigListItem";
+import {
+  ConfigEmptyState,
+  ConfigListPagination,
+  ConfigListToolbar,
+  ConfigPanelLayout,
+} from "./config/ConfigPanelLayout";
 import DocumentWikiExplorer from "./knowledge/DocumentWikiExplorer";
 
 const EMPTY_SERVICE: KnowledgeServiceConfig = { base_url: "", environment: "local" };
-
-function KnowledgeServiceSection({
-  userId,
-  onSaved,
-}: {
-  userId: string;
-  onSaved: (saved: KnowledgeServiceConfig) => void | Promise<void>;
-}) {
-  const [form, setForm] = useState<KnowledgeServiceConfig>(EMPTY_SERVICE);
-  const [envOptions, setEnvOptions] = useState<Array<{ id: KnowledgeServiceConfig["environment"]; label: string; base_url: string }>>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ type: "err"; text: string } | null>(null);
-
-  const loadConfig = useCallback(async () => {
-    const [cfg, envs] = await Promise.all([
-      knowledgeApi.getServiceConfig(),
-      knowledgeApi.listServiceEnvironments(),
-    ]);
-    setForm(cfg);
-    setEnvOptions(envs.items);
-    setKnowledgeSceneUid(userId.trim());
-  }, [userId]);
-
-  useEffect(() => {
-    loadConfig()
-      .catch(() => setForm(EMPTY_SERVICE))
-      .finally(() => setLoading(false));
-  }, [loadConfig]);
-
-  const handleEnvironmentChange = async (environment: KnowledgeServiceConfig["environment"]) => {
-    if (!environment || environment === form.environment) return;
-    if (environment !== "local" && !userId.trim()) {
-      setMsg({ type: "err", text: "请先在「历史」页设置用户 ID" });
-      return;
-    }
-    setSaving(true);
-    setMsg(null);
-    try {
-      const saved = await knowledgeApi.saveServiceConfig({ environment, base_url: "" });
-      setForm(saved);
-      await onSaved(saved);
-    } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "切换失败" });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const currentEnv = form.environment ?? "local";
-
-  return (
-    <div className="border border-ink-200/60 rounded-xl p-4 bg-ink-50/40">
-      {loading ? (
-        <p className="text-sm text-ink-400">加载配置…</p>
-      ) : (
-        <>
-          <select
-            value={currentEnv}
-            disabled={saving}
-            onChange={(e) => void handleEnvironmentChange(e.target.value as KnowledgeServiceConfig["environment"])}
-            className="ui-field w-full"
-          >
-            {(envOptions.length ? envOptions : [
-              { id: "local" as const, label: "本地", base_url: "" },
-              { id: "prod" as const, label: "线上", base_url: "" },
-              { id: "test" as const, label: "测试", base_url: "" },
-            ]).map((opt) => (
-              <option key={opt.id} value={opt.id}>{opt.label}</option>
-            ))}
-          </select>
-          {msg?.type === "err" && (
-            <p className="text-sm px-3 py-2 rounded-lg mt-3 bg-rose-50 text-rose-700">
-              {msg.text}
-            </p>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
+const PAGE_SIZE = 10;
 
 function StatusBadge({ status }: { status: KnowledgeDocument["status"] }) {
   const cls = {
@@ -104,9 +32,14 @@ function StatusBadge({ status }: { status: KnowledgeDocument["status"] }) {
   );
 }
 
-function BaseForm({
-  initial, onSubmit, onCancel, submitLabel,
+function BaseModal({
+  title,
+  initial,
+  onSubmit,
+  onCancel,
+  submitLabel,
 }: {
+  title: string;
   initial?: { name: string; description: string };
   onSubmit: (name: string, description: string) => void;
   onCancel: () => void;
@@ -116,33 +49,40 @@ function BaseForm({
   const [description, setDescription] = useState(initial?.description ?? "");
 
   return (
-    <div className="border border-ink-200/60 rounded-xl p-4 space-y-3 bg-ink-50/30">
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="知识库名称"
-        className="ui-field w-full"
-        autoFocus
-      />
-      <textarea
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        placeholder="描述（可选）"
-        rows={2}
-        className="ui-field w-full resize-none"
-      />
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={!name.trim()}
-          onClick={() => onSubmit(name.trim(), description.trim())}
-          className="ui-btn-primary flex-1"
-        >
-          {submitLabel}
-        </button>
-        <button type="button" onClick={onCancel} className="flex-1 py-2.5 text-sm border border-ink-200 rounded-xl">
-          取消
-        </button>
+    <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-panel w-full max-w-lg border border-ink-200/60">
+        <div className="px-6 py-4 border-b border-ink-200/60">
+          <h2 className="font-semibold text-ink-900">{title}</h2>
+        </div>
+        <div className="px-6 py-4 space-y-3">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="知识库名称"
+            className="ui-field w-full"
+            autoFocus
+          />
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="描述（可选）"
+            rows={2}
+            className="ui-field w-full resize-none"
+          />
+        </div>
+        <div className="px-6 py-4 border-t border-ink-200/60 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-ink-200 rounded-xl">
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={!name.trim()}
+            onClick={() => onSubmit(name.trim(), description.trim())}
+            className="ui-btn-primary"
+          >
+            {submitLabel}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -158,12 +98,16 @@ function isPendingDocument(status: KnowledgeDocument["status"]): boolean {
 function DocumentSection({
   kb,
   deepLinkDocId,
+  onBack,
 }: {
   kb: KnowledgeBase;
   deepLinkDocId?: string;
+  onBack: () => void;
 }) {
   const navigate = useNavigate();
   const [docs, setDocs] = useState<KnowledgeDocument[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
@@ -178,30 +122,36 @@ function DocumentSection({
 
   const closeWiki = useCallback(() => {
     setWikiDoc(null);
-    navigate("/admin?tab=knowledge");
-  }, [navigate]);
+    navigate(`/admin/knowledge/bases/${encodeURIComponent(kb.id)}`);
+  }, [kb.id, navigate]);
 
-  const load = useCallback((silent = false) => {
+  const load = useCallback((silent = false, targetPage = page) => {
     if (!silent) setLoading(true);
-    return knowledgeApi.listDocuments(kb.id)
-      .then((res) => setDocs(res.items))
+    return knowledgeApi.listDocuments(kb.id, targetPage, PAGE_SIZE)
+      .then((res) => {
+        setDocs(res.items);
+        setTotal(res.total);
+      })
       .catch(() => {
-        if (!silent) setDocs([]);
+        if (!silent) {
+          setDocs([]);
+          setTotal(0);
+        }
       })
       .finally(() => {
         if (!silent) setLoading(false);
       });
-  }, [kb.id]);
+  }, [kb.id, page]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(false, page); }, [load, page]);
 
   const hasPendingDocs = docs.some((doc) => isPendingDocument(doc.status));
 
   useEffect(() => {
     if (!hasPendingDocs) return;
-    const timer = setInterval(() => void load(true), DOC_POLL_INTERVAL_MS);
+    const timer = setInterval(() => void load(true, page), DOC_POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [hasPendingDocs, load]);
+  }, [hasPendingDocs, load, page]);
 
   useEffect(() => {
     if (!deepLinkDocId) return;
@@ -228,8 +178,8 @@ function DocumentSection({
       for (const file of Array.from(files)) {
         await knowledgeApi.uploadDocument(kb.id, file);
       }
-      setErrMsg(null);
-      await load();
+      setPage(1);
+      await load(false, 1);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "上传失败");
     } finally {
@@ -242,11 +192,11 @@ function DocumentSection({
     if (!confirm(`确认删除文档「${doc.name}」？`)) return;
     await knowledgeApi.deleteDocument(kb.id, doc.id);
     if (wikiDoc?.id === doc.id) closeWiki();
-    load();
+    void load(false, page);
   };
 
   if (wikiLoading) {
-    return <p className="text-sm text-ink-400">加载文档…</p>;
+    return <p className="text-sm text-ink-400 py-6">加载文档…</p>;
   }
 
   if (wikiDoc) {
@@ -260,91 +210,72 @@ function DocumentSection({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs text-ink-400 mt-0.5">{kb.description || "暂无描述"}</p>
-          <p className="text-[11px] text-ink-400 mt-1">
-            支持 pdf / docx / txt / md / csv / xlsx / pptx，单文件 ≤ 10MB · 点击文档查看 Wiki 知识图谱
-          </p>
-        </div>
-        <div>
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.pptx"
-            className="hidden"
-            onChange={(e) => handleUpload(e.target.files)}
-          />
-          <button
-            type="button"
-            disabled={uploading}
-            onClick={() => fileRef.current?.click()}
-            className="ui-btn-primary text-sm"
-          >
-            {uploading ? "上传中…" : "上传文档"}
-          </button>
-        </div>
-      </div>
-
-      {errMsg && (
-        <p className="text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700">
-          {errMsg}
-        </p>
+    <ConfigPanelLayout
+      loading={loading}
+      loadingText="加载文档…"
+      errMsg={errMsg}
+      toolbar={(
+        <ConfigListToolbar
+          left={(
+            <>
+              <ConfigToolbarBtn onClick={onBack}>← 返回列表</ConfigToolbarBtn>
+              <span className="text-sm font-medium text-ink-800 truncate">{kb.name}</span>
+              <span className="text-xs text-ink-400">{total} 个文档</span>
+            </>
+          )}
+          right={(
+            <>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.pptx"
+                className="hidden"
+                onChange={(e) => void handleUpload(e.target.files)}
+              />
+              <ConfigPrimaryBtn disabled={uploading} onClick={() => fileRef.current?.click()}>
+                {uploading ? "上传中…" : "上传文档"}
+              </ConfigPrimaryBtn>
+            </>
+          )}
+        />
       )}
-
-      {loading ? (
-        <p className="text-sm text-ink-400">加载文档…</p>
-      ) : docs.length === 0 ? (
-        <p className="text-sm text-ink-400 text-center py-10 border border-dashed border-ink-200 rounded-xl">
-          暂无文档，点击「上传文档」添加
-        </p>
+      pagination={(
+        <ConfigListPagination
+          page={page}
+          pageSize={PAGE_SIZE}
+          total={total}
+          onPageChange={setPage}
+        />
+      )}
+    >
+      <p className="text-xs text-ink-400 -mt-2">
+        支持 pdf / docx / txt / md / csv / xlsx / pptx，单文件 ≤ 10MB
+      </p>
+      {docs.length === 0 ? (
+        <ConfigEmptyState message="暂无文档，点击「上传文档」添加" />
       ) : (
         <div className="space-y-2">
           {docs.map((doc) => (
-            <div key={doc.id} className="flex items-center gap-3 border border-ink-200/60 rounded-xl px-4 py-3">
-              <button
-                type="button"
-                onClick={() => openWiki(doc)}
-                className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
-              >
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-ink-800 truncate">{doc.name}</span>
-                  <StatusBadge status={doc.status} />
-                </div>
-                <p className="text-xs text-ink-400 mt-0.5">
-                  {formatFileSize(doc.file_size)} · {new Date(doc.created_at).toLocaleString("zh-CN")}
-                </p>
-              </button>
-              <div className="flex gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => openWiki(doc)}
-                  className="text-xs px-3 py-1 border border-violet-200 rounded-lg text-violet-700 hover:bg-violet-50"
-                >
-                  图谱
-                </button>
-                <button
-                  type="button"
-                  onClick={() => knowledgeApi.downloadDocument(kb.id, doc.id, doc.name)}
-                  className="text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50"
-                >
-                  下载
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(doc)}
-                  className="text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50"
-                >
-                  删除
-                </button>
-              </div>
-            </div>
+            <ConfigListItem
+              key={doc.id}
+              title={doc.name}
+              meta={<StatusBadge status={doc.status} />}
+              subtitle={`${formatFileSize(doc.file_size)} · ${new Date(doc.created_at).toLocaleString("zh-CN")}`}
+              actions={(
+                <>
+                  <ConfigActionBtn variant="violet" onClick={() => openWiki(doc)}>图谱</ConfigActionBtn>
+                  <ConfigActionBtn onClick={() => knowledgeApi.downloadDocument(kb.id, doc.id, doc.name)}>
+                    下载
+                  </ConfigActionBtn>
+                  <ConfigActionBtn variant="danger" onClick={() => void handleDelete(doc)}>删除</ConfigActionBtn>
+                </>
+              )}
+            />
           ))}
         </div>
       )}
-    </div>
+    </ConfigPanelLayout>
   );
 }
 
@@ -359,28 +290,54 @@ export default function KnowledgePanel({
 }) {
   const navigate = useNavigate();
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(deepLinkKbId ?? null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [baseModal, setBaseModal] = useState<{ mode: "create" } | { mode: "edit"; kb: KnowledgeBase } | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  const [serviceForm, setServiceForm] = useState<KnowledgeServiceConfig>(EMPTY_SERVICE);
+  const [envOptions, setEnvOptions] = useState<Array<{ id: KnowledgeServiceConfig["environment"]; label: string; base_url: string }>>([]);
+  const [envLoading, setEnvLoading] = useState(true);
+  const [envSaving, setEnvSaving] = useState(false);
 
   useEffect(() => {
     if (deepLinkKbId) setSelectedId(deepLinkKbId);
   }, [deepLinkKbId]);
 
-  const load = useCallback(async () => {
+  const loadServiceConfig = useCallback(async () => {
+    setEnvLoading(true);
+    try {
+      const [cfg, envs] = await Promise.all([
+        knowledgeApi.getServiceConfig(),
+        knowledgeApi.listServiceEnvironments(),
+      ]);
+      setServiceForm(cfg);
+      setEnvOptions(envs.items);
+      setKnowledgeSceneUid(userId.trim());
+    } catch {
+      setServiceForm(EMPTY_SERVICE);
+    } finally {
+      setEnvLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => { void loadServiceConfig(); }, [loadServiceConfig]);
+
+  const loadBases = useCallback(async (targetPage = page) => {
     setLoading(true);
     setErrMsg(null);
     try {
       const cfg = await knowledgeApi.getServiceConfig();
       if (cfg.base_url?.trim() && !userId.trim()) {
         setBases([]);
+        setTotal(0);
         setErrMsg("请先在「历史」页设置用户 ID");
         return;
       }
       await ensureKnowledgeKey(cfg, userId);
-      const res = await knowledgeApi.listBases(1, 100);
+      const res = await knowledgeApi.listBases(targetPage, PAGE_SIZE);
       let items = res.items;
       if (deepLinkKbId && !items.some((kb) => kb.id === deepLinkKbId)) {
         try {
@@ -391,32 +348,39 @@ export default function KnowledgePanel({
         }
       }
       setBases(items);
+      setTotal(res.total);
     } catch (e) {
       setBases([]);
+      setTotal(0);
       setErrMsg(e instanceof Error ? e.message : "加载知识库失败");
     } finally {
       setLoading(false);
     }
-  }, [userId, deepLinkKbId]);
+  }, [userId, deepLinkKbId, page]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadBases(page); }, [loadBases, page]);
 
-  const handleServiceConfigSaved = useCallback(async (saved: KnowledgeServiceConfig) => {
-    setSelectedId(null);
-    setEditingId(null);
-    setLoading(true);
+  const handleEnvironmentChange = async (environment: KnowledgeServiceConfig["environment"]) => {
+    if (!environment || environment === serviceForm.environment) return;
+    if (environment !== "local" && !userId.trim()) {
+      setErrMsg("请先在「历史」页设置用户 ID");
+      return;
+    }
+    setEnvSaving(true);
     setErrMsg(null);
     try {
+      const saved = await knowledgeApi.saveServiceConfig({ environment, base_url: "" });
+      setServiceForm(saved);
+      setSelectedId(null);
+      setPage(1);
       await ensureKnowledgeKey(saved, userId, true);
-      const res = await knowledgeApi.listBases(1, 100);
-      setBases(res.items);
+      await loadBases(1);
     } catch (e) {
-      setBases([]);
-      setErrMsg(e instanceof Error ? e.message : "刷新知识库失败");
+      setErrMsg(e instanceof Error ? e.message : "切换失败");
     } finally {
-      setLoading(false);
+      setEnvSaving(false);
     }
-  }, [userId]);
+  };
 
   const selected = bases.find((b) => b.id === selectedId) ?? null;
 
@@ -424,9 +388,9 @@ export default function KnowledgePanel({
     setErrMsg(null);
     try {
       const kb = await knowledgeApi.createBase({ name, description, type: "document" });
-      setShowCreate(false);
+      setBaseModal(null);
       setSelectedId(kb.id);
-      load();
+      navigate(`/admin/knowledge/bases/${encodeURIComponent(kb.id)}`);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "创建失败");
     }
@@ -436,8 +400,8 @@ export default function KnowledgePanel({
     setErrMsg(null);
     try {
       await knowledgeApi.updateBase(kbId, { name, description });
-      setEditingId(null);
-      load();
+      setBaseModal(null);
+      void loadBases(page);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "保存失败");
     }
@@ -447,129 +411,106 @@ export default function KnowledgePanel({
     if (!confirm(`确认删除知识库「${kb.name}」及其全部文档？`)) return;
     await knowledgeApi.deleteBase(kb.id);
     if (selectedId === kb.id) setSelectedId(null);
-    load();
+    void loadBases(page);
   };
 
   const openKnowledgeBase = (kbId: string) => {
     setErrMsg(null);
     setSelectedId(kbId);
+    navigate(`/admin/knowledge/bases/${encodeURIComponent(kbId)}`);
   };
 
   const handleBackToBaseList = () => {
     setSelectedId(null);
     navigate("/admin?tab=knowledge");
-    void load();
+    void loadBases(page);
   };
 
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <KnowledgeServiceSection userId={userId} onSaved={handleServiceConfigSaved} />
-        <div className="text-sm text-ink-400">加载知识库…</div>
-      </div>
-    );
-  }
+  const envSelect = (
+    <select
+      value={serviceForm.environment ?? "local"}
+      disabled={envLoading || envSaving}
+      onChange={(e) => void handleEnvironmentChange(e.target.value as KnowledgeServiceConfig["environment"])}
+      className="ui-field text-sm py-1.5 min-w-[120px]"
+    >
+      {(envOptions.length ? envOptions : [
+        { id: "local" as const, label: "本地", base_url: "" },
+        { id: "prod" as const, label: "线上", base_url: "" },
+        { id: "test" as const, label: "测试", base_url: "" },
+      ]).map((opt) => (
+        <option key={opt.id} value={opt.id}>{opt.label}</option>
+      ))}
+    </select>
+  );
 
   if (selected) {
     return (
-      <div className="space-y-4">
-        <KnowledgeServiceSection userId={userId} onSaved={handleServiceConfigSaved} />
-        <button
-          type="button"
-          onClick={handleBackToBaseList}
-          className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1"
-        >
-          ← 返回知识库列表
-        </button>
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-ink-900">{selected.name}</h2>
-          <span className="text-xs text-ink-400">{selected.document_count} 个文档</span>
-        </div>
-        <DocumentSection kb={selected} deepLinkDocId={deepLinkDocId} />
-      </div>
+      <DocumentSection
+        kb={selected}
+        deepLinkDocId={deepLinkDocId}
+        onBack={handleBackToBaseList}
+      />
     );
   }
 
   return (
-    <div className="space-y-4">
-      <KnowledgeServiceSection userId={userId} onSaved={handleServiceConfigSaved} />
-
-      {errMsg && (
-        <p className="text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700">
-          {errMsg}
-        </p>
+    <ConfigPanelLayout
+      loading={loading || envLoading}
+      loadingText="加载知识库…"
+      errMsg={errMsg}
+      toolbar={(
+        <ConfigListToolbar
+          left={envSelect}
+          right={<ConfigPrimaryBtn onClick={() => setBaseModal({ mode: "create" })}>+ 新建知识库</ConfigPrimaryBtn>}
+        />
       )}
-
-      {showCreate ? (
-        <BaseForm submitLabel="创建" onSubmit={handleCreate} onCancel={() => setShowCreate(false)} />
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="w-full py-2.5 border-2 border-dashed border-brand-300/80 text-brand-700 text-sm rounded-xl hover:bg-brand-50/50 transition-colors"
-        >
-          + 新建知识库
-        </button>
+      pagination={(
+        <ConfigListPagination
+          page={page}
+          pageSize={PAGE_SIZE}
+          total={total}
+          onPageChange={setPage}
+        />
       )}
-
+    >
       {bases.length === 0 ? (
-        <p className="text-sm text-ink-400 text-center py-10 border border-dashed border-ink-200 rounded-xl">
-          暂无知识库
-        </p>
+        <ConfigEmptyState message="暂无知识库" />
       ) : (
         <div className="space-y-2">
           {bases.map((kb) => (
-            <div key={kb.id} className="border border-ink-200/60 rounded-xl overflow-hidden">
-              {editingId === kb.id ? (
-                <div className="p-4">
-                  <BaseForm
-                    initial={{ name: kb.name, description: kb.description }}
-                    submitLabel="保存"
-                    onSubmit={(name, desc) => handleUpdate(kb.id, name, desc)}
-                    onCancel={() => setEditingId(null)}
-                  />
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => openKnowledgeBase(kb.id)}
-                    className="flex-1 min-w-0 text-left"
-                  >
-                    <p className="text-sm font-medium text-ink-800 truncate">{kb.name}</p>
-                    <p className="text-xs text-ink-400 mt-0.5 truncate">
-                      {kb.description || "无描述"} · {kb.document_count} 个文档
-                    </p>
-                  </button>
-                  <div className="flex gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => openKnowledgeBase(kb.id)}
-                      className="text-xs px-3 py-1 border border-brand-200 rounded-lg text-brand-700 hover:bg-brand-50"
-                    >
-                      文档
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingId(kb.id)}
-                      className="text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50"
-                    >
-                      编辑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(kb)}
-                      className="text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50"
-                    >
-                      删除
-                    </button>
-                  </div>
-                </div>
+            <ConfigListItem
+              key={kb.id}
+              title={kb.name}
+              subtitle={`${kb.description || "无描述"} · ${kb.document_count} 个文档`}
+              actions={(
+                <>
+                  <ConfigActionBtn variant="brand" onClick={() => openKnowledgeBase(kb.id)}>文档</ConfigActionBtn>
+                  <ConfigActionBtn onClick={() => setBaseModal({ mode: "edit", kb })}>编辑</ConfigActionBtn>
+                  <ConfigActionBtn variant="danger" onClick={() => void handleDelete(kb)}>删除</ConfigActionBtn>
+                </>
               )}
-            </div>
+            />
           ))}
         </div>
       )}
-    </div>
+
+      {baseModal?.mode === "create" && (
+        <BaseModal
+          title="新建知识库"
+          submitLabel="创建"
+          onSubmit={handleCreate}
+          onCancel={() => setBaseModal(null)}
+        />
+      )}
+      {baseModal?.mode === "edit" && (
+        <BaseModal
+          title={`编辑 · ${baseModal.kb.name}`}
+          initial={{ name: baseModal.kb.name, description: baseModal.kb.description }}
+          submitLabel="保存"
+          onSubmit={(name, desc) => void handleUpdate(baseModal.kb.id, name, desc)}
+          onCancel={() => setBaseModal(null)}
+        />
+      )}
+    </ConfigPanelLayout>
   );
 }

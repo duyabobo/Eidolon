@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import type { McpServerItem, McpServerStatus } from "../api/mcp";
+import { ConfigActionBtn } from "./config/ConfigActionBtn";
+import { ConfigListItem } from "./config/ConfigListItem";
 
 export function mcpServerStatusKey(scope: string, name: string): string {
   return `${scope}:${name}`;
@@ -113,30 +115,34 @@ export function McpServerRow({
   const enabled = server.enabled !== false;
 
   return (
-    <div className="border border-ink-200/60 rounded-xl px-4 py-3">
-      <div className="flex items-start gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            {scopeBadge}
-            <span className="text-sm font-medium text-ink-800">{server.name}</span>
-            {server.has_api_key && (
-              <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">
-                已配置 API Key
-              </span>
-            )}
-            <McpServerStatusBadge status={status} probing={probing} serverEnabled={enabled} />
-          </div>
-          <p className="text-xs text-ink-400 truncate mt-0.5">{server.url}</p>
+    <ConfigListItem
+      title={server.name}
+      meta={(
+        <>
+          {scopeBadge}
+          {server.has_api_key && (
+            <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">
+              已配置 API Key
+            </span>
+          )}
+          <McpServerStatusBadge status={status} probing={probing} serverEnabled={enabled} />
+        </>
+      )}
+      subtitle={server.url}
+      extra={(
+        <>
           {server.description && (
             <p className="text-xs text-ink-400 mt-0.5">{server.description}</p>
           )}
           {status?.tools && status.tools.length > 0 && (
             <McpToolList tools={status.tools} expanded={toolsExpanded} onToggle={onToggleTools} />
           )}
-        </div>
-        <div className="flex flex-col items-end gap-2 shrink-0">
+        </>
+      )}
+      actions={(
+        <>
           {canToggleEnabled && onToggleEnabled && (
-            <label className="flex items-center gap-1.5 text-xs text-ink-600 cursor-pointer">
+            <label className="flex items-center gap-1.5 text-xs text-ink-600 cursor-pointer mr-1">
               <input
                 type="checkbox"
                 checked={enabled}
@@ -145,37 +151,14 @@ export function McpServerRow({
               启用
             </label>
           )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onProbe}
-              disabled={probing}
-              className="text-xs px-3 py-1 border border-sky-200 rounded-lg text-sky-700 hover:bg-sky-50 disabled:opacity-50"
-            >
-              {probing ? "测试中…" : "测试"}
-            </button>
-            {onEdit && (
-              <button
-                type="button"
-                onClick={onEdit}
-                className="text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50"
-              >
-                编辑
-              </button>
-            )}
-            {onDelete && (
-              <button
-                type="button"
-                onClick={onDelete}
-                className="text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50"
-              >
-                删除
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+          <ConfigActionBtn variant="sky" disabled={probing} onClick={onProbe}>
+            {probing ? "测试中…" : "测试"}
+          </ConfigActionBtn>
+          {onEdit && <ConfigActionBtn onClick={onEdit}>编辑</ConfigActionBtn>}
+          {onDelete && <ConfigActionBtn variant="danger" onClick={onDelete}>删除</ConfigActionBtn>}
+        </>
+      )}
+    />
   );
 }
 

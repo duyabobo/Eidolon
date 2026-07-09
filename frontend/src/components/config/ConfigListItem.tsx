@@ -1,0 +1,64 @@
+import type { ReactNode } from "react";
+
+interface Props {
+  highlighted?: boolean;
+  leading?: ReactNode;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  meta?: ReactNode;
+  extra?: ReactNode;
+  actions?: ReactNode;
+}
+
+export function ConfigListItem({
+  highlighted,
+  leading,
+  title,
+  subtitle,
+  meta,
+  extra,
+  actions,
+}: Props) {
+  const cls = `flex items-start gap-3 border rounded-xl px-4 py-3 ${
+    highlighted ? "border-brand-300 bg-brand-50/40" : "border-ink-200/60"
+  }`;
+
+  return (
+    <div className={cls}>
+      {leading}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          {typeof title === "string" ? (
+            <span className="text-sm font-medium text-ink-800 truncate">{title}</span>
+          ) : (
+            title
+          )}
+          {meta}
+        </div>
+        {subtitle && (
+          typeof subtitle === "string" ? (
+            <p className="text-xs text-ink-400 mt-0.5 truncate">{subtitle}</p>
+          ) : (
+            <div className="text-xs text-ink-400 mt-0.5">{subtitle}</div>
+          )
+        )}
+        {extra}
+      </div>
+      {actions && (
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end self-center">
+          {actions}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ScopeBadge({ scope }: { scope: "system" | "user" }) {
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+      scope === "user" ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"
+    }`}>
+      {scope === "user" ? "我的" : "系统"}
+    </span>
+  );
+}

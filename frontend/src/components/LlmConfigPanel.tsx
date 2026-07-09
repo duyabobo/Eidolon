@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { configApi, LlmProfile, LlmProfileCreate } from "../api/config";
+import { ConfigActionBtn, ConfigPrimaryBtn } from "./config/ConfigActionBtn";
+import { ConfigListItem } from "./config/ConfigListItem";
+import {
+  ConfigEmptyState,
+  ConfigListToolbar,
+  ConfigPanelLayout,
+} from "./config/ConfigPanelLayout";
 
 const EMPTY_FORM: LlmProfileCreate = {
   name: "",
@@ -105,69 +112,52 @@ export default function LlmConfigPanel() {
     }
   };
 
-  if (loading) return <p className="text-sm text-ink-400">加载 LLM 配置…</p>;
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-ink-600">选择当前生效的 LLM 配置（单选）</p>
-        <button type="button" onClick={openCreate} className="ui-btn-primary text-sm">
-          + 添加
-        </button>
-      </div>
-
+    <ConfigPanelLayout
+      loading={loading}
+      loadingText="加载 LLM 配置…"
+      errMsg={errMsg}
+      toolbar={(
+        <ConfigListToolbar
+          left={<p className="text-xs text-ink-500">选择当前生效的 LLM 配置（单选）</p>}
+          right={<ConfigPrimaryBtn onClick={openCreate}>+ 添加</ConfigPrimaryBtn>}
+        />
+      )}
+    >
       {profiles.length === 0 ? (
-        <p className="text-sm text-ink-400 text-center py-8 border border-dashed border-ink-200 rounded-xl">
-          暂无 LLM 配置，点击「添加」创建
-        </p>
+        <ConfigEmptyState message="暂无 LLM 配置，点击「添加」创建" />
       ) : (
         <div className="space-y-2">
           {profiles.map((profile) => (
-            <div
+            <ConfigListItem
               key={profile.id}
-              className={`flex items-center gap-3 border rounded-xl px-4 py-3 ${
-                activeId === profile.id ? "border-brand-300 bg-brand-50/40" : "border-ink-200/60"
-              }`}
-            >
-              <input
-                type="radio"
-                name="llm-profile"
-                checked={activeId === profile.id}
-                onChange={() => void handleSelect(profile.id)}
-                className="accent-brand-600"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-ink-800 truncate">{profile.name}</p>
-                <p className="text-xs text-ink-400 truncate">
-                  {profile.protocol} · {profile.model} · {profile.base_url}
-                </p>
-              </div>
-              <div className="flex gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => openEdit(profile)}
-                  className="text-xs px-3 py-1 border border-ink-200 rounded-lg text-ink-600 hover:bg-ink-50"
-                >
-                  编辑
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleDelete(profile)}
-                  disabled={profiles.length <= 1}
-                  className="text-xs px-3 py-1 border border-rose-200 rounded-lg text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                >
-                  删除
-                </button>
-              </div>
-            </div>
+              highlighted={activeId === profile.id}
+              leading={(
+                <input
+                  type="radio"
+                  name="llm-profile"
+                  checked={activeId === profile.id}
+                  onChange={() => void handleSelect(profile.id)}
+                  className="accent-brand-600 mt-1"
+                />
+              )}
+              title={profile.name}
+              subtitle={`${profile.protocol} · ${profile.model} · ${profile.base_url}`}
+              actions={(
+                <>
+                  <ConfigActionBtn onClick={() => openEdit(profile)}>编辑</ConfigActionBtn>
+                  <ConfigActionBtn
+                    variant="danger"
+                    disabled={profiles.length <= 1}
+                    onClick={() => void handleDelete(profile)}
+                  >
+                    删除
+                  </ConfigActionBtn>
+                </>
+              )}
+            />
           ))}
         </div>
-      )}
-
-      {errMsg && (
-        <p className="text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700">
-          {errMsg}
-        </p>
       )}
 
       {modal && (
@@ -179,7 +169,7 @@ export default function LlmConfigPanel() {
           onCancel={() => setModal(null)}
         />
       )}
-    </div>
+    </ConfigPanelLayout>
   );
 }
 
