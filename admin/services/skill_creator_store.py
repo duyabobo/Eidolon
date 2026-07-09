@@ -65,6 +65,15 @@ async def mark_published(session_id: str, skill_name: str) -> None:
     logger.info("skill-creator 会话已标记发布: %s → skill=%s", session_id, skill_name)
 
 
+async def reset_messages(session_id: str) -> None:
+    """清空会话历史消息和草稿，用于「重新开始」。"""
+    await get_db()[_COLLECTION].update_one(
+        {"id": session_id},
+        {"$set": {"messages": [], "draft": None, "updated_at": _now()}},
+    )
+    logger.info("skill-creator 会话已重置: %s", session_id)
+
+
 async def append_messages(
     session_id: str,
     user_message: SkillCreatorMessage,

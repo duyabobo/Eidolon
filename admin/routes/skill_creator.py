@@ -56,6 +56,17 @@ async def send_message(session_id: str, body: SendMessageRequest) -> SendMessage
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
+@router.post("/sessions/{session_id}/reset", response_model=SkillCreatorSession)
+async def reset_session(session_id: str) -> SkillCreatorSession:
+    """清空未发布会话的历史消息和草稿，重置为初始状态。"""
+    try:
+        return await skill_creator_service.reset_session(session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.post("/sessions/{session_id}/publish", response_model=SkillMeta)
 async def publish_skill(session_id: str, body: PublishSkillRequest) -> SkillMeta:
     """发布 Skill：MongoDB 元数据 + NFS 正文同步写入。"""

@@ -137,6 +137,24 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* 未发布草稿才允许重新开始（编辑已保存 skill 的会话不能清） */}
+          {!isPublished && !isEditMode && sessionId && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!confirm("确认清除当前对话历史，重新开始？")) return;
+                skillCreatorApi.resetSession(sessionId).then((session) => {
+                  setMessages(session.messages);
+                  setDraft(null);
+                  setInput("");
+                });
+              }}
+              disabled={loading || sending}
+              className="text-xs text-ink-400 hover:text-red-500 disabled:opacity-40 transition-colors"
+            >
+              重新开始
+            </button>
+          )}
           {/* 已发布后才允许新建，编辑模式下不提供（新建会脱离当前 skill 上下文） */}
           {isPublished && !isEditMode && (
             <button

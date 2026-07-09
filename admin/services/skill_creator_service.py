@@ -79,6 +79,24 @@ async def get_session(session_id: str):
     return await skill_creator_store.get_session(session_id)
 
 
+async def reset_session(session_id: str) -> SkillCreatorSession:
+    """清空未发布会话的历史，重置为初始欢迎语。已发布的会话不允许重置。"""
+    session = await skill_creator_store.get_session(session_id)
+    if session is None:
+        raise LookupError("会话不存在")
+    if session.published:
+        raise ValueError("已发布的 Skill 会话不能重置")
+
+    await skill_creator_store.reset_messages(session_id)
+    welcome_text = _WELCOME_USER if session.user_id else _WELCOME_SYSTEM
+    welcome = SkillCreatorMessage(role="assistant", content=welcome_text, created_at=datetime.utcnow())
+    await skill_creator_store.set_initial_message(session_id, welcome, None)
+    session.messages = [welcome]
+    session.draft = None
+    logger.info("skill-creator 会话已重置: %s user_id=%s", session_id, session.user_id)
+    return session
+
+
 def _to_llm_messages(session_messages: list[SkillCreatorMessage]) -> list[dict[str, str]]:
     return [{"role": m.role, "content": m.content} for m in session_messages if m.content.strip()]
 
