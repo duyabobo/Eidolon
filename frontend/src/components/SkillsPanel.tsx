@@ -54,10 +54,9 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
   useEffect(() => { load(); }, [userId]);
 
   const handleDelete = async (skill: Skill) => {
-    if (skill.scope === "user") return;
-    if (!confirm(`确认删除系统 Skill "${skill.name}"？`)) return;
+    if (!confirm(`确认删除 Skill "${skill.name}"？`)) return;
     await skillsApi.delete(skill.name);
-    setSkills((prev) => prev.filter((s) => s.name !== skill.name || s.scope === "user"));
+    setSkills((prev) => prev.filter((s) => !(s.name === skill.name && s.scope === skill.scope)));
   };
 
   const openCreator = (skillName?: string) => {
@@ -129,14 +128,15 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
                     >
                       {expandedSkill === `${scope}-${s.name}` ? "收起" : "查看"}
                     </ConfigActionBtn>
-                    {scope === "user" ? (
-                      <ConfigActionBtn variant="default" onClick={() => openCreator(s.name)}>
-                        编辑
-                      </ConfigActionBtn>
-                    ) : (
-                      <ConfigActionBtn variant="danger" onClick={() => void handleDelete(s)}>
-                        删除
-                      </ConfigActionBtn>
+                    {scope === "user" && (
+                      <>
+                        <ConfigActionBtn variant="default" onClick={() => openCreator(s.name)}>
+                          编辑
+                        </ConfigActionBtn>
+                        <ConfigActionBtn variant="danger" onClick={() => void handleDelete(s)}>
+                          删除
+                        </ConfigActionBtn>
+                      </>
                     )}
                   </>
                 )}
