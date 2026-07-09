@@ -193,7 +193,7 @@ function createBwrapInnerOperations(): BashOperations {
 // ── 路径白名单校验 ────────────────────────────────────────────────────────────
 
 /**
- * 校验路径是否在 workspace / home 范围内。
+ * 校验路径是否在 workspace / home / userMemory 范围内。
  * 使用 fs.realpath() 解析符号链接后再做白名单判断，防止：
  *   1. ../路径遍历（path.resolve 字符串层面已处理）
  *   2. 符号链接逃逸（workspace/link → /data/sandboxes/other-user）
@@ -206,12 +206,12 @@ async function guardPath(rawPath: string): Promise<{ safe: true } | { safe: fals
   const { resolve: pathResolve, dirname, basename, join: pathJoin } = await import("path");
 
   const tentative = pathResolve(sandboxWorkspace, rawPath);
-  const allowed = [sandboxWorkspace, sandboxHome].filter(Boolean);
+  const allowed = [sandboxWorkspace, sandboxHome, sandboxUserMemory].filter(Boolean);
 
   // 第一道：字符串检查（快速排除明显越界，如绝对路径、../遍历）
   const tentativeOk = allowed.some((base) => tentative.startsWith(base + "/") || tentative === base);
   if (!tentativeOk) {
-    return { safe: false, reason: `路径越界: ${rawPath} → ${tentative}（只允许访问 workspace 和 home）` };
+    return { safe: false, reason: `路径越界: ${rawPath} → ${tentative}（只允许访问 workspace、home 和 userMemory）` };
   }
 
   // 第二道：realpath 检查（解析符号链接后再做白名单判断，防止 symlink 逃逸）
@@ -230,7 +230,7 @@ async function guardPath(rawPath: string): Promise<{ safe: true } | { safe: fals
 
   const canonicalOk = allowed.some((base) => canonical.startsWith(base + "/") || canonical === base);
   if (!canonicalOk) {
-    return { safe: false, reason: `路径越界（符号链接解析后）: ${rawPath} → ${canonical}（只允许访问 workspace 和 home）` };
+    return { safe: false, reason: `路径越界（符号链接解析后）: ${rawPath} → ${canonical}（只允许访问 workspace、home 和 userMemory）` };
   }
 
   return { safe: true };
@@ -310,7 +310,7 @@ export default function (pi: ExtensionAPI) {
   // pi-session.ts 依赖此文件做 fail-closed 启动校验。
   if (piCodingAgentDir) {
     writeFileSync(join(piCodingAgentDir, "bwrap.ready"), "1", { flag: "w" });
-    console.error(`[bwrap] 沙盒扩展已就绪 workspace=${sandboxWorkspace} home=${sandboxHome} tmp=${sandboxTmp}`);
+    console.error(`[bwrap] 沙盒扩展已就绪 workspace=${sandboxWorkspace} home=${sandboxHome} memory=${sandboxUserMemory} tmp=${sandboxTmp}`);
   } else {
     console.error("[bwrap] 警告: PI_CODING_AGENT_DIR 未设置，无法写入就绪标记文件");
   }
