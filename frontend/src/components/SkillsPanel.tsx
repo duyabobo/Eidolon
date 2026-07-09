@@ -11,6 +11,27 @@ import {
 import { CONFIG_PAGE_SIZE, useClientPagination } from "./config/useClientPagination";
 import SkillCreatorChat from "./SkillCreatorChat";
 
+function SkillContentPanel({ name, userId }: { name: string; userId: string }) {
+  const [content, setContent] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
+
+  useEffect(() => {
+    setContent(null);
+    setErr(false);
+    skillsApi.getContent(name, userId || undefined)
+      .then((r) => setContent(r.raw))
+      .catch(() => setErr(true));
+  }, [name, userId]);
+
+  if (err) return <p className="text-xs text-red-400 mt-2">加载失败</p>;
+  if (content === null) return <p className="text-xs text-ink-400 mt-2 animate-pulse">加载中…</p>;
+  return (
+    <pre className="mt-2 text-xs text-ink-700 bg-ink-50 rounded-lg p-3 overflow-auto max-h-60 whitespace-pre-wrap break-words leading-relaxed border border-ink-200/60">
+      {content}
+    </pre>
+  );
+}
+
 interface Props {
   userId: string;
   onSkillsChanged?: () => void;
@@ -21,6 +42,7 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
   const [loading, setLoading] = useState(true);
   const [showCreator, setShowCreator] = useState(false);
   const [editSkillName, setEditSkillName] = useState<string | undefined>(undefined);
+  const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
   const load = () =>
@@ -94,17 +116,30 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
                   </>
                 )}
                 subtitle={s.description}
-                actions={
-                  scope === "user" ? (
-                    <ConfigActionBtn variant="default" onClick={() => openCreator(s.name)}>
-                      编辑
+                extra={expandedSkill === `${scope}-${s.name}` && (
+                  <SkillContentPanel name={s.name} userId={scope === "user" ? userId : ""} />
+                )}
+                actions={(
+                  <>
+                    <ConfigActionBtn
+                      variant="default"
+                      onClick={() => setExpandedSkill(
+                        expandedSkill === `${scope}-${s.name}` ? null : `${scope}-${s.name}`
+                      )}
+                    >
+                      {expandedSkill === `${scope}-${s.name}` ? "收起" : "查看"}
                     </ConfigActionBtn>
-                  ) : (
-                    <ConfigActionBtn variant="danger" onClick={() => void handleDelete(s)}>
-                      删除
-                    </ConfigActionBtn>
-                  )
-                }
+                    {scope === "user" ? (
+                      <ConfigActionBtn variant="default" onClick={() => openCreator(s.name)}>
+                        编辑
+                      </ConfigActionBtn>
+                    ) : (
+                      <ConfigActionBtn variant="danger" onClick={() => void handleDelete(s)}>
+                        删除
+                      </ConfigActionBtn>
+                    )}
+                  </>
+                )}
               />
             );
           })}
