@@ -19,6 +19,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     const err = await resp.json().catch(() => ({}));
     throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
   }
+  if (resp.status === 204) return undefined as T;
   return resp.json();
 }
 
@@ -39,6 +40,8 @@ export const skillsApi = {
     return request<{ name: string; raw: string }>(`/skills/${encodeURIComponent(name)}/content${qs}`);
   },
 
-  delete: (name: string) =>
-    fetch(`/config/skills/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  delete: (name: string, userId?: string) => {
+    const qs = userId?.trim() ? `?user_id=${encodeURIComponent(userId.trim())}` : "";
+    return request<void>(`/config/skills/${encodeURIComponent(name)}${qs}`, { method: "DELETE" });
+  },
 };

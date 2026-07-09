@@ -117,6 +117,17 @@ def delete_skill_files(name: str) -> bool:
     return True
 
 
+def delete_user_skill_files(user_id: str, name: str) -> bool:
+    """删除用户 skill 文件目录"""
+    import shutil
+    skill_dir = _user_skills_root(user_id) / name
+    if not skill_dir.exists():
+        return False
+    shutil.rmtree(skill_dir)
+    logger.info("用户 skill 文件目录已删除: user=%s skill=%s", user_id, name)
+    return True
+
+
 def get_global_skills_root() -> str:
     """返回全局 skill 根目录绝对路径（供 pi-runtime 使用）"""
     _GLOBAL_SKILLS_ROOT.mkdir(parents=True, exist_ok=True)

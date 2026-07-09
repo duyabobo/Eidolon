@@ -55,7 +55,8 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
 
   const handleDelete = async (skill: Skill) => {
     if (!confirm(`确认删除 Skill "${skill.name}"？`)) return;
-    await skillsApi.delete(skill.name);
+    const uid = skill.scope === "user" ? userId.trim() : undefined;
+    await skillsApi.delete(skill.name, uid);
     setSkills((prev) => prev.filter((s) => !(s.name === skill.name && s.scope === skill.scope)));
   };
 

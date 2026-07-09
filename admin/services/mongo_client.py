@@ -97,9 +97,9 @@ async def save_skill_meta(meta: SkillMeta) -> SkillMeta:
     return meta
 
 
-async def delete_skill_meta(name: str) -> bool:
-    result = await get_db()[_SKILL_COLLECTION].delete_one(_meta_key(name, None))
+async def delete_skill_meta(name: str, user_id: str | None = None) -> bool:
+    result = await get_db()[_SKILL_COLLECTION].delete_one(_meta_key(name, user_id))
     if result.deleted_count:
-        logger.info("skill 元数据已删除 name=%s (system)", name)
+        logger.info("skill 元数据已删除 name=%s user_id=%s", name, user_id or "system")
         return True
     return False
