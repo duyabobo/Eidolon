@@ -14,6 +14,7 @@ class SkillMeta(BaseModel):
     description: str
     user_id: str | None = None
     tags: list[str] = Field(default_factory=list)
+    mcp_servers: list[str] = Field(default_factory=list)
     hidden: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -24,6 +25,7 @@ class SkillListItem(BaseModel):
     description: str
     scope: SkillScope
     tags: list[str] = Field(default_factory=list)
+    mcp_servers: list[str] = Field(default_factory=list)
     user_id: str | None = None
 
 

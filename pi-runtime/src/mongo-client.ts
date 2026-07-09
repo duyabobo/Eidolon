@@ -14,7 +14,7 @@ type SessionStatus = (typeof SESSION_STATUS)[keyof typeof SESSION_STATUS];
 
 let client: MongoClient | null = null;
 
-function getDb(): Db {
+export function getDb(): Db {
   if (!client) throw new Error("MongoDB 未连接，请先调用 connect()");
   return client.db(config.mongo.db);
 }

@@ -53,6 +53,7 @@ async def read_mcp_servers(
     *,
     include_disabled: bool = False,
     name: str | None = None,
+    names: list[str] | None = None,
     scope: str | None = None,
 ) -> list[McpServerEntry]:
     """读取系统 MCP + 指定用户的个人 MCP。"""
@@ -64,7 +65,9 @@ async def read_mcp_servers(
     filters: list[dict[str, Any]] = [{"$or": query_parts}]
     if not include_disabled:
         filters.append({"enabled": {"$ne": False}})
-    if name:
+    if names:
+        filters.append({"name": {"$in": names}})
+    elif name:
         filters.append({"name": name})
     if scope == "system":
         filters.append(_system_user_filter())
@@ -89,14 +92,28 @@ async def read_mcp_servers(
         ))
 
     logger.info(
-        "MCP servers user=%s count=%d include_disabled=%s name=%s scope=%s",
+        "MCP servers user=%s count=%d include_disabled=%s name=%s names=%s scope=%s",
         user_id or "-",
         len(result),
         include_disabled,
         name or "-",
+        ",".join(names) if names else "-",
         scope or "-",
     )
     return result
+
+
+def filter_servers_by_names(
+    servers: list[McpServerEntry],
+    allowed_names: list[str] | None,
+) -> list[McpServerEntry]:
+    """按名称白名单过滤；allowed_names 为 None 时返回原列表。"""
+    if not allowed_names:
+        return servers
+    allowed = {name.strip() for name in allowed_names if name.strip()}
+    if not allowed:
+        return servers
+    return [server for server in servers if server.name in allowed]
 
 
 async def read_enabled_mcp_servers(user_id: str | None = None) -> list[McpServerEntry]:

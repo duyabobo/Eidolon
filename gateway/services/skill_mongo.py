@@ -26,6 +26,7 @@ def _to_list_item(raw: dict[str, Any]) -> SkillListItem:
         description=str(raw.get("description") or ""),
         scope=scope,
         tags=list(raw.get("tags") or []),
+        mcp_servers=[str(item) for item in (raw.get("mcp_servers") or []) if str(item).strip()],
         user_id=str(user_id) if user_id else None,
     )
 

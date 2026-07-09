@@ -37,11 +37,13 @@ class SkillMeta(BaseModel):
     MongoDB 存储 Skill 元数据（列表/下拉用，不含正文）。
     user_id 为空表示系统 Skill；否则为用户私有 Skill。
     正文在 NFS：global/skills/{name}/ 或 users/{user_id}/skills/{name}/。
+    mcp_servers：运行时由 mcp-proxy 按此列表过滤可用 MCP 工具。
     """
     name: str
     description: str
     user_id: str | None = None
     tags: list[str] = []
+    mcp_servers: list[str] = []
     hidden: bool = False
     created_at: datetime = None  # type: ignore[assignment]
     updated_at: datetime = None  # type: ignore[assignment]

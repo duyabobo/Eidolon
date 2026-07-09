@@ -138,21 +138,29 @@ async def publish_session(session_id: str, body: PublishSkillRequest) -> SkillMe
     history_text = _history_text(session.messages)
     draft = await _finalize_draft_with_mcp(session.user_id, draft, "", history_text) or draft
 
-    references: dict[str, str] | None = None
-    if draft.mcp_tools_reference.strip():
-        references = {"mcp-tools.md": draft.mcp_tools_reference.strip()}
-
     user_id = session.user_id
     if user_id:
-        write_user_skill(user_id, draft.name, draft.description, draft.content, references)
+        write_user_skill(
+            user_id,
+            draft.name,
+            draft.description,
+            draft.content,
+            mcp_servers=draft.mcp_servers,
+        )
     else:
-        write_skill(draft.name, draft.description, draft.content, references)
+        write_skill(
+            draft.name,
+            draft.description,
+            draft.content,
+            mcp_servers=draft.mcp_servers,
+        )
 
     meta = SkillMeta(
         name=draft.name,
         description=draft.description,
         user_id=user_id,
         tags=draft.tags,
+        mcp_servers=draft.mcp_servers,
         hidden=body.hidden if not user_id else False,
     )
     saved = await mongo_client.save_skill_meta(meta)

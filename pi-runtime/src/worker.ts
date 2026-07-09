@@ -28,6 +28,7 @@ import {
   registerSessionMcpBridge,
   unregisterSessionMcpBridge,
 } from "./session-mcp-bridge";
+import { resolveMcpServersForSkills } from "./skill-mcp";
 
 // ── 消息类型定义 ──────────────────────────────────────────────────────────────
 
@@ -125,6 +126,21 @@ async function closeSession(sessionId: string, reason: string): Promise<void> {
   console.log(`[worker] session=${sessionId}: 已完全关闭，最终状态=${finalStatus}`);
 }
 
+async function registerSessionMcpBridgeForSkills(
+  sessionId: string,
+  userId: string,
+  skillIds: string[],
+): Promise<void> {
+  const mcpServerNames = await resolveMcpServersForSkills(userId, skillIds);
+  registerSessionMcpBridge(
+    sessionId,
+    userId,
+    process.env.MCP_PROXY_HOST ?? "mcp-proxy",
+    Number(process.env.MCP_PROXY_PORT ?? 8080),
+    mcpServerNames,
+  );
+}
+
 /**
  * 启动 pi 进程、创建沙盒、订阅 Redis 频道并注册到 runningSessions。
  * openSession（首次创建）和 handleNewMessage（自动重建）共用此函数。
@@ -145,12 +161,7 @@ async function startAndRegisterSession(
     process.env.LLM_PROXY_HOST ?? "llm-proxy",
     Number(process.env.LLM_PROXY_PORT ?? 9001),
   );
-  registerSessionMcpBridge(
-    sessionId,
-    userId,
-    process.env.MCP_PROXY_HOST ?? "mcp-proxy",
-    Number(process.env.MCP_PROXY_PORT ?? 8080),
-  );
+  await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
 
   const piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);
   console.log(`[worker] session=${sessionId}: pi 进程已启动`);
@@ -221,12 +232,7 @@ async function restartPiForSession(running: RunningSession, skillIds: string[]):
     process.env.LLM_PROXY_HOST ?? "llm-proxy",
     Number(process.env.LLM_PROXY_PORT ?? 9001),
   );
-  registerSessionMcpBridge(
-    sessionId,
-    userId,
-    process.env.MCP_PROXY_HOST ?? "mcp-proxy",
-    Number(process.env.MCP_PROXY_PORT ?? 8080),
-  );
+  await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
 
   const sandboxPaths = await createSandbox(userId, sessionId);
   running.piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);

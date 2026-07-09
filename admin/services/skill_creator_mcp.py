@@ -14,8 +14,6 @@ logger = logging.getLogger(__name__)
 
 _REQUEST_TIMEOUT_SECONDS = 60.0
 _MCP_REFERENCE_SECTION = "## MCP 工具参考"
-_MCP_REFERENCE_LINK = "## 引用文档"
-_MCP_TOOLS_REF_PATH = "./references/mcp-tools.md"
 
 
 @dataclass
@@ -95,6 +93,36 @@ def resolve_mcp_server_names(
     return sorted(resolved)
 
 
+def _parse_servers_payload(payload: dict[str, Any], requested_names: list[str]) -> list[McpServerToolsInfo]:
+    servers = payload.get("servers") if isinstance(payload, dict) else []
+    by_name = {str(item.get("name")): item for item in servers if item.get("name")}
+
+    results: list[McpServerToolsInfo] = []
+    for name in requested_names:
+        raw = by_name.get(name)
+        if not raw:
+            results.append(McpServerToolsInfo(
+                name=name,
+                scope="unknown",
+                url="",
+                enabled=True,
+                available=False,
+                tools=[],
+                error="MCP Server 未找到",
+            ))
+            continue
+        results.append(McpServerToolsInfo(
+            name=str(raw.get("name") or name),
+            scope=str(raw.get("scope") or "unknown"),
+            url=str(raw.get("url") or ""),
+            enabled=bool(raw.get("enabled", True)),
+            available=bool(raw.get("available")),
+            tools=[str(tool) for tool in (raw.get("tools") or [])],
+            error=str(raw.get("error") or ""),
+        ))
+    return results
+
+
 async def fetch_mcp_tools(user_id: str | None, server_names: list[str]) -> list[McpServerToolsInfo]:
     if not server_names:
         return []
@@ -103,20 +131,19 @@ async def fetch_mcp_tools(user_id: str | None, server_names: list[str]) -> list[
     if user_id and user_id.strip():
         headers["X-User-Id"] = user_id.strip()
 
-    results: list[McpServerToolsInfo] = []
     base = settings.mcp_proxy_base_url.rstrip("/")
+    query = urlencode({"include_disabled": "true", "names": ",".join(server_names)})
+    url = f"{base}/servers/status?{query}"
 
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-        for name in server_names:
-            query = urlencode({"include_disabled": "true", "name": name})
-            url = f"{base}/servers/status?{query}"
-            try:
-                resp = await client.get(url, headers=headers)
-                resp.raise_for_status()
-                payload = resp.json()
-            except Exception as exc:
-                logger.warning("拉取 MCP tools 失败 name=%s err=%s", name, exc)
-                results.append(McpServerToolsInfo(
+        try:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception as exc:
+            logger.warning("批量拉取 MCP tools 失败 servers=%s err=%s", server_names, exc)
+            return [
+                McpServerToolsInfo(
                     name=name,
                     scope="unknown",
                     url="",
@@ -124,33 +151,11 @@ async def fetch_mcp_tools(user_id: str | None, server_names: list[str]) -> list[
                     available=False,
                     tools=[],
                     error=str(exc),
-                ))
-                continue
+                )
+                for name in server_names
+            ]
 
-            servers = payload.get("servers") if isinstance(payload, dict) else []
-            if not servers:
-                results.append(McpServerToolsInfo(
-                    name=name,
-                    scope="unknown",
-                    url="",
-                    enabled=True,
-                    available=False,
-                    tools=[],
-                    error="MCP Server 未找到",
-                ))
-                continue
-
-            raw = servers[0]
-            results.append(McpServerToolsInfo(
-                name=str(raw.get("name") or name),
-                scope=str(raw.get("scope") or "unknown"),
-                url=str(raw.get("url") or ""),
-                enabled=bool(raw.get("enabled", True)),
-                available=bool(raw.get("available")),
-                tools=[str(tool) for tool in (raw.get("tools") or [])],
-                error=str(raw.get("error") or ""),
-            ))
-
+    results = _parse_servers_payload(payload, server_names)
     logger.info(
         "skill-creator MCP tools 已拉取 user=%s servers=%s",
         user_id or "-",
@@ -165,8 +170,8 @@ def build_mcp_prompt_context(infos: list[McpServerToolsInfo]) -> str:
 
     lines = [
         "\n\n---\n\n## 平台注入：MCP Server 工具清单（实时拉取，请据此编写 Skill）\n",
-        "以下工具列表来自用户指定的 MCP Server，编写 Skill 时应在正文中说明如何选用这些工具，",
-        "并在 `skill-draft` 的 `content` 中保留「引用文档」章节，指向 MCP 工具参考。\n",
+        "以下工具列表来自用户指定的 MCP Server。编写 Skill 时说明如何选用这些工具；",
+        "在 `skill-draft` 中设置 `mcp_servers` 即可，**不要**在 references 中写死 tool 列表（运行时由平台实时拉取）。\n",
     ]
     for info in infos:
         lines.append(f"\n### MCP Server `{info.name}` ({info.scope})\n")
@@ -186,32 +191,8 @@ def build_mcp_prompt_context(infos: list[McpServerToolsInfo]) -> str:
 
     lines.append(
         "\n在输出 `skill-draft` 时，请设置 `mcp_servers` 为上述 Server 名称数组，"
-        "并在 `content` 中包含 MCP 工具使用说明。\n"
+        "并在 `content` 中包含 MCP 工具使用说明（无需 references/mcp-tools.md）。\n"
     )
-    return "".join(lines)
-
-
-def build_mcp_tools_reference_markdown(infos: list[McpServerToolsInfo]) -> str:
-    lines = [
-        "# MCP 工具参考\n",
-        "\n本文档由 Skill Creator 在创建 Skill 时从 MCP Server 实时拉取，供 Agent 查阅可用工具。\n",
-    ]
-    for info in infos:
-        lines.append(f"\n## {info.name} ({info.scope})\n\n")
-        if info.url:
-            lines.append(f"- URL: `{info.url}`\n")
-        if not info.enabled:
-            lines.append("- 状态：已禁用\n")
-            continue
-        if not info.available:
-            lines.append(f"- 状态：不可用\n- 错误：{info.error or '连接失败'}\n")
-            continue
-        lines.append(f"- 状态：可用 · {len(info.tools)} 个工具\n\n")
-        if info.tools:
-            for tool in info.tools:
-                lines.append(f"- `{tool}`\n")
-        else:
-            lines.append("- （无工具）\n")
     return "".join(lines)
 
 
@@ -219,7 +200,6 @@ def enrich_draft_with_mcp_reference(draft: SkillDraft, infos: list[McpServerTool
     if not infos:
         return draft
 
-    reference_md = build_mcp_tools_reference_markdown(infos)
     content = draft.content.strip()
     server_names = [info.name for info in infos]
 
@@ -228,31 +208,20 @@ def enrich_draft_with_mcp_reference(draft: SkillDraft, infos: list[McpServerTool
         for info in infos:
             if info.available and info.tools:
                 summary_lines.append(
-                    f"- **{info.name}**（{info.scope}）：{len(info.tools)} 个工具 — "
-                    + "、".join(f"`{tool}`" for tool in info.tools[:8])
-                    + ("…" if len(info.tools) > 8 else "")
+                    f"- **{info.name}**（{info.scope}）：依赖 {len(info.tools)} 个 MCP 工具，"
+                    "运行时由平台按 Server 实时加载 tool 列表"
                 )
             elif not info.enabled:
                 summary_lines.append(f"- **{info.name}**：已禁用")
             else:
                 summary_lines.append(f"- **{info.name}**：不可用（{info.error or '连接失败'}）")
-        summary_lines.extend([
-            "",
-            f"完整工具列表见 [{_MCP_TOOLS_REF_PATH}]({_MCP_TOOLS_REF_PATH})。",
-            "",
-        ])
+        summary_lines.append("")
         content = content + "\n\n" + "\n".join(summary_lines)
-
-    if _MCP_REFERENCE_LINK not in content and "references/mcp-tools.md" not in content:
-        content = content + (
-            f"\n\n{_MCP_REFERENCE_LINK}\n\n"
-            f"- [MCP 工具列表]({_MCP_TOOLS_REF_PATH})\n"
-        )
 
     return draft.model_copy(update={
         "content": content.strip(),
         "mcp_servers": server_names,
-        "mcp_tools_reference": reference_md,
+        "mcp_tools_reference": "",
     })
 
 
