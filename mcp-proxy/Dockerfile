@@ -4,10 +4,13 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY pi-shared /pi-shared
+RUN pip install --no-cache-dir /pi-shared
+
+COPY mcp-proxy/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY mcp-proxy/ .
 
 ENV NODE_ENV=production
 

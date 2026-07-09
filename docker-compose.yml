@@ -31,8 +31,8 @@ services:
 
   llm-proxy:
     build:
-      context: ./llm-proxy
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: llm-proxy/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
@@ -55,8 +55,8 @@ services:
 
   admin:
     build:
-      context: ./admin
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: admin/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
@@ -88,8 +88,8 @@ services:
 
   gateway:
     build:
-      context: ./gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: gateway/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
@@ -100,6 +100,8 @@ services:
       - "8000:8000"
     volumes:
       - ./logs/gateway:/app/logs
+      # 只读挂载，用于读取 Skill 文件内容（写操作由 admin 负责）
+      - sandbox_workspaces:/data/sandboxes:ro
     networks:
       - pi_net
     depends_on:
@@ -173,8 +175,8 @@ services:
 
   mcp-proxy:
     build:
-      context: ./mcp-proxy
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: mcp-proxy/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:

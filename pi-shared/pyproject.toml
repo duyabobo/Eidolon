@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pi-shared"
+version = "0.1.0"
+description = "Pi Agent Platform shared utilities (logger, middleware)"
+requires-python = ">=3.12"
+dependencies = [
+    "starlette",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pi_shared*"]

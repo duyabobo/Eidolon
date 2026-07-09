@@ -4,12 +4,14 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
-# 安装依赖
-COPY requirements.txt .
+# 先安装共享包，利用 Docker layer 缓存
+COPY pi-shared /pi-shared
+RUN pip install --no-cache-dir /pi-shared
+
+COPY gateway/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制源码
-COPY . .
+COPY gateway/ .
 
 EXPOSE 8000
 

@@ -104,6 +104,5 @@ class AccessLogMiddleware:
 
         await self.app(scope, receive, send_wrapper)
 
-        # 流式响应在 app 完成后（SSE 关闭/断开）统一记一条日志
         if is_stream:
             _emit_log(method, path, req_body, None, status_code, start)

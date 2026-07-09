@@ -3,8 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from logger import setup_logging
-from middleware import AccessLogMiddleware
+from pi_shared import AccessLogMiddleware, setup_logging
 from routes import proxy
 from routes.llm_config import router as llm_config_router
 from routes.replay import router as replay_router

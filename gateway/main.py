@@ -4,8 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from logger import setup_logging
-from middleware import AccessLogMiddleware
+from pi_shared import AccessLogMiddleware, setup_logging
 from routes import mcp, session, skills, stream
 from services import mongo_client, redis_client
 

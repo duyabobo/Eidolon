@@ -1,0 +1,156 @@
+"""
+MCP Proxy 路由：JSON-RPC 分发、缓存管理、Server 探测。
+"""
+import logging
+from typing import Any
+
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import JSONResponse, Response
+
+from services import mongo_client
+from services.manager import manager
+from services.mcp_filter import parse_csv_names, parse_mcp_server_header
+from services.mcp_probe import probe_mcp_servers
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+_PROTOCOL_VERSION = "2025-03-26"
+_SERVER_INFO = {"name": "mcp-proxy", "version": "1.0.0"}
+
+JsonRpcId = str | int | None
+
+
+# ── JSON-RPC 工具函数 ─────────────────────────────────────────────────────────
+
+def _jsonrpc_result(request_id: JsonRpcId, result: Any) -> dict:
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def _jsonrpc_error(request_id: JsonRpcId, code: int, message: str) -> dict:
+    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+
+
+def _resolve_server_names(
+    header_names: list[str] | None,
+    query_names: list[str] | None,
+) -> list[str] | None:
+    """合并 X-Mcp-Servers 与查询参数；返回 None 表示加载全部已启用 Server。"""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for name in (header_names or []) + (query_names or []):
+        cleaned = name.strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            merged.append(cleaned)
+    return sorted(merged) if merged else None
+
+
+# ── 路由 ─────────────────────────────────────────────────────────────────────
+
+@router.post("/mcp", tags=["mcp"])
+async def handle_mcp(request: Request) -> Response:
+    user_id = request.headers.get("X-User-Id") or None
+    allowed_names = _resolve_server_names(
+        parse_mcp_server_header(request.headers.get("X-Mcp-Servers")),
+        None,
+    )
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(_jsonrpc_error(None, -32700, "Parse error"), status_code=400)
+
+    response = await _dispatch(body, user_id, allowed_names)
+    if response is None:
+        return Response(status_code=202)
+    return JSONResponse(response)
+
+
+@router.post("/cache/invalidate", tags=["cache"])
+async def invalidate_cache(
+    user_id: str | None = Query(None, description="要失效的用户 ID；为空则失效系统级缓存"),
+    server_name: str | None = Query(None, description="精确失效某个 Server；为空则全量失效该用户所有 Server"),
+) -> dict:
+    """
+    主动失效 MCP 工具列表缓存。
+
+    - 指定 server_name：per-server 精确失效，其他 Server 缓存不受影响
+    - 不指定 server_name：全量失效该用户所有 Server（用于全量配置替换）
+    """
+    if server_name and server_name.strip():
+        manager.invalidate_server(user_id, server_name.strip())
+        logger.info("精确缓存失效 user=%s server=%s", user_id or "-", server_name)
+    else:
+        manager.invalidate_user(user_id)
+        logger.info("全量缓存失效 user=%s", user_id or "-")
+    return {"ok": True, "user_id": user_id, "server_name": server_name}
+
+
+@router.get("/servers/status", tags=["mcp"])
+async def servers_status(
+    request: Request,
+    include_disabled: bool = Query(False, description="是否包含已禁用的 Server"),
+    name: str | None = Query(None, description="仅探测指定名称（单条，兼容旧接口）"),
+    names: str | None = Query(None, description="逗号分隔的 Server 名称列表"),
+    scope: str | None = Query(None, description="system 或 user，配合 name 使用"),
+) -> dict:
+    """探测 MCP Server 连通性并返回工具列表（不缓存，每次实时检测）。"""
+    user_id = request.headers.get("X-User-Id") or None
+    parsed_names = parse_csv_names(names)
+    if parsed_names:
+        servers = await mongo_client.read_mcp_servers(
+            user_id,
+            include_disabled=include_disabled,
+            names=parsed_names,
+            scope=scope,
+        )
+    else:
+        servers = await mongo_client.read_mcp_servers(
+            user_id,
+            include_disabled=include_disabled,
+            name=name,
+            scope=scope,
+        )
+    items = await probe_mcp_servers(servers)
+
+    # probe 完成后精确失效被探测的 Server，下次 tools/list 时重建其连接
+    for item in items:
+        manager.invalidate_server(user_id, item["name"])
+
+    return {"servers": items}
+
+
+# ── JSON-RPC 分发（内部）──────────────────────────────────────────────────────
+
+async def _dispatch(body: dict, user_id: str | None, allowed_names: list[str] | None) -> dict | None:
+    request_id: JsonRpcId = body.get("id")
+    method: str = body.get("method", "")
+    params: dict = body.get("params") or {}
+
+    aggregator = await manager.get_aggregator(user_id, allowed_names)
+
+    if method == "initialize":
+        return _jsonrpc_result(request_id, {
+            "protocolVersion": _PROTOCOL_VERSION,
+            "capabilities": {"tools": {}},
+            "serverInfo": _SERVER_INFO,
+        })
+
+    if method == "tools/list":
+        return _jsonrpc_result(request_id, {"tools": aggregator.list_tools()})
+
+    if method == "tools/call":
+        tool_name: str = params.get("name", "")
+        tool_args: dict = params.get("arguments") or {}
+        try:
+            result = await aggregator.call_tool(tool_name, tool_args)
+            return _jsonrpc_result(request_id, result)
+        except ValueError as e:
+            logger.error("tools/call 失败 user=%s tool=%s %s", user_id, tool_name, e)
+            return _jsonrpc_error(request_id, -32603, str(e))
+
+    if method.startswith("notifications/"):
+        return None
+
+    return _jsonrpc_error(request_id, -32601, f"Method not found: {method}")
