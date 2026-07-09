@@ -20,6 +20,7 @@ from models.knowledge import (
     KnowledgeDocumentList,
     KnowledgeKeyResponse,
 )
+from pi_shared import merge_trace_headers
 from services.knowledge_config_store import get_service_config, normalize_base_url
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ async def _resolve_base_url() -> str:
 
 
 async def _request_json(method: str, url: str, **kwargs: Any) -> httpx.Response:
+    kwargs["headers"] = merge_trace_headers(kwargs.get("headers"))
     try:
         async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
             return await client.request(method, url, **kwargs)
@@ -200,7 +202,7 @@ async def _batch_process_documents(knowledge_key: str, doc_ids: list[str]) -> No
         resp = await client.post(
             f"{root}/documents/batch_process",
             json=payload,
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     _unwrap_data(resp)
     logger.info(
@@ -217,7 +219,7 @@ async def list_bases(knowledge_key: str, page: int, page_size: int) -> Knowledge
         resp = await client.get(
             f"{root}/dataset/list",
             params={"limit": _DATASET_LIST_LIMIT},
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     data = _unwrap_data(resp) or {}
     all_items = [_map_dataset(item) for item in data.get("list", [])]
@@ -248,7 +250,7 @@ async def create_base(knowledge_key: str, body: KnowledgeBaseCreate) -> Knowledg
         resp = await client.post(
             f"{root}/dataset/create",
             json=payload,
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     dataset_id = _unwrap_data(resp)
     return KnowledgeBase(
@@ -269,7 +271,7 @@ async def get_base(knowledge_key: str, kb_id: str) -> KnowledgeBase:
         resp = await client.get(
             f"{root}/dataset/list",
             params={"dataset_id": kb_id, "limit": 1},
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     data = _unwrap_data(resp) or {}
     items = data.get("list") or []
@@ -301,7 +303,7 @@ async def update_base(knowledge_key: str, kb_id: str, body: KnowledgeBaseUpdate)
         resp = await client.post(
             f"{root}/dataset/edit",
             json=payload,
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     try:
         raw = _unwrap_data(resp) or {}
@@ -326,7 +328,7 @@ async def delete_base(knowledge_key: str, kb_id: str) -> None:
         resp = await client.post(
             f"{root}/dataset/delete",
             json={"id": kb_id},
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     _unwrap_data(resp)
 
@@ -337,7 +339,7 @@ async def list_documents(knowledge_key: str, kb_id: str, page: int, page_size: i
         resp = await client.get(
             f"{root}/documents/by_knowledge/{kb_id}",
             params={"page_no": page, "page_size": page_size},
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     data = _unwrap_data(resp) or {}
     items_raw, total = _paginated_payload(data)
@@ -371,7 +373,7 @@ async def upload_document(knowledge_key: str, kb_id: str, upload: UploadFile) ->
             f"{root}/documents/batch_upload",
             data=data,
             files=files,
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     upload_data = _unwrap_data(resp) or {}
     results = upload_data.get("results") or []
@@ -406,7 +408,7 @@ async def delete_document(knowledge_key: str, kb_id: str, doc_id: str) -> None:
             "DELETE",
             f"{root}/documents/delete_document",
             json=payload,
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     _unwrap_data(resp)
     logger.info("文档已删除 kb_id=%s doc_id=%s", kb_id, doc_id)
@@ -417,7 +419,7 @@ async def download_document(knowledge_key: str, kb_id: str, doc_id: str) -> Resp
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.get(
             f"{root}/documents/download/{doc_id}",
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     if resp.status_code >= 400:
         _raise_upstream_error(resp)

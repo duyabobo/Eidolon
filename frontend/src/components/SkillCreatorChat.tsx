@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SkillScope } from "../api/skills";
 import { SkillCreatorMessage, SkillDraft, skillCreatorApi } from "../api/skillCreator";
+import ChatMarkdown from "./chat/ChatMarkdown";
 
 interface Props {
   userId?: string;
@@ -181,12 +182,12 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
             {loading && <p className="text-sm text-gray-400 text-center py-8">正在连接 Skill 创建助手…</p>}
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap leading-relaxed ${
+                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
                   m.role === "user"
-                    ? "bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-soft"
+                    ? "bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-soft whitespace-pre-wrap"
                     : "bg-ink-100/80 text-ink-800 border border-ink-200/60"
                 }`}>
-                  {m.content}
+                  {m.role === "user" ? m.content : <ChatMarkdown content={m.content} />}
                 </div>
               </div>
             ))}

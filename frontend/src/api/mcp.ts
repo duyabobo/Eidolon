@@ -1,3 +1,5 @@
+import { apiFetch } from "./http";
+
 export type McpScope = "system" | "user";
 
 export interface McpServerItem {
@@ -35,10 +37,7 @@ export interface McpServerConfig {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const resp = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const resp = await apiFetch(url, options);
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
@@ -89,7 +88,7 @@ export const mcpApi = {
     ),
 
   deleteUserServer: (userId: string, name: string) =>
-    fetch(`/mcp/servers/${encodeURIComponent(name)}?user_id=${encodeURIComponent(userId)}`, {
+    apiFetch(`/mcp/servers/${encodeURIComponent(name)}?user_id=${encodeURIComponent(userId)}`, {
       method: "DELETE",
     }),
 };

@@ -1,8 +1,6 @@
+import { apiFetch } from "./http";
 async function request(url, options) {
-    const resp = await fetch(url, {
-        headers: { "Content-Type": "application/json" },
-        ...options,
-    });
+    const resp = await apiFetch(url, options);
     if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         throw new Error(err.detail ?? `HTTP ${resp.status}`);

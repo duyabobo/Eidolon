@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { Message } from "../../context/ChatSessionContext";
+import ChatMarkdown from "./ChatMarkdown";
 import ExecutionSteps from "./ExecutionSteps";
 
 interface AssistantTurn {
@@ -70,11 +71,11 @@ function AssistantTurnBlock({ turn }: { turn: AssistantTurn }) {
                 回复
               </p>
             )}
-            <div className="rounded-2.5xl rounded-bl-md px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words bg-white border border-ink-200/60 text-ink-900 shadow-soft">
-              {finalText.content}
-              {finalText.isStreaming && (
-                <span className="inline-block w-0.5 h-4 bg-brand-400 animate-pulse ml-0.5 align-middle rounded-full" />
-              )}
+            <div className="rounded-2.5xl rounded-bl-md px-4 py-3 text-sm leading-relaxed break-words bg-white border border-ink-200/60 text-ink-900 shadow-soft">
+              <ChatMarkdown
+                content={finalText.content}
+                streaming={finalText.isStreaming}
+              />
             </div>
           </div>
         )}

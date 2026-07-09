@@ -1,5 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect } from "react";
+import ChatMarkdown from "./ChatMarkdown";
 import { formatStepSeconds, messageDuration, toolStepDuration, isStepLive, stepGroupDuration, } from "./stepTiming";
 export function groupSteps(steps) {
     const groups = [];
@@ -152,7 +153,7 @@ function ToolStep({ call, result, index, now }) {
 function TextStep({ msg, index, now }) {
     const durationMs = messageDuration(msg, now);
     const live = isStepLive(msg);
-    return (_jsxs("div", { className: "step-timeline-item", children: [_jsx("div", { className: "step-timeline-node", children: index }), _jsx("div", { className: "step-timeline-line" }), _jsxs("div", { className: "flex gap-3 flex-1 min-w-0 pb-4 step-timeline-body", children: [_jsx(StepIcon, { kind: "text" }), _jsxs("div", { className: "flex-1 rounded-xl border border-ink-200/70 bg-ink-50/50 overflow-hidden", children: [_jsxs("div", { className: "px-3 py-1.5 border-b border-ink-100 flex items-center justify-between gap-2", children: [_jsx("span", { className: "text-[10px] font-semibold uppercase tracking-wider text-ink-400", children: "\u4E2D\u95F4\u8F93\u51FA" }), _jsx(DurationBadge, { ms: durationMs, live: live })] }), _jsxs("div", { className: "px-3 py-2.5 text-xs text-ink-700 leading-relaxed whitespace-pre-wrap break-words", children: [msg.content ?? "", msg.isStreaming && _jsx("span", { className: "inline-block w-0.5 h-3 bg-brand-400 animate-pulse ml-0.5 align-middle" })] })] })] })] }));
+    return (_jsxs("div", { className: "step-timeline-item", children: [_jsx("div", { className: "step-timeline-node", children: index }), _jsx("div", { className: "step-timeline-line" }), _jsxs("div", { className: "flex gap-3 flex-1 min-w-0 pb-4 step-timeline-body", children: [_jsx(StepIcon, { kind: "text" }), _jsxs("div", { className: "flex-1 rounded-xl border border-ink-200/70 bg-ink-50/50 overflow-hidden", children: [_jsxs("div", { className: "px-3 py-1.5 border-b border-ink-100 flex items-center justify-between gap-2", children: [_jsx("span", { className: "text-[10px] font-semibold uppercase tracking-wider text-ink-400", children: "\u4E2D\u95F4\u8F93\u51FA" }), _jsx(DurationBadge, { ms: durationMs, live: live })] }), _jsx("div", { className: "px-3 py-2.5 text-xs text-ink-700 leading-relaxed break-words", children: _jsx(ChatMarkdown, { content: msg.content ?? "", streaming: msg.isStreaming }) })] })] })] }));
 }
 function CollapsedBadges({ groups, now }) {
     return (_jsx("div", { className: "flex flex-wrap gap-1.5 min-w-0", children: groups.map((g, i) => {

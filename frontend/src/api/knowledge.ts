@@ -6,6 +6,7 @@ import {
   setKnowledgeSceneUid,
   writeCachedKnowledgeKey,
 } from "./knowledgeKeyCache";
+import { mergeTraceHeaders } from "./http";
 
 export interface ChunkingConfig {
   chunk_size: number;
@@ -128,10 +129,13 @@ function jsonHeaders(): Record<string, string> {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const headers = {
-    ...apiHeaders(),
-    ...(options?.headers as Record<string, string> | undefined),
-  };
+  const headers = mergeTraceHeaders(
+    {
+      ...apiHeaders(),
+      ...(options?.headers as Record<string, string> | undefined),
+    },
+    { json: true },
+  );
   const resp = await fetch(url, { cache: "no-store", ...options, headers });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
@@ -232,7 +236,7 @@ export const knowledgeApi = {
         method: "POST",
         body: form,
         cache: "no-store",
-        headers: apiHeaders(),
+        headers: mergeTraceHeaders(apiHeaders()),
       },
     );
     if (!resp.ok) {
@@ -256,7 +260,7 @@ export const knowledgeApi = {
   downloadDocument: async (kbId: string, docId: string, filename: string): Promise<void> => {
     const resp = await fetch(
       `/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`,
-      { cache: "no-store", headers: apiHeaders() },
+      { cache: "no-store", headers: mergeTraceHeaders(apiHeaders()) },
     );
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));

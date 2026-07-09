@@ -204,6 +204,7 @@ function buildSkillArgs(skillIds: string[], globalSkillsRoot: string, userSkills
     if (scope === "global" || scope === "both") args.push("--skill", join(globalSkillsRoot, name));
     if (scope === "user" || scope === "both") args.push("--skill", join(userSkillsRoot, name));
   }
+  console.log(`[pi-session] 加载 skill: ${skillIds.join(", ")}`);
   return args;
 }
 
@@ -263,6 +264,8 @@ export async function startPiSession(
     PI_SANDBOX_HOME: sandboxPaths.home,
     PI_SANDBOX_TMP: sandboxPaths.sessionTmp,
     PI_SANDBOX_USER_MEMORY: sandboxPaths.userMemory,
+    PI_SANDBOX_GLOBAL_SKILLS: sandboxPaths.globalSkills,
+    PI_SANDBOX_USER_SKILLS: sandboxPaths.userSkills,
     PI_CODING_AGENT_DIR: piConfigDir,
     PI_OUTER_SANDBOX: "1",
     PI_SOCKS_LLM: sessionLlmSockForSandbox(sessionId),

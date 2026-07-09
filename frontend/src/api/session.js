@@ -1,4 +1,5 @@
 // ── 类型定义 ─────────────────────────────────────────────────────────────────
+import { apiFetch } from "./http";
 // ── 工具函数 ─────────────────────────────────────────────────────────────────
 /** 解析 FastAPI 错误响应（detail 可能是字符串或数组） */
 function parseErrorDetail(detail) {
@@ -19,9 +20,8 @@ async function throwIfNotOk(resp) {
 // ── Session API ───────────────────────────────────────────────────────────────
 /** 创建新 session（打开新 chat 窗口 + 发送第一条消息） */
 export async function createSession(userId, request, turnId, skillIds = []) {
-    const resp = await fetch("/sessions", {
+    const resp = await apiFetch("/sessions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: userId, request, turn_id: turnId, skill_ids: skillIds }),
     });
     await throwIfNotOk(resp);
@@ -29,9 +29,8 @@ export async function createSession(userId, request, turnId, skillIds = []) {
 }
 /** 向已有 session 发送新消息（多轮对话） */
 export async function sendMessage(sessionId, request, turnId, skillIds = []) {
-    const resp = await fetch(`/sessions/${sessionId}/messages`, {
+    const resp = await apiFetch(`/sessions/${sessionId}/messages`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ request, turn_id: turnId, skill_ids: skillIds }),
     });
     await throwIfNotOk(resp);
@@ -39,23 +38,23 @@ export async function sendMessage(sessionId, request, turnId, skillIds = []) {
 }
 /** 关闭 session（关闭 chat 窗口，销毁 pi 进程和沙盒） */
 export async function closeSession(sessionId) {
-    await fetch(`/sessions/${sessionId}`, { method: "DELETE" });
+    await apiFetch(`/sessions/${sessionId}`, { method: "DELETE" });
 }
 /** 中断指定轮次的生成任务（已产出内容会立即入库） */
 export async function cancelTurn(sessionId, turnId) {
-    const resp = await fetch(`/sessions/${sessionId}/turns/${turnId}/cancel`, { method: "POST" });
+    const resp = await apiFetch(`/sessions/${sessionId}/turns/${turnId}/cancel`, { method: "POST" });
     await throwIfNotOk(resp);
 }
 /** 获取用户最近的 session 列表（每条 = 一个 chat 窗口） */
 export async function getRecentSessions(userId, limit = 20) {
-    const resp = await fetch(`/sessions?user_id=${encodeURIComponent(userId)}&limit=${limit}`);
+    const resp = await apiFetch(`/sessions?user_id=${encodeURIComponent(userId)}&limit=${limit}`);
     if (!resp.ok)
         return [];
     return resp.json();
 }
 /** 获取 session 当前进行中的 turn_id（无则 null） */
 export async function getActiveTurn(sessionId) {
-    const resp = await fetch(`/sessions/${sessionId}/active_turn`);
+    const resp = await apiFetch(`/sessions/${sessionId}/active_turn`);
     if (!resp.ok)
         return null;
     const body = (await resp.json());
@@ -63,7 +62,7 @@ export async function getActiveTurn(sessionId) {
 }
 /** 获取 session 详情（含 events_snapshot，用于重建消息） */
 export async function getSessionDetail(sessionId) {
-    const resp = await fetch(`/sessions/${sessionId}`);
+    const resp = await apiFetch(`/sessions/${sessionId}`);
     if (!resp.ok)
         return null;
     return resp.json();

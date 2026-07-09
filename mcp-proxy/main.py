@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from config import settings
-from pi_shared import setup_logging
+from pi_shared import AccessLogMiddleware, setup_logging
 from routes.mcp import router as mcp_router
 from services import mongo_client
 from services.manager import manager
@@ -60,6 +60,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="MCP Proxy", version="1.0.0", lifespan=lifespan)
+app.add_middleware(AccessLogMiddleware)
 
 app.include_router(mcp_router)
 

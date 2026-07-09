@@ -560,7 +560,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     });
 
     const turnId = crypto.randomUUID();
-    const skillIds = selectedSkillRef ? [selectedSkillRef] : [];
+    const skillIds = selectedSkillRefRef.current ? [selectedSkillRefRef.current] : [];
 
     try {
       let sessionId = sessionIdRef.current;
@@ -582,7 +582,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
       setError(e instanceof Error ? e.message : "请求失败");
       setIsLoading(false);
     }
-  }, [userId, isLoading, selectedSkillRef, attachTurnStream]);
+  }, [userId, isLoading, attachTurnStream]);
 
   const value: ChatSessionContextValue = {
     userId,

@@ -2,8 +2,19 @@ import { jsx as _jsx } from "react/jsx-runtime";
 import { createContext, useContext, useState, useRef, useEffect, useCallback, } from "react";
 import { createSession, sendMessage, cancelTurn, streamTurn, getRecentSessions, getSessionDetail, getActiveTurn, } from "../api/session";
 import { skillsApi, toSkillRef } from "../api/skills";
-function emptyRuntime(messages = []) {
-    return { messages, activeTurnId: null, isLoading: false, closeStream: null };
+function emptyRuntime(messages = [], selectedSkillRef = "") {
+    return { messages, activeTurnId: null, isLoading: false, closeStream: null, selectedSkillRef };
+}
+function loadPersistedSkillRef(sessionId) {
+    return localStorage.getItem(`pi_skill_ref_${sessionId}`) ?? "";
+}
+function savePersistedSkillRef(sessionId, ref) {
+    if (ref) {
+        localStorage.setItem(`pi_skill_ref_${sessionId}`, ref);
+    }
+    else {
+        localStorage.removeItem(`pi_skill_ref_${sessionId}`);
+    }
 }
 export function buildMessagesFromSnapshot(request, snapshot) {
     const hasUserMessages = snapshot.some((e) => e.event_type === "user_message");
@@ -134,7 +145,7 @@ export function ChatSessionProvider({ children }) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState("");
     const [skills, setSkills] = useState([]);
-    const [selectedSkillRef, setSelectedSkillRef] = useState("");
+    const [selectedSkillRef, setSelectedSkillRefState] = useState("");
     const [sessions, setSessions] = useState([]);
     const [currentSessionId, setCurrentSessionId] = useState(() => localStorage.getItem("pi_session_id"));
     const [runtimeTick, setRuntimeTick] = useState(0);
@@ -143,6 +154,7 @@ export function ChatSessionProvider({ children }) {
     const closeStreamRef = useRef(null);
     const messagesRef = useRef([]);
     const isLoadingRef = useRef(false);
+    const selectedSkillRefRef = useRef("");
     const sessionRuntimeRef = useRef(new Map());
     const attachTurnStreamRef = useRef(() => { });
     const restoredRef = useRef(false);
@@ -150,6 +162,7 @@ export function ChatSessionProvider({ children }) {
     const isSessionGenerating = useCallback((sid) => (sessionRuntimeRef.current.get(sid)?.isLoading ?? false), []);
     useEffect(() => { messagesRef.current = messages; }, [messages]);
     useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
+    useEffect(() => { selectedSkillRefRef.current = selectedSkillRef; }, [selectedSkillRef]);
     const syncVisibleSessionState = useCallback((sid) => {
         if (!sid) {
             setIsLoading(false);
@@ -166,12 +179,15 @@ export function ChatSessionProvider({ children }) {
         const sid = sessionIdRef.current;
         if (!sid)
             return;
+        const skillRef = selectedSkillRefRef.current;
         sessionRuntimeRef.current.set(sid, {
             messages: messagesRef.current,
             activeTurnId: activeTurnIdRef.current,
             isLoading: isLoadingRef.current,
             closeStream: closeStreamRef.current,
+            selectedSkillRef: skillRef,
         });
+        savePersistedSkillRef(sid, skillRef);
         closeStreamRef.current = null;
         activeTurnIdRef.current = null;
     }, []);
@@ -193,7 +209,12 @@ export function ChatSessionProvider({ children }) {
         try {
             const list = await skillsApi.listForChat(userId);
             setSkills(list);
-            setSelectedSkillRef((prev) => prev && list.some((s) => toSkillRef(s.scope ?? "system", s.name) === prev) ? prev : "");
+            // 若当前选中的 skill 已不在列表中（被删除等），清空选择
+            const current = selectedSkillRefRef.current;
+            if (current && !list.some((s) => toSkillRef(s.scope ?? "system", s.name) === current)) {
+                selectedSkillRefRef.current = "";
+                setSelectedSkillRefState("");
+            }
         }
         catch {
             setSkills([]);
@@ -302,7 +323,10 @@ export function ChatSessionProvider({ children }) {
         const msgs = buildMessagesFromSnapshot(detail.request, detail.events_snapshot);
         messagesRef.current = msgs;
         setMessages(msgs);
-        sessionRuntimeRef.current.set(savedSessionId, emptyRuntime(msgs));
+        const skillRef = loadPersistedSkillRef(savedSessionId);
+        selectedSkillRefRef.current = skillRef;
+        setSelectedSkillRefState(skillRef);
+        sessionRuntimeRef.current.set(savedSessionId, emptyRuntime(msgs, skillRef));
         const activeTurnId = await getActiveTurn(savedSessionId);
         if (activeTurnId) {
             attachTurnStreamRef.current(savedSessionId, activeTurnId, "0");
@@ -330,7 +354,8 @@ export function ChatSessionProvider({ children }) {
         setMessages([]);
         syncVisibleSessionState(null);
         setError("");
-        setSelectedSkillRef("");
+        selectedSkillRefRef.current = "";
+        setSelectedSkillRefState("");
     }, [persistCurrentSession, syncVisibleSessionState]);
     const switchToSession = useCallback(async (s) => {
         if (sessionIdRef.current === s.session_id)
@@ -344,9 +369,15 @@ export function ChatSessionProvider({ children }) {
         if (cached) {
             messagesRef.current = cached.messages;
             setMessages(cached.messages);
+            const skillRef = cached.selectedSkillRef ?? loadPersistedSkillRef(s.session_id);
+            selectedSkillRefRef.current = skillRef;
+            setSelectedSkillRefState(skillRef);
             syncVisibleSessionState(s.session_id);
             return;
         }
+        const skillRef = loadPersistedSkillRef(s.session_id);
+        selectedSkillRefRef.current = skillRef;
+        setSelectedSkillRefState(skillRef);
         syncVisibleSessionState(s.session_id);
         messagesRef.current = [];
         setMessages([]);
@@ -367,6 +398,16 @@ export function ChatSessionProvider({ children }) {
     const setUserId = useCallback((newId) => {
         setUserIdState(newId);
         localStorage.setItem("pi_user_id", newId);
+    }, []);
+    const setSelectedSkillRef = useCallback((ref) => {
+        setSelectedSkillRefState(ref);
+        selectedSkillRefRef.current = ref;
+        const sid = sessionIdRef.current;
+        if (sid) {
+            const runtime = sessionRuntimeRef.current.get(sid) ?? emptyRuntime(messagesRef.current);
+            sessionRuntimeRef.current.set(sid, { ...runtime, selectedSkillRef: ref });
+            savePersistedSkillRef(sid, ref);
+        }
     }, []);
     const interrupt = useCallback(async () => {
         const sessionId = sessionIdRef.current;
@@ -419,7 +460,7 @@ export function ChatSessionProvider({ children }) {
             return next;
         });
         const turnId = crypto.randomUUID();
-        const skillIds = selectedSkillRef ? [selectedSkillRef] : [];
+        const skillIds = selectedSkillRefRef.current ? [selectedSkillRefRef.current] : [];
         try {
             let sessionId = sessionIdRef.current;
             if (!sessionId) {
@@ -440,7 +481,7 @@ export function ChatSessionProvider({ children }) {
             setError(e instanceof Error ? e.message : "请求失败");
             setIsLoading(false);
         }
-    }, [userId, isLoading, selectedSkillRef, attachTurnStream]);
+    }, [userId, isLoading, attachTurnStream]);
     const value = {
         userId,
         setUserId,

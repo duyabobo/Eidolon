@@ -1,5 +1,7 @@
 // ── 类型定义 ─────────────────────────────────────────────────────────────────
 
+import { apiFetch } from "./http";
+
 export interface CreateSessionResp {
   session_id: string;
   status: string;
@@ -61,9 +63,8 @@ export async function createSession(
   turnId: string,
   skillIds: string[] = [],
 ): Promise<CreateSessionResp> {
-  const resp = await fetch("/sessions", {
+  const resp = await apiFetch("/sessions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ user_id: userId, request, turn_id: turnId, skill_ids: skillIds }),
   });
   await throwIfNotOk(resp);
@@ -77,9 +78,8 @@ export async function sendMessage(
   turnId: string,
   skillIds: string[] = [],
 ): Promise<SendMessageResp> {
-  const resp = await fetch(`/sessions/${sessionId}/messages`, {
+  const resp = await apiFetch(`/sessions/${sessionId}/messages`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ request, turn_id: turnId, skill_ids: skillIds }),
   });
   await throwIfNotOk(resp);
@@ -88,25 +88,25 @@ export async function sendMessage(
 
 /** 关闭 session（关闭 chat 窗口，销毁 pi 进程和沙盒） */
 export async function closeSession(sessionId: string): Promise<void> {
-  await fetch(`/sessions/${sessionId}`, { method: "DELETE" });
+  await apiFetch(`/sessions/${sessionId}`, { method: "DELETE" });
 }
 
 /** 中断指定轮次的生成任务（已产出内容会立即入库） */
 export async function cancelTurn(sessionId: string, turnId: string): Promise<void> {
-  const resp = await fetch(`/sessions/${sessionId}/turns/${turnId}/cancel`, { method: "POST" });
+  const resp = await apiFetch(`/sessions/${sessionId}/turns/${turnId}/cancel`, { method: "POST" });
   await throwIfNotOk(resp);
 }
 
 /** 获取用户最近的 session 列表（每条 = 一个 chat 窗口） */
 export async function getRecentSessions(userId: string, limit = 20): Promise<SessionSummary[]> {
-  const resp = await fetch(`/sessions?user_id=${encodeURIComponent(userId)}&limit=${limit}`);
+  const resp = await apiFetch(`/sessions?user_id=${encodeURIComponent(userId)}&limit=${limit}`);
   if (!resp.ok) return [];
   return resp.json();
 }
 
 /** 获取 session 当前进行中的 turn_id（无则 null） */
 export async function getActiveTurn(sessionId: string): Promise<string | null> {
-  const resp = await fetch(`/sessions/${sessionId}/active_turn`);
+  const resp = await apiFetch(`/sessions/${sessionId}/active_turn`);
   if (!resp.ok) return null;
   const body = (await resp.json()) as { turn_id: string | null };
   return body.turn_id;
@@ -114,7 +114,7 @@ export async function getActiveTurn(sessionId: string): Promise<string | null> {
 
 /** 获取 session 详情（含 events_snapshot，用于重建消息） */
 export async function getSessionDetail(sessionId: string): Promise<SessionDetail | null> {
-  const resp = await fetch(`/sessions/${sessionId}`);
+  const resp = await apiFetch(`/sessions/${sessionId}`);
   if (!resp.ok) return null;
   return resp.json();
 }

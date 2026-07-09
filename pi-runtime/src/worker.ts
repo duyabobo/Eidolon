@@ -55,6 +55,7 @@ interface RunningSession {
   sessionId: string;
   userId: string;
   piHandle: PiSessionHandle;
+  skillIds: string[];
   messageSubscriber: Redis;     // 订阅 sessions:{sessionId}:message
   closeSubscriber: Redis;       // 订阅 sessions:{sessionId}:close
   cancelSubscriber: Redis;      // 订阅 sessions:{sessionId}:cancel
@@ -66,6 +67,13 @@ interface RunningSession {
 
 // session 闲置超时（30 分钟无新消息自动关闭）
 const SESSION_INACTIVITY_MS = 30 * 60_000;
+
+function skillIdsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((id, i) => id === sortedB[i]);
+}
 
 const runningSessions = new Map<string, RunningSession>();
 
@@ -187,6 +195,7 @@ async function startAndRegisterSession(
     sessionId,
     userId,
     piHandle,
+    skillIds: [...skillIds],
     messageSubscriber,
     closeSubscriber,
     cancelSubscriber,
@@ -228,10 +237,17 @@ async function startAndRegisterSession(
   return running;
 }
 
-/** pi 进程意外退出后重建（保留沙盒 workspace 与 Redis 订阅） */
-async function restartPiForSession(running: RunningSession, skillIds: string[]): Promise<RunningSession> {
+/** pi 进程重建（进程退出或 skill 变更时调用，保留沙盒 workspace 与 Redis 订阅） */
+async function restartPiForSession(
+  running: RunningSession,
+  skillIds: string[],
+  reason: "pi_dead" | "skill_changed" = "pi_dead",
+): Promise<RunningSession> {
   const { sessionId, userId } = running;
-  console.warn(`[worker] session=${sessionId}: pi 进程已退出，自动重建`);
+  const reasonText = reason === "skill_changed"
+    ? `skill 变更 [${running.skillIds.join(",")}] → [${skillIds.join(",")}]`
+    : "pi 进程已退出，自动重建";
+  console.warn(`[worker] session=${sessionId}: ${reasonText}`);
 
   unregisterSessionLlmBridge(sessionId);
   unregisterSessionMcpBridge(sessionId);
@@ -252,6 +268,7 @@ async function restartPiForSession(running: RunningSession, skillIds: string[]):
 
   const sandboxPaths = await createSandbox(userId, sessionId);
   running.piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);
+  running.skillIds = [...skillIds];
   console.log(`[worker] session=${sessionId}: pi 进程重建完成`);
   return running;
 }
@@ -283,7 +300,9 @@ async function handleNewMessage(payload: NewMessagePayload): Promise<void> {
     running = await startAndRegisterSession(session_id, user_id, skill_ids);
     console.log(`[worker] session=${session_id}: pi 进程重建完成`);
   } else if (!running.piHandle.isAlive()) {
-    running = await restartPiForSession(running, skill_ids);
+    running = await restartPiForSession(running, skill_ids, "pi_dead");
+  } else if (!skillIdsEqual(running.skillIds, skill_ids)) {
+    running = await restartPiForSession(running, skill_ids, "skill_changed");
   }
 
   resetInactivityTimer(running);

@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 
 from config import settings
 from models.mcp import McpScope, McpServerStatusItem, McpServerStatusResponse
+from pi_shared import merge_trace_headers
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ def _status_headers(user_id: str | None) -> dict[str, str]:
     headers: dict[str, str] = {}
     if user_id and user_id.strip():
         headers["X-User-Id"] = user_id.strip()
-    return headers
+    return merge_trace_headers(headers)
 
 
 async def fetch_server_status(
@@ -84,7 +85,7 @@ async def invalidate_cache(user_id: str | None, server_name: str | None = None) 
     query = f"?{urlencode(params)}" if params else ""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(url + query)
+            await client.post(url + query, headers=merge_trace_headers())
     except Exception as exc:
         logger.warning(
             "mcp-proxy 缓存失效通知失败 user=%s server=%s err=%s",

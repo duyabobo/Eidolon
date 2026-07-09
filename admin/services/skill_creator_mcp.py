@@ -8,6 +8,7 @@ import httpx
 
 from config import settings
 from models.skill_creator import SkillDraft
+from pi_shared import merge_trace_headers
 from services import mongo_client
 
 logger = logging.getLogger(__name__)
@@ -127,7 +128,7 @@ async def fetch_mcp_tools(user_id: str | None, server_names: list[str]) -> list[
     if not server_names:
         return []
 
-    headers: dict[str, str] = {}
+    headers = merge_trace_headers()
     if user_id and user_id.strip():
         headers["X-User-Id"] = user_id.strip()
 

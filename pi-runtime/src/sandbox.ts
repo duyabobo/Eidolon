@@ -24,7 +24,7 @@
  *   内外路径完全相同，pi 的 read/write/edit 工具（Node.js）和 bash 工具（bwrap）
  *   操作的是同一个物理目录，不存在路径映射歧义。
  */
-import { mkdir, rm, writeFile } from "fs/promises";
+import { access, mkdir, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { config } from "./config";
 import { SOCKS_DIR } from "./socket-bridge";
@@ -43,6 +43,20 @@ export interface SandboxPaths {
 
 function buildSessionRoot(userId: string, sessionId: string): string {
   return join(config.sandbox.root, "users", userId, "sessions", sessionId);
+}
+
+const MEMORY_FILE_NAME = "MEMORY.md";
+const MEMORY_FILE_INITIAL_CONTENT = "# Long-term Memory\n\n";
+
+/** 确保用户级长期记忆文件存在，避免 pi 启动时 read 报 ENOENT */
+async function ensureMemoryFile(userMemoryDir: string): Promise<void> {
+  const memoryFilePath = join(userMemoryDir, MEMORY_FILE_NAME);
+  try {
+    await access(memoryFilePath);
+  } catch {
+    await writeFile(memoryFilePath, MEMORY_FILE_INITIAL_CONTENT, "utf-8");
+    console.log(`[sandbox] 已初始化长期记忆文件 ${memoryFilePath}`);
+  }
 }
 
 /**
@@ -65,6 +79,7 @@ export async function createSandbox(userId: string, sessionId: string): Promise<
   await mkdir(userSkills, { recursive: true });
   await mkdir(globalSkills, { recursive: true });
   await mkdir(userMemory, { recursive: true });
+  await ensureMemoryFile(userMemory);
   await mkdir(userPiSessions, { recursive: true });
 
   await writeFile(join(home, ".bashrc"), [
@@ -106,6 +121,7 @@ export async function purgeSessionData(userId: string, sessionId: string): Promi
  *   - --bind workspace/home/tmp  session 专属目录可读写
  *   - --bind userMemory    用户级记忆目录可读写（跨 session 共享）
  *   - --bind userPiSessions pi JSONL 会话目录可读写（跨 session 共享，用于恢复短期记忆）
+ *   - --ro-bind globalSkills/userSkills  Skill 目录只读（pi 渐进式披露读 SKILL.md）
  *   - --bind piConfigDir   pi config 目录可读写（bwrap 扩展需写入 bwrap.ready）
  *   - --ro-bind socketsDir  Unix socket 白名单，只读挂载（pi 可连接不可篡改）
  *   - --unshare-net        完全断网，唯一网络出口是挂载的 Unix socket
@@ -124,6 +140,8 @@ export function buildOuterSandboxArgs(
     "--bind", paths.sessionTmp, paths.sessionTmp,
     "--bind", paths.userMemory, paths.userMemory,
     "--bind", paths.userPiSessions, paths.userPiSessions,
+    "--ro-bind", paths.globalSkills, paths.globalSkills,
+    "--ro-bind", paths.userSkills, paths.userSkills,
     "--bind", piConfigDir, piConfigDir,
     "--ro-bind", SOCKS_DIR, SOCKS_DIR,
     "--proc", "/proc",

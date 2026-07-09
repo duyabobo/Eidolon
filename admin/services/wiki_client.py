@@ -14,6 +14,7 @@ from models.wiki import (
     WikiNodeItem,
 )
 from services.knowledge_client import _knowledge_headers, _raise_upstream_error, _resolve_base_url, _unwrap_data
+from pi_shared import merge_trace_headers
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ async def graph_by_doc(knowledge_key: str, body: WikiGraphByDocRequest) -> WikiD
         resp = await client.post(
             f"{root}/wiki/graph/by_doc",
             json=payload,
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     if resp.status_code >= 400:
         _raise_upstream_error(resp)
@@ -76,7 +77,7 @@ async def node_detail(knowledge_key: str, body: WikiNodeDetailRequest) -> WikiNo
         resp = await client.post(
             f"{root}/wiki/nodes/detail",
             json=payload,
-            headers=_knowledge_headers(knowledge_key),
+            headers=merge_trace_headers(_knowledge_headers(knowledge_key)),
         )
     if resp.status_code >= 400:
         _raise_upstream_error(resp)

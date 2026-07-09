@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import type { Message } from "../../context/ChatSessionContext";
+import ChatMarkdown from "./ChatMarkdown";
 import {
   formatStepSeconds, messageDuration, toolStepDuration, isStepLive, stepGroupDuration,
 } from "./stepTiming";
@@ -332,9 +333,11 @@ function TextStep({ msg, index, now }: { msg: Message; index: number; now: numbe
             <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">中间输出</span>
             <DurationBadge ms={durationMs} live={live} />
           </div>
-          <div className="px-3 py-2.5 text-xs text-ink-700 leading-relaxed whitespace-pre-wrap break-words">
-            {msg.content ?? ""}
-            {msg.isStreaming && <span className="inline-block w-0.5 h-3 bg-brand-400 animate-pulse ml-0.5 align-middle" />}
+          <div className="px-3 py-2.5 text-xs text-ink-700 leading-relaxed break-words">
+            <ChatMarkdown
+              content={msg.content ?? ""}
+              streaming={msg.isStreaming}
+            />
           </div>
         </div>
       </div>

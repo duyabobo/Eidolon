@@ -1,4 +1,5 @@
 import { clearCachedKnowledgeKey, getCachedKnowledgeKeyHeader, getSceneUidHeader, readCachedKnowledgeKey, setKnowledgeSceneUid, writeCachedKnowledgeKey, } from "./knowledgeKeyCache";
+import { mergeTraceHeaders } from "./http";
 function apiHeaders(extra) {
     return { ...getSceneUidHeader(), ...getCachedKnowledgeKeyHeader(), ...extra };
 }
@@ -6,10 +7,10 @@ function jsonHeaders() {
     return apiHeaders({ "Content-Type": "application/json" });
 }
 async function request(url, options) {
-    const headers = {
+    const headers = mergeTraceHeaders({
         ...apiHeaders(),
         ...options?.headers,
-    };
+    }, { json: true });
     const resp = await fetch(url, { cache: "no-store", ...options, headers });
     if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
@@ -77,7 +78,7 @@ export const knowledgeApi = {
             method: "POST",
             body: form,
             cache: "no-store",
-            headers: apiHeaders(),
+            headers: mergeTraceHeaders(apiHeaders()),
         });
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
@@ -88,7 +89,7 @@ export const knowledgeApi = {
     deleteDocument: (kbId, docId) => request(`/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`, { method: "DELETE" }),
     getDocument: (kbId, docId) => request(`/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`),
     downloadDocument: async (kbId, docId, filename) => {
-        const resp = await fetch(`/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`, { cache: "no-store", headers: apiHeaders() });
+        const resp = await fetch(`/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`, { cache: "no-store", headers: mergeTraceHeaders(apiHeaders()) });
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
             throw new Error(err.detail ?? `HTTP ${resp.status}`);

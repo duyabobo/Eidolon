@@ -3,17 +3,25 @@ import logging.handlers
 import os
 from pathlib import Path
 
+from pi_shared.trace_context import get_trace_id
+
 _LOG_DIR = Path(os.getenv("LOG_DIR", "/app/logs"))
 _LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 _LOG_RETENTION_DAYS = 7
-_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+_LOG_FORMAT = "%(asctime)s [%(levelname)s] traceId=%(trace_id)s %(name)s: %(message)s"
+
+
+class TraceIdFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        record.trace_id = get_trace_id()  # type: ignore[attr-defined]
+        return super().format(record)
 
 
 def setup_logging(service_name: str) -> None:
     """初始化全局日志配置：每天分割，保留7天，同时输出到文件和控制台。"""
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    formatter = logging.Formatter(_LOG_FORMAT)
+    formatter = TraceIdFormatter(_LOG_FORMAT)
 
     file_handler = logging.handlers.TimedRotatingFileHandler(
         filename=_LOG_DIR / f"{service_name}.log",

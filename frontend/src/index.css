@@ -126,4 +126,32 @@
   .wiki-md th, .wiki-md td {
     @apply border border-ink-200 px-2 py-1 text-left;
   }
+
+  .chat-md h1, .chat-md h2, .chat-md h3, .chat-md h4 {
+    @apply font-semibold text-ink-900 mt-3 mb-2 first:mt-0;
+  }
+  .chat-md h1 { @apply text-lg; }
+  .chat-md h2 { @apply text-base; }
+  .chat-md h3, .chat-md h4 { @apply text-sm; }
+  .chat-md p { @apply text-sm leading-relaxed mb-2 last:mb-0; }
+  .chat-md ul, .chat-md ol { @apply text-sm pl-5 mb-2 space-y-1; }
+  .chat-md ul { @apply list-disc; }
+  .chat-md ol { @apply list-decimal; }
+  .chat-md li { @apply leading-relaxed; }
+  .chat-md blockquote {
+    @apply border-l-2 border-ink-200 pl-3 my-2 text-ink-500 italic;
+  }
+  .chat-md code {
+    @apply text-xs bg-ink-100 px-1 py-0.5 rounded font-mono;
+  }
+  .chat-md pre {
+    @apply text-xs bg-ink-900 text-ink-50 p-3 rounded-lg overflow-x-auto mb-2;
+  }
+  .chat-md pre code { @apply bg-transparent p-0 text-inherit; }
+  .chat-md .katex-display { @apply overflow-x-auto py-2; }
+  .chat-md .katex { @apply text-[1em]; }
+  .chat-md a { @apply text-brand-600 hover:text-brand-700 hover:underline; }
+  .chat-md table { @apply w-full text-sm border-collapse mb-2; }
+  .chat-md th, .chat-md td { @apply border border-ink-200 px-2 py-1 text-left; }
+  .chat-md hr { @apply my-3 border-ink-200; }
 }

@@ -4,6 +4,13 @@ import time
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from pi_shared.trace_context import (
+    HEADER_TRACE_ID,
+    reset_trace_id,
+    resolve_trace_id,
+    set_trace_id,
+)
+
 _MAX_BODY_CHARS = 2000
 _SKIP_PATHS = {"/health"}
 
@@ -41,6 +48,7 @@ async def _read_and_replay_body(receive: Receive) -> tuple[bytes, Receive]:
 
 
 def _emit_log(
+    trace_id: str,
     method: str,
     path: str,
     req_body: str,
@@ -53,8 +61,8 @@ def _emit_log(
         b"".join(resp_chunks).decode("utf-8", errors="replace")
     )
     logger.info(
-        "method=%s path=%s status=%d timecost=%dms req=%s resp=%s",
-        method, path, status_code, elapsed_ms, req_body, resp_body,
+        "traceId=%s method=%s path=%s status=%d timecost=%dms req=%s resp=%s",
+        trace_id, method, path, status_code, elapsed_ms, req_body, resp_body,
     )
 
 
@@ -80,6 +88,10 @@ class AccessLogMiddleware:
             await self.app(scope, receive, send)
             return
 
+        incoming_headers = Headers(scope=scope)
+        trace_id = resolve_trace_id(incoming_headers.get(HEADER_TRACE_ID))
+        token = set_trace_id(trace_id)
+
         body_bytes, receive = await _read_and_replay_body(receive)
         req_body = _truncate(body_bytes.decode("utf-8", errors="replace"))
         start = time.perf_counter()
@@ -94,15 +106,20 @@ class AccessLogMiddleware:
                 status_code = message["status"]
                 headers = Headers(raw=message.get("headers", []))
                 is_stream = "text/event-stream" in headers.get("content-type", "")
+                raw_headers = list(message.get("headers", []))
+                raw_headers.append((HEADER_TRACE_ID.lower().encode(), trace_id.encode()))
+                message = {**message, "headers": raw_headers}
             elif message["type"] == "http.response.body" and not is_stream:
                 chunk = message.get("body", b"")
                 if chunk:
                     resp_chunks.append(chunk)
                 if not message.get("more_body", False):
-                    _emit_log(method, path, req_body, resp_chunks, status_code, start)
+                    _emit_log(trace_id, method, path, req_body, resp_chunks, status_code, start)
             await send(message)
 
-        await self.app(scope, receive, send_wrapper)
-
-        if is_stream:
-            _emit_log(method, path, req_body, None, status_code, start)
+        try:
+            await self.app(scope, receive, send_wrapper)
+            if is_stream:
+                _emit_log(trace_id, method, path, req_body, None, status_code, start)
+        finally:
+            reset_trace_id(token)

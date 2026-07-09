@@ -31,6 +31,8 @@
  *   PI_SANDBOX_HOME        → session 专属 home
  *   PI_SANDBOX_TMP         → session 临时目录
  *   PI_SANDBOX_USER_MEMORY → 用户级长期记忆目录（MEMORY.md，跨 session）
+ *   PI_SANDBOX_GLOBAL_SKILLS → 系统 Skill 根目录（只读）
+ *   PI_SANDBOX_USER_SKILLS  → 用户 Skill 根目录（只读）
  *   --unshare-net        → 禁止网络访问
  *   --unshare-pid        → 独立 PID 空间
  *   --tmpfs sandboxRoot  → 对沙盒内隐藏其他 session/user 目录
@@ -55,6 +57,8 @@ const sandboxWorkspace = process.env.PI_SANDBOX_WORKSPACE ?? "";
 const sandboxHome = process.env.PI_SANDBOX_HOME ?? "";
 const sandboxTmp = process.env.PI_SANDBOX_TMP ?? "";
 const sandboxUserMemory = process.env.PI_SANDBOX_USER_MEMORY ?? "";
+const sandboxGlobalSkills = process.env.PI_SANDBOX_GLOBAL_SKILLS ?? "";
+const sandboxUserSkills = process.env.PI_SANDBOX_USER_SKILLS ?? "";
 const piCodingAgentDir = process.env.PI_CODING_AGENT_DIR ?? "";
 
 /**
@@ -206,12 +210,18 @@ async function guardPath(rawPath: string): Promise<{ safe: true } | { safe: fals
   const { resolve: pathResolve, dirname, basename, join: pathJoin } = await import("path");
 
   const tentative = pathResolve(sandboxWorkspace, rawPath);
-  const allowed = [sandboxWorkspace, sandboxHome, sandboxUserMemory].filter(Boolean);
+  const allowed = [
+    sandboxWorkspace,
+    sandboxHome,
+    sandboxUserMemory,
+    sandboxGlobalSkills,
+    sandboxUserSkills,
+  ].filter(Boolean);
 
   // 第一道：字符串检查（快速排除明显越界，如绝对路径、../遍历）
   const tentativeOk = allowed.some((base) => tentative.startsWith(base + "/") || tentative === base);
   if (!tentativeOk) {
-    return { safe: false, reason: `路径越界: ${rawPath} → ${tentative}（只允许访问 workspace、home 和 userMemory）` };
+    return { safe: false, reason: `路径越界: ${rawPath} → ${tentative}（只允许访问 workspace、home、userMemory 和 skills）` };
   }
 
   // 第二道：realpath 检查（解析符号链接后再做白名单判断，防止 symlink 逃逸）
@@ -230,7 +240,7 @@ async function guardPath(rawPath: string): Promise<{ safe: true } | { safe: fals
 
   const canonicalOk = allowed.some((base) => canonical.startsWith(base + "/") || canonical === base);
   if (!canonicalOk) {
-    return { safe: false, reason: `路径越界（符号链接解析后）: ${rawPath} → ${canonical}（只允许访问 workspace、home 和 userMemory）` };
+    return { safe: false, reason: `路径越界（符号链接解析后）: ${rawPath} → ${canonical}（只允许访问 workspace、home、userMemory 和 skills）` };
   }
 
   return { safe: true };

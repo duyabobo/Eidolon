@@ -1,5 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useMemo } from "react";
+import ChatMarkdown from "./ChatMarkdown";
 import ExecutionSteps from "./ExecutionSteps";
 function groupMessages(messages) {
     const items = [];
@@ -36,7 +37,7 @@ function AssistantTurnBlock({ turn }) {
     const { steps, finalText } = turn;
     const hasSteps = steps.length > 0;
     const onlySteps = hasSteps && !finalText;
-    return (_jsxs("div", { className: "flex gap-3 justify-start", children: [_jsx(PiAvatar, {}), _jsxs("div", { className: "flex-1 min-w-0", children: [hasSteps && _jsx(ExecutionSteps, { steps: steps }), finalText && (_jsxs("div", { className: "max-w-[92%]", children: [hasSteps && (_jsx("p", { className: "text-[10px] font-semibold uppercase tracking-wider text-ink-400 mb-1.5 pl-0.5", children: "\u56DE\u590D" })), _jsxs("div", { className: "rounded-2.5xl rounded-bl-md px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words bg-white border border-ink-200/60 text-ink-900 shadow-soft", children: [finalText.content, finalText.isStreaming && (_jsx("span", { className: "inline-block w-0.5 h-4 bg-brand-400 animate-pulse ml-0.5 align-middle rounded-full" }))] })] })), onlySteps && (_jsxs("p", { className: "text-xs text-ink-400 mt-2 pl-1 flex items-center gap-1.5", children: [_jsx("span", { className: "w-1 h-1 rounded-full bg-ink-300 animate-pulse" }), "\u7B49\u5F85\u6700\u7EC8\u56DE\u590D\u2026"] }))] })] }));
+    return (_jsxs("div", { className: "flex gap-3 justify-start", children: [_jsx(PiAvatar, {}), _jsxs("div", { className: "flex-1 min-w-0", children: [hasSteps && _jsx(ExecutionSteps, { steps: steps }), finalText && (_jsxs("div", { className: "max-w-[92%]", children: [hasSteps && (_jsx("p", { className: "text-[10px] font-semibold uppercase tracking-wider text-ink-400 mb-1.5 pl-0.5", children: "\u56DE\u590D" })), _jsx("div", { className: "rounded-2.5xl rounded-bl-md px-4 py-3 text-sm leading-relaxed break-words bg-white border border-ink-200/60 text-ink-900 shadow-soft", children: _jsx(ChatMarkdown, { content: finalText.content, streaming: finalText.isStreaming }) })] })), onlySteps && (_jsxs("p", { className: "text-xs text-ink-400 mt-2 pl-1 flex items-center gap-1.5", children: [_jsx("span", { className: "w-1 h-1 rounded-full bg-ink-300 animate-pulse" }), "\u7B49\u5F85\u6700\u7EC8\u56DE\u590D\u2026"] }))] })] }));
 }
 export default function MessageList({ messages, bottomRef }) {
     const displayItems = useMemo(() => groupMessages(messages), [messages]);

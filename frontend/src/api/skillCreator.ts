@@ -1,3 +1,5 @@
+import { apiFetch } from "./http";
+
 export interface SkillDraft {
   name: string;
   description: string;
@@ -23,10 +25,7 @@ export interface SkillCreatorSession {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const resp = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const resp = await apiFetch(url, options);
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);

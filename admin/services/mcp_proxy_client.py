@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 import httpx
 
 from config import settings
+from pi_shared import merge_trace_headers
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ async def invalidate_cache(user_id: str | None, server_name: str | None = None) 
     query = f"?{urlencode(params)}" if params else ""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(url + query)
+            await client.post(url + query, headers=merge_trace_headers())
         logger.info(
             "mcp-proxy 缓存失效通知已发送 user=%s server=%s",
             user_id or "-", server_name or "-",
