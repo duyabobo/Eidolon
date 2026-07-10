@@ -44,31 +44,36 @@
 
 当 Skill 需要依赖某个 **MCP Server** 提供的工具时：
 
-1. **指定 Server**：在对话中确认 MCP Server 名称后，在 `skill-draft` 中设置 `mcp_servers: ["server-name"]`。
+1. **指定业务 Server**：在对话中确认业务 MCP Server 名称（如 `mrag`）后，写入 `skill-draft.mcp_servers`（平台白名单，不是 Agent 连接名）。
 2. **创作阶段**：每轮用户消息后，平台调用 **mcp-proxy** 实时拉取 tool 列表并注入 system prompt，供你编写 Skill。
-3. **运行阶段**：用户选用该 Skill 对话时，平台仅加载 `mcp_servers` 中声明的 MCP 工具（通过 `X-Mcp-Servers` 过滤），tool 描述**不**写死在 reference 文档中。
-4. **你的职责**：在 Skill 正文中写清 MCP 使用方式（见下节）；若 Server 不可用，仍应输出草稿并注明限制。
+3. **运行阶段**：平台按 `mcp_servers` 经 `X-Mcp-Servers` 过滤后，把工具聚合进 Agent 唯一可见的连接 **`mcp-proxy`**；tool 描述**不**写死在 reference 文档中。
+4. **你的职责**：在 Skill 正文中写清「只经 mcp-proxy 调用、禁止对业务名探测」（见下节）；若 Server 不可用，仍应输出草稿并注明限制。
 
 ### Skill 正文必须说明的 MCP / mcp-proxy 用法
 
 依赖 MCP 的 Skill，其 `content` 中应包含面向 **运行时 Agent** 的可执行说明（不要写运维部署细节），至少覆盖：
 
-1. **工具从哪来**：Agent 不直连后端 MCP Server；所有工具经平台 **mcp-proxy（MCP 聚合代理）** 暴露。Agent 只看到代理汇总后的工具名，按工具名调用即可。
-2. **为何声明 `mcp_servers`**：frontmatter / 元数据中的 `mcp_servers` 告诉平台本 Skill 需要哪些 Server；运行时 mcp-proxy 按此白名单过滤，未声明的 Server 工具不会出现。
-3. **何时调用哪些工具**：结合场景写出选用条件、推荐调用顺序、关键参数与预期结果；可引用平台注入的实时工具名，但**不要**把完整 tool 列表固化进 `references/`。
-4. **失败与降级**：工具不可用、调用失败或返回空时，Agent 应如何告知用户或改用其它步骤。
+1. **Agent 可见的唯一 MCP 连接名是 `mcp-proxy`**：沙盒内 `mcp.json` 只注册了这一条。后端业务 Server（如 `mrag`、`tavily`）**不是** Agent 侧可 `connect` 的 server 名。
+2. **禁止无谓探测**：Skill 正文必须明确禁止 Agent 对业务 Server 名做 `mcp({ server: "mrag" })` / `mcp({ server: "tavily" })` 之类试探（会得到 `Server not found`）。若需列出工具，只允许：
+   - `mcp({ server: "mcp-proxy" })`，或
+   - `mcp({})` 查看状态后，再对 `mcp-proxy` 列工具。
+3. **优先直接调工具**：已知工具名时，直接调用聚合后的工具（常见前缀如 `mcp_proxy_...`），不要先一轮轮探测 server。
+4. **`mcp_servers` 只给平台用**：frontmatter / 元数据里的 `mcp_servers: ["mrag", "tavily"]` 供平台经 `X-Mcp-Servers` 过滤白名单；**不要**写成「请连接名为 mrag/tavily 的 MCP Server」。正文里可说明「本 Skill 依赖业务能力 mrag/tavily（由平台注入到 mcp-proxy）」，但调用入口一律写 `mcp-proxy`。
+5. **何时调用哪些工具**：结合场景写出选用条件、推荐调用顺序、关键参数与预期结果；可引用平台注入的实时工具名，但**不要**把完整 tool 列表固化进 `references/`。
+6. **失败与降级**：工具不可用、调用失败或返回空时，Agent 应如何告知用户或改用其它步骤；仍不要改去探测业务 Server 名。
 
 可参考下列结构写入 `content`（按需裁剪，勿堆砌空话）：
 
 ```markdown
 ## MCP 工具使用
 
-本 Skill 依赖 MCP Server：`server-a`（用途说明）。
+本 Skill 依赖业务 MCP 能力：`mrag`、`tavily`（由平台按 `mcp_servers` 白名单注入）。
 
-- 工具经平台 **mcp-proxy** 聚合暴露；按工具名调用，勿假设可直连后端 URL 或自备 MCP 连接。
-- 运行时仅加载本 Skill 声明的 `mcp_servers` 对应工具。
-- 推荐流程：……（何时调用哪个工具、关键参数、如何解读结果）
-- 若工具不可用：……（降级策略）
+**调用规则（必须遵守）**：
+- Agent 侧唯一 MCP 连接名是 **`mcp-proxy`**。不要对 `mrag` / `tavily` 等业务名执行 `mcp({ server: "..." })`。
+- 需要查看工具列表时：直接 `mcp({ server: "mcp-proxy" })`；已知工具名则直接调用，跳过探测。
+- 推荐流程：……（直接调用哪些 `mcp_proxy_...` 工具、关键参数、如何解读结果）
+- 若工具不可用：……（降级策略；不要改试其它 server 名）
 ```
 
 ## 输出草稿格式（必须遵守）
