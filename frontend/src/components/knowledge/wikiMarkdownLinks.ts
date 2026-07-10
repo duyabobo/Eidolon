@@ -5,14 +5,6 @@ export const WIKI_NODE_LINK_PREFIX = "wiki-node:";
 
 const WIKI_NODE_HREF_PATTERN = /^wiki-node:(?:\/\/)?/i;
 
-export function isWikiNodeHref(href?: string): boolean {
-  return Boolean(href && WIKI_NODE_HREF_PATTERN.test(href));
-}
-
-export function wikiNodeIdFromHref(href: string): string {
-  return href.replace(WIKI_NODE_HREF_PATTERN, "");
-}
-
 export function buildTitleNodeIndex(graphNodes: WikiGraphNode[]): Map<string, string> {
   const index = new Map<string, string>();
   for (const node of graphNodes) {
@@ -80,4 +72,12 @@ export function preprocessWikiMarkdown(content: string, titleIndex: Map<string, 
   });
 
   return text;
+}
+
+export function isWikiNodeHref(href?: string): boolean {
+  return Boolean(href && WIKI_NODE_HREF_PATTERN.test(href));
+}
+
+export function wikiNodeIdFromHref(href: string): string {
+  return href.replace(WIKI_NODE_HREF_PATTERN, "");
 }

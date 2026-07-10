@@ -1,5 +1,6 @@
 import { findNodeByTitle, parseConnectionLine } from "./wikiConnections";
 export const WIKI_NODE_LINK_PREFIX = "wiki-node:";
+const WIKI_NODE_HREF_PATTERN = /^wiki-node:(?:\/\/)?/i;
 export function buildTitleNodeIndex(graphNodes) {
     const index = new Map();
     for (const node of graphNodes) {
@@ -57,8 +58,8 @@ export function preprocessWikiMarkdown(content, titleIndex) {
     return text;
 }
 export function isWikiNodeHref(href) {
-    return Boolean(href?.startsWith(WIKI_NODE_LINK_PREFIX));
+    return Boolean(href && WIKI_NODE_HREF_PATTERN.test(href));
 }
 export function wikiNodeIdFromHref(href) {
-    return href.slice(WIKI_NODE_LINK_PREFIX.length);
+    return href.replace(WIKI_NODE_HREF_PATTERN, "");
 }

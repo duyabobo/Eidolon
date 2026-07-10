@@ -61,12 +61,13 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
         try {
             const res = await skillCreatorApi.sendMessage(sessionId, text, ctrl.signal);
             setMessages((prev) => [...prev, res.message]);
-            if (res.draft)
+            if (res.draft) {
                 setDraft({
                     ...res.draft,
                     tags: [...(res.draft.tags ?? [])],
                     mcp_servers: [...(res.draft.mcp_servers ?? [])],
                 });
+            }
         }
         catch (e) {
             if (e instanceof Error && e.name === "AbortError") {
@@ -116,7 +117,9 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
             setPublishing(false);
         }
     };
-    const panel = (_jsxs("div", { className: `bg-white/95 backdrop-blur-xl rounded-2.5xl shadow-panel w-full flex flex-col border border-ink-200/60 ${embedded ? "h-[70vh]" : "max-w-4xl h-[90vh]"}`, children: [_jsxs("div", { className: "px-6 py-4 border-b border-ink-200/60 flex items-center justify-between shrink-0", children: [_jsxs("div", { children: [_jsx("h2", { className: "font-semibold text-ink-900", children: isEditMode ? `编辑 Skill：${editSkillName}` : `对话创建${scopeLabel}` }), _jsx("p", { className: "text-xs text-ink-400 mt-0.5", children: isEditMode ? "继续对话完善已保存的 Skill，修改后重新保存" : "通过对话生成 Skill；若依赖外部工具，请说明 MCP Server 名称与用途" })] }), _jsxs("div", { className: "flex items-center gap-3", children: [!isPublished && !isEditMode && sessionId && (_jsx("button", { type: "button", onClick: () => {
+    const panel = (_jsxs("div", { className: `bg-white/95 backdrop-blur-xl rounded-2.5xl shadow-panel w-full flex flex-col border border-ink-200/60 ${embedded ? "h-[70vh]" : "max-w-4xl h-[90vh]"}`, children: [_jsxs("div", { className: "px-6 py-4 border-b border-ink-200/60 flex items-center justify-between shrink-0", children: [_jsxs("div", { children: [_jsx("h2", { className: "font-semibold text-ink-900", children: isEditMode ? `编辑 Skill：${editSkillName}` : `对话创建${scopeLabel}` }), _jsx("p", { className: "text-xs text-ink-400 mt-0.5", children: isEditMode
+                                    ? "继续对话完善已保存的 Skill，修改后重新保存"
+                                    : "通过对话生成 Skill；若依赖外部工具，请说明 MCP Server 名称与用途" })] }), _jsxs("div", { className: "flex items-center gap-3", children: [!isPublished && !isEditMode && sessionId && (_jsx("button", { type: "button", onClick: () => {
                                     if (!confirm("确认清除当前对话历史，重新开始？"))
                                         return;
                                     skillCreatorApi.resetSession(sessionId).then((session) => {

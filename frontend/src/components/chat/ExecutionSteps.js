@@ -2,21 +2,26 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect } from "react";
 import ChatMarkdown from "./ChatMarkdown";
 import { formatStepSeconds, messageDuration, toolStepDuration, isStepLive, stepGroupDuration, } from "./stepTiming";
+function toolEventName(content) {
+    if (!content)
+        return "";
+    try {
+        const parsed = JSON.parse(content);
+        return typeof parsed.name === "string" ? parsed.name : "";
+    }
+    catch {
+        return "";
+    }
+}
+/**
+ * 将执行步骤分组。并行工具调用时事件顺序常为 callA、callB、resultA、resultB，
+ * 不能只按相邻配对，否则后一个 result 会变成「工具 null」空步骤。
+ */
 export function groupSteps(steps) {
     const groups = [];
+    // 尚未配对的 tool_call：按工具名 FIFO；无名则进 openCalls
     const pendingByName = new Map();
     const openCalls = [];
-    const toolEventName = (content) => {
-        if (!content)
-            return "";
-        try {
-            const parsed = JSON.parse(content);
-            return typeof parsed.name === "string" ? parsed.name : "";
-        }
-        catch {
-            return "";
-        }
-    };
     const rememberCall = (groupIndex, name) => {
         if (name) {
             const queue = pendingByName.get(name) ?? [];
@@ -34,6 +39,7 @@ export function groupSteps(steps) {
         }
         if (openCalls.length > 0)
             return openCalls.shift();
+        // 结果名对不上时，退化为任意最早未配对 call
         for (const queue of pendingByName.values()) {
             if (queue.length > 0)
                 return queue.shift();
@@ -63,6 +69,7 @@ export function groupSteps(steps) {
                     continue;
                 }
             }
+            // 确实找不到 call 时才兜底展示，避免再造「null」空调用
             groups.push({
                 kind: "tool",
                 call: {

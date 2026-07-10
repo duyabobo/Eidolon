@@ -12,6 +12,7 @@ export function parseBackendDate(value) {
     if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(raw)) {
         return new Date(raw);
     }
+    // 无时区 ISO：后端约定为东八区墙钟
     if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
         return new Date(`${raw}${CHINA_OFFSET}`);
     }
