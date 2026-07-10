@@ -5,7 +5,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
-import { isWikiNodeHref, wikiNodeIdFromHref } from "../knowledge/wikiMarkdownLinks";
+import { isWikiNodeHref, wikiAwareUrlTransform, wikiNodeIdFromHref } from "../knowledge/wikiMarkdownLinks";
 import { preprocessChatMarkdown } from "./chatMarkdownPreprocess";
 import ChatWikiNodeModal from "./ChatWikiNodeModal";
 function buildMarkdownComponents(linkMode, onWikiNodeClick) {
@@ -30,5 +30,5 @@ export default function ChatMarkdown({ content, className = "", streaming = fals
     if (!content && !streaming)
         return null;
     const processed = content ? preprocessChatMarkdown(content) : "";
-    return (_jsxs(_Fragment, { children: [_jsxs("div", { className: `chat-md prose prose-sm max-w-none text-ink-900 ${className}`.trim(), children: [processed ? (_jsx(ReactMarkdown, { remarkPlugins: [remarkGfm, remarkMath], rehypePlugins: [rehypeKatex], components: components, children: processed })) : null, streaming && (_jsx("span", { className: "inline-block w-0.5 h-4 bg-brand-400 animate-pulse ml-0.5 align-middle rounded-full" }))] }), wikiNodeId && linkMode === "modal" && (_jsx(ChatWikiNodeModal, { nodeId: wikiNodeId, onClose: () => setWikiNodeId(null) }))] }));
+    return (_jsxs(_Fragment, { children: [_jsxs("div", { className: `chat-md prose prose-sm max-w-none text-ink-900 ${className}`.trim(), children: [processed ? (_jsx(ReactMarkdown, { remarkPlugins: [remarkGfm, remarkMath], rehypePlugins: [rehypeKatex], components: components, urlTransform: wikiAwareUrlTransform, children: processed })) : null, streaming && (_jsx("span", { className: "inline-block w-0.5 h-4 bg-brand-400 animate-pulse ml-0.5 align-middle rounded-full" }))] }), wikiNodeId && linkMode === "modal" && (_jsx(ChatWikiNodeModal, { nodeId: wikiNodeId, onClose: () => setWikiNodeId(null) }))] }));
 }

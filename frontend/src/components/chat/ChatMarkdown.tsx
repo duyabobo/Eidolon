@@ -5,7 +5,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
-import { isWikiNodeHref, wikiNodeIdFromHref } from "../knowledge/wikiMarkdownLinks";
+import { isWikiNodeHref, wikiAwareUrlTransform, wikiNodeIdFromHref } from "../knowledge/wikiMarkdownLinks";
 import { preprocessChatMarkdown } from "./chatMarkdownPreprocess";
 import ChatWikiNodeModal from "./ChatWikiNodeModal";
 
@@ -84,6 +84,7 @@ export default function ChatMarkdown({
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[rehypeKatex]}
             components={components}
+            urlTransform={wikiAwareUrlTransform}
           >
             {processed}
           </ReactMarkdown>

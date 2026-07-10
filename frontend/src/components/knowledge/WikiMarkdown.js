@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
-import { buildTitleNodeIndex, isWikiNodeHref, preprocessConnectionLines, preprocessWikiMarkdown, wikiNodeIdFromHref, } from "./wikiMarkdownLinks";
+import { buildTitleNodeIndex, isWikiNodeHref, preprocessConnectionLines, preprocessWikiMarkdown, wikiAwareUrlTransform, wikiNodeIdFromHref, } from "./wikiMarkdownLinks";
 import { preprocessStructuredFields } from "./wikiStructuredText";
 export default function WikiMarkdown({ content, className = "", graphNodes = [], onWikiNodeClick, }) {
     const text = content.trim();
@@ -25,5 +25,5 @@ export default function WikiMarkdown({ content, className = "", graphNodes = [],
             return (_jsx("a", { href: href, target: "_blank", rel: "noreferrer", className: "text-brand-600 hover:text-brand-700 hover:underline break-all", children: children }));
         },
     };
-    return (_jsx("div", { className: `wiki-md prose prose-sm max-w-none text-ink-800 ${className}`.trim(), children: _jsx(ReactMarkdown, { remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex], components: components, children: processed }) }));
+    return (_jsx("div", { className: `wiki-md prose prose-sm max-w-none text-ink-800 ${className}`.trim(), children: _jsx(ReactMarkdown, { remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex], components: components, urlTransform: wikiAwareUrlTransform, children: processed }) }));
 }

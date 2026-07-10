@@ -9,6 +9,7 @@ import {
   isWikiNodeHref,
   preprocessConnectionLines,
   preprocessWikiMarkdown,
+  wikiAwareUrlTransform,
   wikiNodeIdFromHref,
 } from "./wikiMarkdownLinks";
 import { preprocessStructuredFields } from "./wikiStructuredText";
@@ -70,6 +71,7 @@ export default function WikiMarkdown({
         remarkPlugins={[remarkMath]}
         rehypePlugins={[rehypeKatex]}
         components={components}
+        urlTransform={wikiAwareUrlTransform}
       >
         {processed}
       </ReactMarkdown>
