@@ -4,35 +4,74 @@ import ChatMarkdown from "./ChatMarkdown";
 import { formatStepSeconds, messageDuration, toolStepDuration, isStepLive, stepGroupDuration, } from "./stepTiming";
 export function groupSteps(steps) {
     const groups = [];
-    let i = 0;
-    while (i < steps.length) {
-        const s = steps[i];
-        if (s.type === "thinking") {
-            groups.push({ kind: "thinking", msg: s });
-            i += 1;
+    const pendingByName = new Map();
+    const openCalls = [];
+    const toolEventName = (content) => {
+        if (!content)
+            return "";
+        try {
+            const parsed = JSON.parse(content);
+            return typeof parsed.name === "string" ? parsed.name : "";
         }
-        else if (s.type === "tool_call") {
-            const next = steps[i + 1];
-            if (next?.type === "tool_result") {
-                groups.push({ kind: "tool", call: s, result: next });
-                i += 2;
-            }
-            else {
-                groups.push({ kind: "tool", call: s });
-                i += 1;
-            }
+        catch {
+            return "";
         }
-        else if (s.type === "tool_result") {
+    };
+    const rememberCall = (groupIndex, name) => {
+        if (name) {
+            const queue = pendingByName.get(name) ?? [];
+            queue.push(groupIndex);
+            pendingByName.set(name, queue);
+            return;
+        }
+        openCalls.push(groupIndex);
+    };
+    const takePendingCall = (name) => {
+        if (name) {
+            const queue = pendingByName.get(name);
+            if (queue && queue.length > 0)
+                return queue.shift();
+        }
+        if (openCalls.length > 0)
+            return openCalls.shift();
+        for (const queue of pendingByName.values()) {
+            if (queue.length > 0)
+                return queue.shift();
+        }
+        return undefined;
+    };
+    for (const step of steps) {
+        if (step.type === "thinking") {
+            groups.push({ kind: "thinking", msg: step });
+            continue;
+        }
+        if (step.type === "text") {
+            groups.push({ kind: "text", msg: step });
+            continue;
+        }
+        if (step.type === "tool_call") {
+            rememberCall(groups.length, toolEventName(step.content));
+            groups.push({ kind: "tool", call: step });
+            continue;
+        }
+        if (step.type === "tool_result") {
+            const callIndex = takePendingCall(toolEventName(step.content));
+            if (callIndex !== undefined) {
+                const existing = groups[callIndex];
+                if (existing.kind === "tool") {
+                    groups[callIndex] = { kind: "tool", call: existing.call, result: step };
+                    continue;
+                }
+            }
             groups.push({
                 kind: "tool",
-                call: { role: "assistant", type: "tool_call", content: "{}" },
-                result: s,
+                call: {
+                    role: "assistant",
+                    type: "tool_call",
+                    content: JSON.stringify({ name: toolEventName(step.content) || "工具", input: null }),
+                },
+                result: step,
             });
-            i += 1;
-        }
-        else {
-            groups.push({ kind: "text", msg: s });
-            i += 1;
         }
     }
     return groups;
