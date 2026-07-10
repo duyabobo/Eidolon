@@ -89,6 +89,27 @@ def extract_skill_draft(text: str, base: SkillDraft | None = None) -> SkillDraft
     return _extract_from_blocks(text, _JSON_BLOCK, base)
 
 
+def parse_draft_text(text: str, base: SkillDraft | None = None) -> SkillDraft | None:
+    """从任意 LLM 文本解析草稿：代码块 → 整段 JSON → 文本中的 JSON 对象。"""
+    draft = extract_skill_draft(text, base)
+    if draft:
+        return draft
+
+    stripped = text.strip()
+    if not stripped or stripped.upper() == "SKIP":
+        return None
+
+    draft = _parse_draft_payload(stripped, base)
+    if draft:
+        return draft
+
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end > start:
+        return _parse_draft_payload(stripped[start:end + 1], base)
+    return None
+
+
 def _is_skill_draft_json(raw: str) -> bool:
     try:
         data = json.loads(raw)
