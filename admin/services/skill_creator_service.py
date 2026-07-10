@@ -27,11 +27,15 @@ logger = logging.getLogger(__name__)
 
 _WELCOME_SYSTEM = (
     "你好！我是 Skill 创建助手，可以帮你通过对话生成系统级 Skill。\n"
-    "请告诉我你想创建什么能力或场景的 Skill？"
+    "请告诉我你想创建什么能力或场景的 Skill。\n"
+    "若需要调用外部工具，请一并说明依赖的 MCP Server 名称（须与 Admin 中已配置的名称一致）、用途，"
+    "以及期望用到的能力；我会据此写入 Skill，并说明如何经 mcp-proxy 使用这些工具。"
 )
 _WELCOME_USER = (
     "你好！我是 Skill 创建助手，可以帮你通过对话生成私有 Skill。\n"
-    "请告诉我你想创建什么能力或场景的 Skill？"
+    "请告诉我你想创建什么能力或场景的 Skill。\n"
+    "若需要调用外部工具，请一并说明依赖的 MCP Server 名称（须与 Admin 中已配置的名称一致）、用途，"
+    "以及期望用到的能力；我会据此写入 Skill，并说明如何经 mcp-proxy 使用这些工具。"
 )
 
 

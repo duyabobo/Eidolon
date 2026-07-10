@@ -171,7 +171,9 @@ def build_mcp_prompt_context(infos: list[McpServerToolsInfo]) -> str:
 
     lines = [
         "\n\n---\n\n## 平台注入：MCP Server 工具清单（实时拉取，请据此编写 Skill）\n",
-        "以下工具列表来自用户指定的 MCP Server。编写 Skill 时说明如何选用这些工具；",
+        "以下工具列表由平台经 **mcp-proxy** 从用户指定的 MCP Server 实时拉取。\n",
+        "编写 Skill 时须在 `content` 中说明：工具经 mcp-proxy 聚合暴露、按 `mcp_servers` 白名单加载、",
+        "Agent 按工具名调用且不直连后端；并写清何时选用哪些工具及失败降级策略。\n",
         "在 `skill-draft` 中设置 `mcp_servers` 即可，**不要**在 references 中写死 tool 列表（运行时由平台实时拉取）。\n",
     ]
     for info in infos:
@@ -192,7 +194,7 @@ def build_mcp_prompt_context(infos: list[McpServerToolsInfo]) -> str:
 
     lines.append(
         "\n在输出 `skill-draft` 时，请设置 `mcp_servers` 为上述 Server 名称数组，"
-        "并在 `content` 中包含 MCP 工具使用说明（无需 references/mcp-tools.md）。\n"
+        "并在 `content` 中包含完整的 MCP / mcp-proxy 使用说明（无需 references/mcp-tools.md）。\n"
     )
     return "".join(lines)
 
@@ -205,12 +207,18 @@ def enrich_draft_with_mcp_reference(draft: SkillDraft, infos: list[McpServerTool
     server_names = [info.name for info in infos]
 
     if _MCP_REFERENCE_SECTION not in content:
-        summary_lines = [_MCP_REFERENCE_SECTION, ""]
+        summary_lines = [
+            _MCP_REFERENCE_SECTION,
+            "",
+            "工具经平台 **mcp-proxy**（MCP 聚合代理）暴露；Agent 按工具名调用，不直连后端 MCP Server。",
+            "运行时仅加载本 Skill 在 `mcp_servers` 中声明的 Server 对应工具。",
+            "",
+        ]
         for info in infos:
             if info.available and info.tools:
                 summary_lines.append(
                     f"- **{info.name}**（{info.scope}）：依赖 {len(info.tools)} 个 MCP 工具，"
-                    "运行时由平台按 Server 实时加载 tool 列表"
+                    "运行时由平台经 mcp-proxy 按 Server 实时加载 tool 列表"
                 )
             elif not info.enabled:
                 summary_lines.append(f"- **{info.name}**：已禁用")

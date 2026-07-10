@@ -134,7 +134,9 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
             {isEditMode ? `编辑 Skill：${editSkillName}` : `对话创建${scopeLabel}`}
           </h2>
           <p className="text-xs text-ink-400 mt-0.5">
-            {isEditMode ? "继续对话完善已保存的 Skill，修改后重新保存" : "通过 skill-creator 对话生成，保存后同步 MongoDB + NFS"}
+            {isEditMode
+              ? "继续对话完善已保存的 Skill，修改后重新保存"
+              : "通过对话生成 Skill；若依赖外部工具，请说明 MCP Server 名称与用途"}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -205,7 +207,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="描述你想创建的 Skill…  Shift+Enter 换行"
+              placeholder="描述 Skill 场景；若用 MCP，请写清 Server 名称与用途…  Shift+Enter 换行"
               disabled={loading || !sessionId}
               className="flex-1 resize-none bg-transparent border border-ink-200/80 rounded-xl px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-300 transition-all duration-200 disabled:opacity-60"
             />
@@ -244,6 +246,9 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
                 <PreviewRow label="描述" value={draft.description} />
                 {(draft.tags ?? []).length > 0 && (
                   <PreviewRow label="标签" value={(draft.tags ?? []).join(", ")} />
+                )}
+                {(draft.mcp_servers ?? []).length > 0 && (
+                  <PreviewRow label="MCP Servers" value={(draft.mcp_servers ?? []).join(", ")} />
                 )}
                 <div>
                   <p className="font-medium text-gray-600 mb-1">正文</p>

@@ -5,6 +5,7 @@ export interface SkillDraft {
   description: string;
   content: string;
   tags?: string[];
+  mcp_servers?: string[];
 }
 
 export interface SkillCreatorMessage {
