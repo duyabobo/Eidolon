@@ -207,7 +207,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="描述 Skill 场景；若用 MCP，请写清 Server 名称与用途…  Shift+Enter 换行"
+              placeholder="描述你想创建的 Skill…"
               disabled={loading || !sessionId}
               className="flex-1 resize-none bg-transparent border border-ink-200/80 rounded-xl px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-300 transition-all duration-200 disabled:opacity-60"
             />
