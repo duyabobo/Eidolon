@@ -13,6 +13,7 @@
  */
 import Redis from "ioredis";
 import os from "os";
+import { join } from "path";
 import { config } from "./config";
 import { connect as connectMongo, disconnect as disconnectMongo, updateSessionStatus, findOrphanedSessions } from "./mongo-client";
 import { connectRedis, disconnectRedis, getRedis, SessionOutputStream } from "./output-stream";
@@ -29,6 +30,7 @@ import {
   unregisterSessionMcpBridge,
 } from "./session-mcp-bridge";
 import { resolveMcpServersForSkills } from "./skill-mcp";
+import { computeSkillContentFingerprint } from "./skill-reload";
 import { warmMcpCache } from "./mcp-warmup";
 
 // ── 消息类型定义 ──────────────────────────────────────────────────────────────
@@ -56,6 +58,8 @@ interface RunningSession {
   userId: string;
   piHandle: PiSessionHandle;
   skillIds: string[];
+  /** 当前 skill 文件内容指纹，用于检测同 skill 的内容热更新 */
+  skillContentFingerprint: string;
   messageSubscriber: Redis;     // 订阅 sessions:{sessionId}:message
   closeSubscriber: Redis;       // 订阅 sessions:{sessionId}:close
   cancelSubscriber: Redis;      // 订阅 sessions:{sessionId}:cancel
@@ -81,6 +85,26 @@ function skillIdsEqual(a: string[], b: string[]): boolean {
   const sortedA = [...a].sort();
   const sortedB = [...b].sort();
   return sortedA.every((id, i) => id === sortedB[i]);
+}
+
+function buildSkillRoots(userId: string): { globalSkillsRoot: string; userSkillsRoot: string } {
+  return {
+    globalSkillsRoot: join(config.sandbox.root, "global", "skills"),
+    userSkillsRoot: join(config.sandbox.root, "users", userId, "skills"),
+  };
+}
+
+async function computeSessionSkillFingerprint(userId: string, skillIds: string[]): Promise<string> {
+  const roots = buildSkillRoots(userId);
+  return computeSkillContentFingerprint({
+    skillIds,
+    globalSkillsRoot: roots.globalSkillsRoot,
+    userSkillsRoot: roots.userSkillsRoot,
+  });
+}
+
+async function refreshSkillContentFingerprint(running: RunningSession): Promise<void> {
+  running.skillContentFingerprint = await computeSessionSkillFingerprint(running.userId, running.skillIds);
 }
 
 const runningSessions = new Map<string, RunningSession>();
@@ -206,6 +230,7 @@ async function startAndRegisterSession(
     userId,
     piHandle,
     skillIds: [...skillIds],
+    skillContentFingerprint: "",
     messageSubscriber,
     closeSubscriber,
     cancelSubscriber,
@@ -214,6 +239,7 @@ async function startAndRegisterSession(
     turnChain: Promise.resolve(),
   };
   runningSessions.set(sessionId, running);
+  await refreshSkillContentFingerprint(running);
   resetInactivityTimer(running);
 
   messageSubscriber.on("message", (_channel, msg) => {
@@ -252,12 +278,14 @@ async function startAndRegisterSession(
 async function restartPiForSession(
   running: RunningSession,
   skillIds: string[],
-  reason: "pi_dead" | "skill_changed" = "pi_dead",
+  reason: "pi_dead" | "skill_changed" | "skill_content_changed" = "pi_dead",
 ): Promise<RunningSession> {
   const { sessionId, userId } = running;
   const reasonText = reason === "skill_changed"
     ? `skill 变更 [${running.skillIds.join(",")}] → [${skillIds.join(",")}]`
-    : "pi 进程已退出，自动重建";
+    : reason === "skill_content_changed"
+      ? `skill 内容已更新 [${skillIds.join(",")}]，热重载 pi`
+      : "pi 进程已退出，自动重建";
   console.warn(`[worker] session=${sessionId}: ${reasonText}`);
 
   unregisterSessionLlmBridge(sessionId);
@@ -280,6 +308,7 @@ async function restartPiForSession(
   const sandboxPaths = await createSandbox(userId, sessionId);
   running.piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);
   running.skillIds = [...skillIds];
+  await refreshSkillContentFingerprint(running);
   console.log(`[worker] session=${sessionId}: pi 进程重建完成`);
   return running;
 }
@@ -344,6 +373,11 @@ async function handleNewMessage(payload: NewMessagePayload): Promise<void> {
     running = await restartPiForSession(running, skill_ids, "pi_dead");
   } else if (!skillIdsEqual(running.skillIds, skill_ids)) {
     running = await restartPiForSession(running, skill_ids, "skill_changed");
+  } else {
+    const latestFingerprint = await computeSessionSkillFingerprint(user_id, skill_ids);
+    if (latestFingerprint !== running.skillContentFingerprint) {
+      running = await restartPiForSession(running, skill_ids, "skill_content_changed");
+    }
   }
 
   resetInactivityTimer(running);
