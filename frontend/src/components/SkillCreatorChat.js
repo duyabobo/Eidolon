@@ -62,7 +62,11 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
             const res = await skillCreatorApi.sendMessage(sessionId, text, ctrl.signal);
             setMessages((prev) => [...prev, res.message]);
             if (res.draft)
-                setDraft(res.draft);
+                setDraft({
+                    ...res.draft,
+                    tags: [...(res.draft.tags ?? [])],
+                    mcp_servers: [...(res.draft.mcp_servers ?? [])],
+                });
         }
         catch (e) {
             if (e instanceof Error && e.name === "AbortError") {

@@ -24,6 +24,14 @@ from services.skills_fs import write_skill, write_user_skill
 
 logger = logging.getLogger(__name__)
 
+_DRAFT_PREVIEW_REMINDER = (
+    "\n\n【平台硬性要求】每次你根据用户反馈修改了 Skill 草稿，必须在回复**末尾**输出完整的 "
+    "```skill-draft``` JSON 代码块（含 name、description、content 等完整字段）；"
+    "平台据此刷新右侧「草稿预览」。"
+    "禁止仅口头说「已更新草稿」而不输出该块——否则预览不会变化。"
+    "用户未要求改草稿、仅闲聊时可不输出。"
+)
+
 _WELCOME_SYSTEM = (
     "你好！我是 Skill 创建助手，可以帮你通过对话生成系统级 Skill。\n"
     "请告诉我你想创建什么能力或场景的 Skill。\n"
@@ -143,10 +151,21 @@ async def send_user_message(session_id: str, content: str) -> SendMessageRespons
         session.draft,
         history_text,
     )
-    system_prompt = load_system_prompt() + mcp_context
+    system_prompt = load_system_prompt() + mcp_context + _DRAFT_PREVIEW_REMINDER
 
     raw_reply = await chat_completion(system_prompt, llm_messages)
-    draft = extract_skill_draft(raw_reply) or session.draft
+    extracted = extract_skill_draft(raw_reply, base=session.draft)
+    if extracted:
+        draft = extracted
+    elif session.draft is not None:
+        draft = session.draft
+        if "skill-draft" in raw_reply.lower() or "已更新草稿" in raw_reply or "更新了草稿" in raw_reply:
+            logger.warning(
+                "skill-creator session=%s: 回复声称更新草稿但未解析出有效 skill-draft",
+                session_id,
+            )
+    else:
+        draft = None
     draft = await _finalize_draft_with_mcp(session.user_id, draft, content, history_text)
     display = strip_skill_draft_blocks(raw_reply)
     assistant_message = SkillCreatorMessage(role="assistant", content=display, created_at=now_china())

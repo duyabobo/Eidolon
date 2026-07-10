@@ -76,7 +76,13 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
     try {
       const res = await skillCreatorApi.sendMessage(sessionId, text, ctrl.signal);
       setMessages((prev) => [...prev, res.message]);
-      if (res.draft) setDraft(res.draft);
+      if (res.draft) {
+        setDraft({
+          ...res.draft,
+          tags: [...(res.draft.tags ?? [])],
+          mcp_servers: [...(res.draft.mcp_servers ?? [])],
+        });
+      }
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
         // 用户主动中断，不展示错误
