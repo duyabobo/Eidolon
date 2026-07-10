@@ -2,15 +2,24 @@ import { useMemo, useRef, useEffect } from "react";
 import type { Message } from "../../context/ChatSessionContext";
 import ChatMarkdown from "./ChatMarkdown";
 import ExecutionSteps from "./ExecutionSteps";
+import { formatMessageTime } from "./stepTiming";
 
 interface AssistantTurn {
   steps: Message[];
   finalText: Message | null;
+  startedAt?: number;
 }
 
 type DisplayItem =
-  | { kind: "user"; content: string }
+  | { kind: "user"; content: string; startedAt?: number }
   | { kind: "assistant"; turn: AssistantTurn };
+
+function resolveTurnStartedAt(msgs: Message[]): number | undefined {
+  for (const msg of msgs) {
+    if (msg.startedAt != null) return msg.startedAt;
+  }
+  return undefined;
+}
 
 function groupMessages(messages: Message[]): DisplayItem[] {
   const items: DisplayItem[] = [];
@@ -19,7 +28,7 @@ function groupMessages(messages: Message[]): DisplayItem[] {
   while (i < messages.length) {
     const msg = messages[i];
     if (msg.role === "user") {
-      items.push({ kind: "user", content: msg.content });
+      items.push({ kind: "user", content: msg.content, startedAt: msg.startedAt });
       i += 1;
       continue;
     }
@@ -40,10 +49,27 @@ function groupMessages(messages: Message[]): DisplayItem[] {
 
     const steps = lastTextIdx >= 0 ? assistantMsgs.slice(0, lastTextIdx) : assistantMsgs;
     const finalText = lastTextIdx >= 0 ? assistantMsgs[lastTextIdx] : null;
-    items.push({ kind: "assistant", turn: { steps, finalText } });
+    items.push({
+      kind: "assistant",
+      turn: {
+        steps,
+        finalText,
+        startedAt: resolveTurnStartedAt(assistantMsgs),
+      },
+    });
   }
 
   return items;
+}
+
+function MessageTime({ ts, align }: { ts?: number; align: "left" | "right" }) {
+  const label = formatMessageTime(ts);
+  if (!label) return null;
+  return (
+    <p className={`text-[10px] text-ink-400 mt-1 tabular-nums ${align === "right" ? "text-right" : "text-left"}`}>
+      {label}
+    </p>
+  );
 }
 
 function PiAvatar() {
@@ -55,7 +81,7 @@ function PiAvatar() {
 }
 
 function AssistantTurnBlock({ turn }: { turn: AssistantTurn }) {
-  const { steps, finalText } = turn;
+  const { steps, finalText, startedAt } = turn;
   const hasSteps = steps.length > 0;
   const onlySteps = hasSteps && !finalText;
 
@@ -63,6 +89,7 @@ function AssistantTurnBlock({ turn }: { turn: AssistantTurn }) {
     <div className="flex gap-3 justify-start">
       <PiAvatar />
       <div className="flex-1 min-w-0">
+        <MessageTime ts={startedAt} align="left" />
         {hasSteps && <ExecutionSteps steps={steps} />}
         {finalText && (
           <div className="max-w-[92%]">
@@ -165,8 +192,11 @@ export default function MessageList({ messages }: Props) {
           if (item.kind === "user") {
             return (
               <div key={i} className="flex justify-end">
-                <div className="max-w-[78%] rounded-2.5xl rounded-br-md px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-soft">
-                  {item.content}
+                <div className="max-w-[78%]">
+                  <MessageTime ts={item.startedAt} align="right" />
+                  <div className="rounded-2.5xl rounded-br-md px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-soft">
+                    {item.content}
+                  </div>
                 </div>
               </div>
             );

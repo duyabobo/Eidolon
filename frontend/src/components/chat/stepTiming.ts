@@ -1,5 +1,32 @@
 import type { Message } from "../../context/ChatSessionContext";
 
+/** 消息时间戳展示：今天仅时分秒，跨天带月日 */
+export function formatMessageTime(ts?: number): string | null {
+  if (ts == null || !Number.isFinite(ts)) return null;
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+
+  const time = date.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  if (sameDay) return time;
+
+  const day = date.toLocaleDateString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return `${day} ${time}`;
+}
+
 /** 步骤耗时展示：秒，保留两位小数 */
 export function formatStepSeconds(ms: number | null): string | null {
   if (ms === null) return null;

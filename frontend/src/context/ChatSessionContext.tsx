@@ -588,7 +588,14 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     setError("");
     setIsLoading(true);
     setMessages((prev) => {
-      const next = [...prev, { role: "user" as const, type: "text" as const, content: trimmed }];
+      const now = Date.now();
+      const next = [...prev, {
+        role: "user" as const,
+        type: "text" as const,
+        content: trimmed,
+        startedAt: now,
+        endedAt: now,
+      }];
       messagesRef.current = next;
       return next;
     });
