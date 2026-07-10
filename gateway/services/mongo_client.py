@@ -54,16 +54,16 @@ async def _migrate_utc_naive_to_china_wallclock() -> None:
         for field in ("created_at", "started_at", "completed_at", "updated_at")
     ]
 
-        for collection in (
-            "sessions",
-            "skills",
-            "mcp_servers",
-            "skill_creator_sessions",
-            "llm_call_records",
-            "knowledge_bases",
-            "knowledge_documents",
-            "knowledge_service_configs",
-        ):
+    for collection in (
+        "sessions",
+        "skills",
+        "mcp_servers",
+        "skill_creator_sessions",
+        "llm_call_records",
+        "knowledge_bases",
+        "knowledge_documents",
+        "knowledge_service_configs",
+    ):
         if collection not in await db.list_collection_names():
             continue
         result = await db[collection].update_many({}, shift)
