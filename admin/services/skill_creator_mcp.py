@@ -170,14 +170,15 @@ def build_mcp_prompt_context(infos: list[McpServerToolsInfo]) -> str:
         return ""
 
     lines = [
-        "\n\n---\n\n## 平台注入：MCP Server 工具清单（实时拉取，请据此编写 Skill）\n",
-        "以下工具列表由平台经 **mcp-proxy** 从用户指定的业务 MCP Server 实时拉取。\n",
-        "重要：运行时 Agent 侧唯一可连接的 MCP 名是 **`mcp-proxy`**；",
-        "下方业务 Server 名（如 mrag/tavily）只写入 `mcp_servers` 供平台过滤，",
-        "**禁止**在 Skill 正文中让 Agent 对业务名执行 `mcp({ server: \"业务名\" })` 探测。\n",
-        "编写 Skill 时须在 `content` 中写明：只通过 `mcp-proxy` 列工具/调用；",
-        "已知工具名则直接调用（常见 `mcp_proxy_...`），跳过无谓探测；并写清选用条件与失败降级。\n",
-        "在 `skill-draft` 中设置 `mcp_servers` 即可，**不要**在 references 中写死 tool 列表（运行时由平台实时拉取）。\n",
+        "\n\n---\n\n## 平台注入：MCP Server 工具清单（经 mcp-proxy 按 Server 名实时拉取）\n",
+        "用户已提到 MCP Server；下列 tool list 来自 **mcp-proxy 服务接口**（按业务 Server 名过滤）。\n",
+        "你必须先基于本清单编写 Skill，再描述调用方式；禁止跳过 tool list 臆造工具名。\n",
+        "Skill `content` 须写明运行时标准顺序：",
+        "① 只连 `mcp-proxy` → ② `mcp({ server: \"mcp-proxy\" })` 拉 tool list → ",
+        "③ 结合 Skill 描述与 tool list 再发起工具调用。\n",
+        "业务 Server 名只写入 `mcp_servers` 供平台过滤，",
+        "**禁止**让 Agent 对业务名执行 `mcp({ server: \"业务名\" })`。\n",
+        "**不要**在 references 中写死 tool 列表（运行时再经 mcp-proxy 拉取）。\n",
     ]
     for info in infos:
         lines.append(f"\n### MCP Server `{info.name}` ({info.scope})\n")
@@ -213,9 +214,9 @@ def enrich_draft_with_mcp_reference(draft: SkillDraft, infos: list[McpServerTool
         summary_lines = [
             _MCP_REFERENCE_SECTION,
             "",
-            "Agent 侧唯一 MCP 连接名是 **`mcp-proxy`**。业务 Server 名仅用于平台白名单，不可 `mcp({ server: \"业务名\" })`。",
-            "需要列工具时用 `mcp({ server: \"mcp-proxy\" })`；已知工具名则直接调用，不要对业务名做探测。",
-            "运行时仅加载本 Skill 在 `mcp_servers` 中声明的 Server 对应工具。",
+            "标准顺序：先经 **mcp-proxy** 拉 tool list（`mcp({ server: \"mcp-proxy\" })`），",
+            "再结合本 Skill 描述与 tool list 完成调用；禁止对业务 Server 名做 connect 探测。",
+            "业务名仅写入 `mcp_servers` 供平台白名单过滤。",
             "",
         ]
         for info in infos:

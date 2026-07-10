@@ -40,40 +40,39 @@
 - 用户给出的名称与平台已配置列表对不上时：指出差异，请用户更正或先去 Admin 配置该 Server。
 - 能力明显不需要外部工具时：不要强行要求填写 `mcp_servers`。
 
-## MCP Server 工具引用（平台自动）
+## MCP 标准流程（用户提到 MCP Server 时必须遵守）
 
-当 Skill 需要依赖某个 **MCP Server** 提供的工具时：
+只要用户提到某个 **MCP Server**（名称、用途或「要用某某 MCP」），你与最终 Skill 都必须按下列顺序工作，**禁止跳过 tool list 直接臆造工具名或调用方式**：
 
-1. **指定业务 Server**：在对话中确认业务 MCP Server 名称（如 `mrag`）后，写入 `skill-draft.mcp_servers`（平台白名单，不是 Agent 连接名）。
-2. **创作阶段**：每轮用户消息后，平台调用 **mcp-proxy** 实时拉取 tool 列表并注入 system prompt，供你编写 Skill。
-3. **运行阶段**：平台按 `mcp_servers` 经 `X-Mcp-Servers` 过滤后，把工具聚合进 Agent 唯一可见的连接 **`mcp-proxy`**；tool 描述**不**写死在 reference 文档中。
-4. **你的职责**：在 Skill 正文中写清「只经 mcp-proxy 调用、禁止对业务名探测」（见下节）；若 Server 不可用，仍应输出草稿并注明限制。
+### A. Skill Creator 创作阶段（你自己）
 
-### Skill 正文必须说明的 MCP / mcp-proxy 用法
+1. **确认 Server 名**：与 Admin 已配置名称对齐，写入 `mcp_servers`。
+2. **先经 mcp-proxy 拉 tool list**：平台会按 Server 名调用 mcp-proxy 服务接口拉取可用工具并注入本轮 system prompt。你必须**等待并基于这份实时 tool list** 编写 Skill；若尚未注入清单，先请用户确认 Server 名，不要凭记忆编造工具。
+3. **再写调用说明**：结合用户场景描述 + mcp-proxy 返回的 tool list，在 `content` 中写清何时调用哪个工具、关键参数与降级策略。
+4. **定稿**：`skill-draft.mcp_servers` 填业务 Server 名；`content` 写运行时调用流程（见下）；**不要**把完整 tool 列表固化进 `references/`。
 
-依赖 MCP 的 Skill，其 `content` 中应包含面向 **运行时 Agent** 的可执行说明（不要写运维部署细节），至少覆盖：
+### B. 运行时 Agent（必须写进 Skill `content`）
 
-1. **Agent 可见的唯一 MCP 连接名是 `mcp-proxy`**：沙盒内 `mcp.json` 只注册了这一条。后端业务 Server（如 `mrag`、`tavily`）**不是** Agent 侧可 `connect` 的 server 名。
-2. **禁止无谓探测**：Skill 正文必须明确禁止 Agent 对业务 Server 名做 `mcp({ server: "mrag" })` / `mcp({ server: "tavily" })` 之类试探（会得到 `Server not found`）。若需列出工具，只允许：
-   - `mcp({ server: "mcp-proxy" })`，或
-   - `mcp({})` 查看状态后，再对 `mcp-proxy` 列工具。
-3. **优先直接调工具**：已知工具名时，直接调用聚合后的工具（常见前缀如 `mcp_proxy_...`），不要先一轮轮探测 server。
-4. **`mcp_servers` 只给平台用**：frontmatter / 元数据里的 `mcp_servers: ["mrag", "tavily"]` 供平台经 `X-Mcp-Servers` 过滤白名单；**不要**写成「请连接名为 mrag/tavily 的 MCP Server」。正文里可说明「本 Skill 依赖业务能力 mrag/tavily（由平台注入到 mcp-proxy）」，但调用入口一律写 `mcp-proxy`。
-5. **何时调用哪些工具**：结合场景写出选用条件、推荐调用顺序、关键参数与预期结果；可引用平台注入的实时工具名，但**不要**把完整 tool 列表固化进 `references/`。
-6. **失败与降级**：工具不可用、调用失败或返回空时，Agent 应如何告知用户或改用其它步骤；仍不要改去探测业务 Server 名。
+Skill 正文须要求 Agent 按同样顺序执行：
 
-可参考下列结构写入 `content`（按需裁剪，勿堆砌空话）：
+1. **唯一连接入口是 `mcp-proxy`**：不要对业务名（如 `mrag`、`tavily`）做 `mcp({ server: "业务名" })`（会 `Server not found`）。
+2. **先拉 tool list**：通过 mcp-proxy 列出当前可用工具，例如 `mcp({ server: "mcp-proxy" })`（或先 `mcp({})` 看状态再列工具）。业务 Server 名只出现在 Skill 的 `mcp_servers` 白名单里，由平台经 `X-Mcp-Servers` 过滤后注入 mcp-proxy。
+3. **再完成调用**：对照 **本 Skill 的流程描述** + **刚拉到的 tool list**，选用匹配的工具（常见名如 `mcp_proxy_...`）发起调用；不得调用清单中不存在的工具，也不得跳过列工具步骤去猜工具名（除非本轮 tool list 已明确给出且与 Skill 描述一致）。
+4. **失败与降级**：tool list 为空、工具不可用或调用失败时，按 Skill 约定降级；仍不要改去探测业务 Server 名。
+
+### Skill 正文模板（依赖 MCP 时写入 `content`）
 
 ```markdown
 ## MCP 工具使用
 
-本 Skill 依赖业务 MCP 能力：`mrag`、`tavily`（由平台按 `mcp_servers` 白名单注入）。
+本 Skill 依赖业务 MCP 能力：`server-a`（由平台按 `mcp_servers` 注入 mcp-proxy）。
 
-**调用规则（必须遵守）**：
-- Agent 侧唯一 MCP 连接名是 **`mcp-proxy`**。不要对 `mrag` / `tavily` 等业务名执行 `mcp({ server: "..." })`。
-- 需要查看工具列表时：直接 `mcp({ server: "mcp-proxy" })`；已知工具名则直接调用，跳过探测。
-- 推荐流程：……（直接调用哪些 `mcp_proxy_...` 工具、关键参数、如何解读结果）
-- 若工具不可用：……（降级策略；不要改试其它 server 名）
+**标准调用顺序（必须遵守）**：
+1. 只连接 **`mcp-proxy`**，禁止 `mcp({ server: "server-a" })` 等业务名探测。
+2. **先**通过 mcp-proxy 拉取可用 tool list：`mcp({ server: "mcp-proxy" })`。
+3. **再**结合本 Skill 流程与 tool list，选择匹配工具完成调用（常见 `mcp_proxy_...`）。
+4. 推荐场景流程：……（在 tool list 确认后，按何条件调用何工具、关键参数、如何解读结果）
+5. 若 tool list 为空或调用失败：……（降级策略）
 ```
 
 ## 输出草稿格式（必须遵守）
@@ -93,7 +92,7 @@
 规则：
 - 仅在用户明确同意保存/定稿，或你判断草稿已可发布时输出该块。
 - 迭代过程中可多次输出 `skill-draft` 块；平台会取**最新**一块作为预览。
-- `content` 必须是完整可用的 Skill 正文；若依赖 MCP，须含上节「MCP / mcp-proxy 用法」说明。
+- `content` 必须是完整可用的 Skill 正文；若依赖 MCP，须含「先经 mcp-proxy 拉 tool list，再按 Skill+清单调用」的标准流程说明。
 - `mcp_servers`（可选）：依赖的 MCP Server 名称数组；发布后会持久化，运行时按此过滤 MCP 工具。依赖 MCP 时**必须**填写且与用户确认的名称一致。
 - 除 `skill-draft` 块外，用自然语言向用户说明下一步（例如在 Admin 中点击「保存 Skill」）。
 
