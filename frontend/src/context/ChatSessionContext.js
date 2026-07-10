@@ -439,28 +439,33 @@ export function ChatSessionProvider({ children }) {
     }, []);
     const interrupt = useCallback(async () => {
         const sessionId = sessionIdRef.current;
-        const turnId = activeTurnIdRef.current;
-        if (!sessionId || !turnId || !isLoading)
+        if (!sessionId || !isLoading)
+            return;
+        // 优先用服务端当前活跃 turn，避免 recovery 竞态导致本地 turn 过期、中断被忽略
+        const serverTurn = await getActiveTurn(sessionId).catch(() => null);
+        const turnId = serverTurn ?? activeTurnIdRef.current;
+        if (!turnId)
             return;
         const runtime = sessionRuntimeRef.current.get(sessionId);
         if (runtime?.closeStream)
             runtime.closeStream();
         closeStreamRef.current = null;
-        activeTurnIdRef.current = null;
-        const interruptedMessages = markAllStreamingDone(messagesRef.current);
-        sessionRuntimeRef.current.set(sessionId, {
-            ...(runtime ?? emptyRuntime()),
-            messages: interruptedMessages,
-            activeTurnId: null,
-            isLoading: false,
-            closeStream: null,
-        });
-        messagesRef.current = interruptedMessages;
-        setMessages(interruptedMessages);
-        setIsLoading(false);
-        notifyRuntimeChange();
+        // 中断完成前保持 isLoading，防止立刻发新消息撞上尚未结束的 pi 轮次
         try {
             await cancelTurn(sessionId, turnId);
+            const interruptedMessages = markAllStreamingDone(messagesRef.current);
+            sessionRuntimeRef.current.set(sessionId, {
+                ...(runtime ?? emptyRuntime()),
+                messages: interruptedMessages,
+                activeTurnId: null,
+                isLoading: false,
+                closeStream: null,
+            });
+            messagesRef.current = interruptedMessages;
+            activeTurnIdRef.current = null;
+            setMessages(interruptedMessages);
+            setIsLoading(false);
+            notifyRuntimeChange();
             const detail = await getSessionDetail(sessionId);
             if (detail) {
                 const rebuilt = buildMessagesFromSnapshot(detail.request, detail.events_snapshot);
@@ -470,6 +475,9 @@ export function ChatSessionProvider({ children }) {
         }
         catch (e) {
             setError(e instanceof Error ? e.message : "中断失败");
+            setIsLoading(false);
+            activeTurnIdRef.current = null;
+            notifyRuntimeChange();
         }
     }, [isLoading, loadSessions, notifyRuntimeChange, commitSessionMessages]);
     const send = useCallback(async (text) => {

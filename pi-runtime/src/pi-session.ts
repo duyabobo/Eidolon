@@ -395,10 +395,39 @@ export async function startPiSession(
 
   // ── 返回句柄 ─────────────────────────────────────────────────────────────
 
+  async function cancelActiveTurn(): Promise<void> {
+    if (!activeTurn) {
+      console.warn(`[pi-session] session=${sessionId}: 无活跃轮次，跳过中断`);
+      return;
+    }
+    const turn = activeTurn;
+    console.log(`[pi-session] session=${sessionId} turn=${turn.turnId}: 发送 abort`);
+
+    const abortPayload: PiAbortCommand = { type: "abort" };
+    const abortBashPayload: PiAbortCommand = { type: "abort_bash" };
+    piProcess.stdin!.write(JSON.stringify(abortPayload) + "\n");
+    piProcess.stdin!.write(JSON.stringify(abortBashPayload) + "\n");
+
+    await new Promise<void>((res) => setTimeout(res, CANCEL_ABORT_WAIT_MS));
+    if (activeTurn !== turn) return;
+
+    console.warn(`[pi-session] session=${sessionId} turn=${turn.turnId}: abort 超时，强制结束`);
+    await turn.outputStream.pushCancelled();
+    turn.resolve();
+    activeTurn = null;
+  }
+
   return {
     async sendTurn(turnId: string, message: string, outputStream: SessionOutputStream): Promise<void> {
       if (activeTurn) {
-        throw new Error(`session=${sessionId}: 上一轮 turn=${activeTurn.turnId} 尚未结束，不能发送新消息`);
+        if (activeTurn.turnId.startsWith("recovery-")) {
+          console.warn(
+            `[pi-session] session=${sessionId}: 新消息到达，先中断残留 recovery=${activeTurn.turnId}`,
+          );
+          await cancelActiveTurn();
+        } else {
+          throw new Error(`session=${sessionId}: 上一轮 turn=${activeTurn.turnId} 尚未结束，不能发送新消息`);
+        }
       }
 
       return new Promise<void>((resolve, reject) => {
@@ -428,25 +457,7 @@ export async function startPiSession(
     },
 
     async cancelTurn(): Promise<void> {
-      if (!activeTurn) {
-        console.warn(`[pi-session] session=${sessionId}: 无活跃轮次，跳过中断`);
-        return;
-      }
-      const turn = activeTurn;
-      console.log(`[pi-session] session=${sessionId} turn=${turn.turnId}: 发送 abort`);
-
-      const abortPayload: PiAbortCommand = { type: "abort" };
-      const abortBashPayload: PiAbortCommand = { type: "abort_bash" };
-      piProcess.stdin!.write(JSON.stringify(abortPayload) + "\n");
-      piProcess.stdin!.write(JSON.stringify(abortBashPayload) + "\n");
-
-      await new Promise<void>((res) => setTimeout(res, CANCEL_ABORT_WAIT_MS));
-      if (activeTurn !== turn) return;
-
-      console.warn(`[pi-session] session=${sessionId} turn=${turn.turnId}: abort 超时，强制结束`);
-      await turn.outputStream.pushCancelled();
-      turn.resolve();
-      activeTurn = null;
+      await cancelActiveTurn();
     },
   };
 }

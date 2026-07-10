@@ -63,10 +63,18 @@ interface RunningSession {
   startedAt: number;
   activeTurnId?: string;
   activeTurnStream?: SessionOutputStream;
+  /** 串行化同一 session 的轮次，避免 recovery 与业务消息并发抢 activeTurn */
+  turnChain: Promise<void>;
 }
 
 // session 闲置超时（30 分钟无新消息自动关闭）
 const SESSION_INACTIVITY_MS = 30 * 60_000;
+const RECOVERY_TURN_PREFIX = "recovery-";
+const ACTIVE_TURN_TTL_SECONDS = 3600;
+
+function isRecoveryTurn(turnId: string): boolean {
+  return turnId.startsWith(RECOVERY_TURN_PREFIX);
+}
 
 function skillIdsEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -76,6 +84,8 @@ function skillIdsEqual(a: string[], b: string[]): boolean {
 }
 
 const runningSessions = new Map<string, RunningSession>();
+/** 防止同一 session 并发 startAndRegisterSession 拉起多个 pi 进程 */
+const sessionStartGates = new Map<string, Promise<RunningSession>>();
 
 // ── 实例心跳 ─────────────────────────────────────────────────────────────────
 
@@ -201,6 +211,7 @@ async function startAndRegisterSession(
     cancelSubscriber,
     inactivityTimer: setTimeout(() => {}, 0), // 占位，立即被 resetInactivityTimer 覆盖
     startedAt: Date.now(),
+    turnChain: Promise.resolve(),
   };
   runningSessions.set(sessionId, running);
   resetInactivityTimer(running);
@@ -275,16 +286,46 @@ async function restartPiForSession(
 
 // ── 处理新 session（第一条消息，创建 pi 进程）───────────────────────────────
 
+async function ensureSessionStarted(
+  sessionId: string,
+  userId: string,
+  skillIds: string[],
+): Promise<RunningSession> {
+  const existing = runningSessions.get(sessionId);
+  if (existing) return existing;
+
+  let gate = sessionStartGates.get(sessionId);
+  if (!gate) {
+    gate = startAndRegisterSession(sessionId, userId, skillIds).finally(() => {
+      if (sessionStartGates.get(sessionId) === gate) {
+        sessionStartGates.delete(sessionId);
+      }
+    });
+    sessionStartGates.set(sessionId, gate);
+  }
+  return gate;
+}
+
 async function openSession(payload: NewSessionPayload): Promise<void> {
   const { session_id, user_id, request, turn_id, skill_ids = [] } = payload;
+  const recovery = isRecoveryTurn(turn_id);
 
-  if (runningSessions.has(session_id)) {
-    console.warn(`[worker] session=${session_id} 已在运行中，跳过重复创建`);
+  // recovery 与正常创建并发时：若 session 已在运行/启动，直接跳过，避免双开 pi、重复 prompt
+  if (recovery && (runningSessions.has(session_id) || sessionStartGates.has(session_id))) {
+    console.warn(`[worker] session=${session_id}: 已在运行/启动中，跳过 recovery turn=${turn_id}`);
     return;
   }
 
   console.log(`[worker] 创建 session: session=${session_id} user=${user_id} turn=${turn_id}`);
-  const running = await startAndRegisterSession(session_id, user_id, skill_ids);
+  const running = await ensureSessionStarted(session_id, user_id, skill_ids);
+
+  if (recovery && running.activeTurnId) {
+    console.warn(
+      `[worker] session=${session_id}: 已有活跃 turn=${running.activeTurnId}，跳过 recovery turn=${turn_id}`,
+    );
+    return;
+  }
+
   await sendTurnToSession(running, turn_id, request);
 }
 
@@ -297,7 +338,7 @@ async function handleNewMessage(payload: NewMessagePayload): Promise<void> {
   if (!running) {
     // pi 进程不在内存中（崩溃或被清理），自动重建后继续处理本条消息
     console.warn(`[worker] session=${session_id}: pi 进程不存在，自动重建`);
-    running = await startAndRegisterSession(session_id, user_id, skill_ids);
+    running = await ensureSessionStarted(session_id, user_id, skill_ids);
     console.log(`[worker] session=${session_id}: pi 进程重建完成`);
   } else if (!running.piHandle.isAlive()) {
     running = await restartPiForSession(running, skill_ids, "pi_dead");
@@ -309,33 +350,61 @@ async function handleNewMessage(payload: NewMessagePayload): Promise<void> {
   await sendTurnToSession(running, turn_id, request);
 }
 
+async function clearActiveTurnState(running: RunningSession): Promise<void> {
+  await running.piHandle.cancelTurn();
+  await running.activeTurnStream?.expire(ACTIVE_TURN_TTL_SECONDS).catch(() => {});
+  running.activeTurnId = undefined;
+  running.activeTurnStream = undefined;
+}
+
 async function sendTurnToSession(running: RunningSession, turnId: string, request: string): Promise<void> {
-  const { sessionId, userId } = running;
-  setSessionQuestionId(sessionId, turnId);
-  const turnStream = new SessionOutputStream(getRedis(), sessionId, turnId);
-  const startAt = Date.now();
+  const run = async (): Promise<void> => {
+    const { sessionId } = running;
 
-  running.activeTurnId = turnId;
-  running.activeTurnStream = turnStream;
-
-  console.log(`[worker] session=${sessionId} turn=${turnId}: 开始执行，request='${request.slice(0, 80).replace(/\n/g, " ")}'`);
-
-  try {
-    await running.piHandle.sendTurn(turnId, request, turnStream);
-    const elapsed = Date.now() - startAt;
-    await turnStream.expire(3600);
-    console.log(`[worker] session=${sessionId} turn=${turnId}: 执行完成，耗时 ${elapsed}ms`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[worker] session=${sessionId} turn=${turnId}: 执行失败:`, message);
-    await turnStream.pushError(message).catch(() => {});
-    await turnStream.pushDone().catch(() => {});
-  } finally {
-    if (running.activeTurnId === turnId) {
-      running.activeTurnId = undefined;
-      running.activeTurnStream = undefined;
+    if (running.activeTurnId) {
+      if (isRecoveryTurn(turnId)) {
+        console.warn(
+          `[worker] session=${sessionId}: 跳过 recovery（当前活跃 turn=${running.activeTurnId}）`,
+        );
+        return;
+      }
+      console.warn(
+        `[worker] session=${sessionId}: 上一轮 turn=${running.activeTurnId} 未结束，先中断再发送 turn=${turnId}`,
+      );
+      await clearActiveTurnState(running);
     }
-  }
+
+    setSessionQuestionId(sessionId, turnId);
+    const turnStream = new SessionOutputStream(getRedis(), sessionId, turnId);
+    const startAt = Date.now();
+
+    running.activeTurnId = turnId;
+    running.activeTurnStream = turnStream;
+    await getRedis().setex(`session:${sessionId}:active_turn`, ACTIVE_TURN_TTL_SECONDS, turnId);
+
+    console.log(`[worker] session=${sessionId} turn=${turnId}: 开始执行，request='${request.slice(0, 80).replace(/\n/g, " ")}'`);
+
+    try {
+      await running.piHandle.sendTurn(turnId, request, turnStream);
+      const elapsed = Date.now() - startAt;
+      await turnStream.expire(ACTIVE_TURN_TTL_SECONDS);
+      console.log(`[worker] session=${sessionId} turn=${turnId}: 执行完成，耗时 ${elapsed}ms`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[worker] session=${sessionId} turn=${turnId}: 执行失败:`, message);
+      await turnStream.pushError(message).catch(() => {});
+      await turnStream.pushDone().catch(() => {});
+    } finally {
+      if (running.activeTurnId === turnId) {
+        running.activeTurnId = undefined;
+        running.activeTurnStream = undefined;
+      }
+    }
+  };
+
+  const queued = running.turnChain.then(run, run);
+  running.turnChain = queued.then(() => undefined, () => undefined);
+  await queued;
 }
 
 async function handleCancelTurn(sessionId: string, turnId: string): Promise<void> {
@@ -344,14 +413,20 @@ async function handleCancelTurn(sessionId: string, turnId: string): Promise<void
     console.warn(`[worker] session=${sessionId} turn=${turnId}: 中断请求忽略（session 不在运行）`);
     return;
   }
-  if (running.activeTurnId !== turnId) {
-    console.warn(`[worker] session=${sessionId} turn=${turnId}: 中断请求忽略（当前活跃 turn=${running.activeTurnId ?? "无"}）`);
-    return;
+
+  // 前端可能持有部署前旧 turn，或与 recovery 竞态；用户意图是停止当前生成
+  if (running.activeTurnId && running.activeTurnId !== turnId) {
+    console.warn(
+      `[worker] session=${sessionId}: 中断 turn 不匹配 requested=${turnId} active=${running.activeTurnId}，仍中断当前活跃轮次`,
+    );
+  } else if (!running.activeTurnId) {
+    console.warn(`[worker] session=${sessionId} turn=${turnId}: worker 无活跃 turn，仍尝试清理 pi 侧残留`);
+  } else {
+    console.log(`[worker] session=${sessionId} turn=${turnId}: 用户中断，取消 pi 任务`);
   }
 
-  console.log(`[worker] session=${sessionId} turn=${turnId}: 用户中断，取消 pi 任务`);
-  await running.piHandle.cancelTurn();
-  await running.activeTurnStream?.expire(3600).catch(() => {});
+  await clearActiveTurnState(running);
+  await getRedis().del(`session:${sessionId}:active_turn`).catch(() => {});
 }
 
 // ── 全局频道消息处理 ──────────────────────────────────────────────────────────
@@ -392,7 +467,9 @@ async function startSubscriber(): Promise<Redis> {
 
 async function recoverOrphanedSessions(): Promise<void> {
   const sessions = await findOrphanedSessions();
-  const unhandled = sessions.filter((s) => !runningSessions.has(s.session_id));
+  const unhandled = sessions.filter(
+    (s) => !runningSessions.has(s.session_id) && !sessionStartGates.has(s.session_id),
+  );
   if (unhandled.length === 0) return;
 
   console.log(`[worker] 发现 ${unhandled.length} 个孤儿 session，开始恢复...`);
@@ -402,7 +479,7 @@ async function recoverOrphanedSessions(): Promise<void> {
       session_id: s.session_id,
       user_id: s.user_id,
       request: s.request,
-      turn_id: `recovery-${Date.now()}`,
+      turn_id: `${RECOVERY_TURN_PREFIX}${Date.now()}`,
       skill_ids: s.skill_ids,
     }).catch((err) =>
       console.error(`[worker] 恢复 session 失败: session=${s.session_id}`, err)
