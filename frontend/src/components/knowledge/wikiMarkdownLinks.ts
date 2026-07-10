@@ -86,7 +86,7 @@ export function wikiNodeIdFromHref(href: string): string {
  * react-markdown v10 默认只放行 https/http/mailto 等协议。
  * 此函数在默认白名单基础上额外放行 wiki-node: 协议，其余保持原有安全过滤。
  */
-const ALLOWED_PROTOCOL = /^(https?|ircs?|mailto|xmpp|wiki-node)$/i;
+const ALLOWED_PROTOCOL = /^(https?|ircs?|mailto|xmpp|wiki-node|cite-ref)$/i;
 
 export function wikiAwareUrlTransform(url: string): string {
   const colon = url.indexOf(":");

@@ -23,7 +23,7 @@ function trimTrailingEmptyTableColumns(content) {
     return result.join("\n");
 }
 /** 统一 wiki-node 链接写法：wiki-node://id → wiki-node:id */
-function normalizeWikiNodeLinks(content) {
+export function normalizeWikiNodeLinks(content) {
     return content.replace(/wiki-node:\/\/([^\s)]+)/gi, "wiki-node:$1");
 }
 /** 对话 Markdown 预处理：修复表格等常见 LLM 输出格式问题 */

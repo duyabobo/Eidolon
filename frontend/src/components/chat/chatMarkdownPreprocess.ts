@@ -30,7 +30,7 @@ function trimTrailingEmptyTableColumns(content: string): string {
 }
 
 /** 统一 wiki-node 链接写法：wiki-node://id → wiki-node:id */
-function normalizeWikiNodeLinks(content: string): string {
+export function normalizeWikiNodeLinks(content: string): string {
   return content.replace(/wiki-node:\/\/([^\s)]+)/gi, "wiki-node:$1");
 }
 
