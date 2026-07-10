@@ -78,6 +78,7 @@ export function streamTurn(sessionId, turnId, onEvent, onDone, onError, lastSeq 
     const qs = lastSeq !== "0" ? `?last_seq=${encodeURIComponent(lastSeq)}` : "";
     const es = new EventSource(`/sessions/${sessionId}/turns/${turnId}/stream${qs}`);
     let closed = false;
+    let sawEvent = false;
     const close = () => {
         if (closed)
             return;
@@ -85,21 +86,24 @@ export function streamTurn(sessionId, turnId, onEvent, onDone, onError, lastSeq 
         es.close();
     };
     const handlers = {
-        token: (e) => onEvent({ event: "token", data: e.data }),
-        thinking: (e) => onEvent({ event: "thinking", data: e.data }),
-        tool_call: (e) => onEvent({ event: "tool_call", data: e.data }),
-        tool_result: (e) => onEvent({ event: "tool_result", data: e.data }),
-        done: () => { onDone(); close(); },
-        cancelled: () => { onDone(); close(); },
-        error: (e) => { onError(e.data || "执行出错"); close(); },
+        token: (e) => { sawEvent = true; onEvent({ event: "token", data: e.data }); },
+        thinking: (e) => { sawEvent = true; onEvent({ event: "thinking", data: e.data }); },
+        tool_call: (e) => { sawEvent = true; onEvent({ event: "tool_call", data: e.data }); },
+        tool_result: (e) => { sawEvent = true; onEvent({ event: "tool_result", data: e.data }); },
+        done: () => { sawEvent = true; onDone(); close(); },
+        cancelled: () => { sawEvent = true; onDone(); close(); },
+        error: (e) => { sawEvent = true; onError(e.data || "执行出错"); close(); },
         heartbeat: () => { },
     };
     Object.entries(handlers).forEach(([ev, fn]) => es.addEventListener(ev, fn));
+    // EventSource 在自动重连时也会触发 error；仅在真正 CLOSED 时才结束，避免误杀流式
     es.onerror = () => {
         if (closed)
             return;
-        onError("SSE 连接中断");
-        close();
+        if (es.readyState === EventSource.CLOSED) {
+            onError(sawEvent ? "SSE 连接中断" : "SSE 连接失败");
+            close();
+        }
     };
     return () => close();
 }

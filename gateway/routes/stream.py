@@ -34,20 +34,41 @@ async def stream_turn(
     logger.info("Turn SSE 连接建立: session_id=%s turn_id=%s last_seq=%s", session_id, turn_id, last_seq)
 
     async def event_generator():
+        event_count = 0
         async for item in redis_client.stream_turn_output(session_id, turn_id, start_seq=last_seq):
             if await request.is_disconnected():
+                logger.info(
+                    "Turn SSE 客户端断开: session_id=%s turn_id=%s 累计推送=%d",
+                    session_id, turn_id, event_count,
+                )
                 return
             if item.get("heartbeat"):
                 yield {"event": _HEARTBEAT_EVENT, "data": ""}
                 continue
 
             event_type = item.get("event_type", "token")
+            event_count += 1
+            if event_count == 1:
+                logger.info(
+                    "Turn SSE 首条事件: session_id=%s turn_id=%s event_type=%s",
+                    session_id, turn_id, event_type,
+                )
             yield {"event": event_type, "id": item.get("id"), "data": item.get("content", "")}
 
             if event_type in ("done", "cancelled"):
+                logger.info(
+                    "Turn SSE 结束: session_id=%s turn_id=%s event_type=%s 累计推送=%d",
+                    session_id, turn_id, event_type, event_count,
+                )
                 return
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(
+        event_generator(),
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{session_id}/stream")
@@ -114,4 +135,10 @@ async def pull_session_stream_resp(
             if event_type == "done":
                 return
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(
+        event_generator(),
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )

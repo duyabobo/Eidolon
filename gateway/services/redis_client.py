@@ -185,7 +185,7 @@ async def stream_session_output(
     """
     client = get_redis()
     stream_key = stream_key_override or _get_stream_key(session_id)
-    last_id = start_seq
+    last_id = start_seq if start_seq not in ("0", "") else "0-0"
     heartbeat_count = 0
 
     logger.info("开始读取 Redis Stream: key=%s start_seq=%s", stream_key, start_seq)

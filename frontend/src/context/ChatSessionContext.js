@@ -525,6 +525,10 @@ export function ChatSessionProvider({ children }) {
                     return [entry, ...prev.filter((s) => s.session_id !== sessionId)];
                 });
                 void loadSessions();
+                // 兼容旧 gateway：复用进行中 session 时不会投递本 turn，需补发消息
+                if (resp.status !== "PENDING") {
+                    await sendMessage(sessionId, trimmed, turnId, skillIds);
+                }
             }
             else {
                 await sendMessage(sessionId, trimmed, turnId, skillIds);
