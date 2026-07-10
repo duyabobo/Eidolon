@@ -513,6 +513,18 @@ export function ChatSessionProvider({ children }) {
                 setCurrentSessionId(sessionId);
                 localStorage.setItem("pi_session_id", sessionId);
                 sessionRuntimeRef.current.set(sessionId, emptyRuntime(messagesRef.current));
+                // 首条输入落库后立刻写入历史列表，关页后再打开也能看到
+                setSessions((prev) => {
+                    const entry = {
+                        session_id: sessionId,
+                        status: resp.status,
+                        request: trimmed,
+                        created_at: new Date().toISOString(),
+                        completed_at: null,
+                    };
+                    return [entry, ...prev.filter((s) => s.session_id !== sessionId)];
+                });
+                void loadSessions();
             }
             else {
                 await sendMessage(sessionId, trimmed, turnId, skillIds);
@@ -524,7 +536,7 @@ export function ChatSessionProvider({ children }) {
             setError(e instanceof Error ? e.message : "请求失败");
             setIsLoading(false);
         }
-    }, [userId, isLoading, attachTurnStream]);
+    }, [userId, isLoading, attachTurnStream, loadSessions]);
     const value = {
         userId,
         setUserId,

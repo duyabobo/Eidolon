@@ -19,13 +19,9 @@ router = APIRouter(prefix="/sessions", tags=["session"])
 async def create_session(body: CreateSessionRequest) -> CreateSessionResponse:
     """
     创建新 session（打开新 chat 窗口 + 发送第一条消息）。
+    每次新对话都落一条新记录，保证历史列表立刻可见；先写 Mongo 再投递执行任务。
     session_id 由后端生成，前端需提供 turn_id（供 SSE stream 订阅）。
     """
-    existing = await mongo_client.find_active_session_by_request(body.user_id, body.request)
-    if existing:
-        logger.info("复用进行中的 session: %s user=%s", existing.id, body.user_id)
-        return CreateSessionResponse(session_id=existing.id, status=existing.status)
-
     session_id = str(uuid.uuid4())
     logger.info("新建 session: session_id=%s user=%s turn_id=%s skill_ids=%s request='%s'",
                 session_id, body.user_id, body.turn_id, body.skill_ids,

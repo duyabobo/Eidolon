@@ -23,6 +23,8 @@ export async function createSession(userId, request, turnId, skillIds = []) {
     const resp = await apiFetch("/sessions", {
         method: "POST",
         body: JSON.stringify({ user_id: userId, request, turn_id: turnId, skill_ids: skillIds }),
+        // 关页/刷新时尽量仍完成落库，保证历史列表能看到新会话
+        keepalive: true,
     });
     await throwIfNotOk(resp);
     return resp.json();
