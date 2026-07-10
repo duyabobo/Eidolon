@@ -2,9 +2,9 @@ import logging
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from pi_shared import now_china
 
 from config import settings
-from datetime import datetime
 from models.config import McpConfig, SkillMeta
 
 logger = logging.getLogger(__name__)
@@ -85,7 +85,7 @@ async def list_skill_metas() -> list[SkillMeta]:
 
 
 async def save_skill_meta(meta: SkillMeta) -> SkillMeta:
-    meta.updated_at = datetime.utcnow()
+    meta.updated_at = now_china()
     # created_at 仅在首次插入时写入（$setOnInsert），更新时不能同时出现在 $set 里，否则 MongoDB 报冲突
     set_data = {k: v for k, v in meta.model_dump().items() if k != "created_at"}
     await get_db()[_SKILL_COLLECTION].update_one(

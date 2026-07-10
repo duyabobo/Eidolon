@@ -1,8 +1,8 @@
 import logging
-from datetime import datetime
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pi_shared import now_china
 
 from models.config import McpConfig, McpServerConfig
 
@@ -48,8 +48,8 @@ async def migrate_legacy_config(db: AsyncIOMotorDatabase) -> None:
             "description": cfg.get("description", ""),
             "enabled": cfg.get("enabled", True),
             "api_key": cfg.get("api_key", ""),
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": now_china(),
+            "updated_at": now_china(),
         }
         await db[_COLLECTION].insert_one(doc)
         migrated += 1
@@ -77,7 +77,7 @@ async def upsert_server(
     cfg: McpServerConfig,
     user_id: str | None,
 ) -> None:
-    now = datetime.utcnow()
+    now = now_china()
     existing = await db[_COLLECTION].find_one(_meta_key(name, user_id))
     api_key = cfg.api_key.strip()
     if not api_key and existing and existing.get("api_key"):

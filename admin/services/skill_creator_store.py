@@ -2,6 +2,8 @@ import logging
 import uuid
 from datetime import datetime
 
+from pi_shared import now_china
+
 from models.skill_creator import SkillCreatorMessage, SkillCreatorSession, SkillDraft
 from services.mongo_client import get_db
 
@@ -11,7 +13,7 @@ _COLLECTION = "skill_creator_sessions"
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return now_china()
 
 
 async def create_session(user_id: str | None = None) -> SkillCreatorSession:

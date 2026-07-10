@@ -1,5 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel, model_validator
+from pi_shared import now_china
 
 
 class McpServerConfig(BaseModel):
@@ -49,7 +50,7 @@ class SkillMeta(BaseModel):
     updated_at: datetime = None  # type: ignore[assignment]
 
     def model_post_init(self, __context: object) -> None:
-        now = datetime.utcnow()
+        now = now_china()
         if self.created_at is None:
             self.created_at = now
         if self.updated_at is None:

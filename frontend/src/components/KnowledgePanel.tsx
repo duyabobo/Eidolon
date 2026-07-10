@@ -5,6 +5,7 @@ import {
   ensureKnowledgeKey, formatFileSize, docStatusLabel,
 } from "../api/knowledge";
 import { setKnowledgeSceneUid } from "../api/knowledgeKeyCache";
+import { formatChinaDateTime } from "../utils/datetime";
 import { ConfigActionBtn, ConfigPrimaryBtn, ConfigToolbarBtn } from "./config/ConfigActionBtn";
 import { ConfigListItem } from "./config/ConfigListItem";
 import {
@@ -262,7 +263,10 @@ function DocumentSection({
               key={doc.id}
               title={doc.name}
               meta={<StatusBadge status={doc.status} />}
-              subtitle={`${formatFileSize(doc.file_size)} · ${new Date(doc.created_at).toLocaleString("zh-CN")}`}
+              subtitle={`${formatFileSize(doc.file_size)} · ${formatChinaDateTime(doc.created_at, {
+                year: "numeric", month: "2-digit", day: "2-digit",
+                hour: "2-digit", minute: "2-digit", hour12: false,
+              })}`}
               actions={(
                 <>
                   <ConfigActionBtn variant="violet" onClick={() => openWiki(doc)}>图谱</ConfigActionBtn>

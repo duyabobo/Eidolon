@@ -38,6 +38,7 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "9001"
+      TZ: "Asia/Shanghai"
     ports:
       - "9001:9001"
     volumes:
@@ -62,6 +63,7 @@ services:
     environment:
       ADMIN_HOST: "0.0.0.0"
       ADMIN_PORT: "9000"
+      TZ: "Asia/Shanghai"
       SANDBOX_ROOT: "/data/sandboxes"
       LLM_PROXY_BASE_URL: "http://llm-proxy:9001"
       MCP_PROXY_BASE_URL: "http://mcp-proxy:8080"
@@ -95,6 +97,7 @@ services:
     environment:
       GATEWAY_HOST: "0.0.0.0"
       GATEWAY_PORT: "8000"
+      TZ: "Asia/Shanghai"
       MCP_PROXY_BASE_URL: "http://mcp-proxy:8080"
     ports:
       - "8000:8000"
@@ -143,6 +146,7 @@ services:
     env_file: .env
     environment:
       OPENAI_API_KEY: "pi-agent-internal"
+      TZ: "Asia/Shanghai"
       SANDBOX_ROOT: "/data/sandboxes"
       LLM_PROXY_HOST: "llm-proxy"
       LLM_PROXY_PORT: "9001"
@@ -181,6 +185,7 @@ services:
     env_file: .env
     environment:
       MCP_PROXY_PORT: "8080"
+      TZ: "Asia/Shanghai"
     volumes:
       - ./logs/mcp-proxy:/app/logs
     networks:

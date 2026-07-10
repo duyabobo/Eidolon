@@ -1,6 +1,4 @@
 import logging
-from datetime import datetime
-
 from models.config import SkillMeta
 from models.skill_creator import (
     PublishSkillRequest,
@@ -9,6 +7,7 @@ from models.skill_creator import (
     SkillCreatorSession,
     SkillDraft,
 )
+from pi_shared import now_china
 from services import skill_creator_store
 from services.skill_creator_llm import chat_completion
 from services.skill_creator_mcp import (
@@ -69,7 +68,7 @@ async def start_session(
 
     session = await skill_creator_store.create_session(user_id)
     welcome_text = _WELCOME_USER if user_id else _WELCOME_SYSTEM
-    welcome = SkillCreatorMessage(role="assistant", content=welcome_text, created_at=datetime.utcnow())
+    welcome = SkillCreatorMessage(role="assistant", content=welcome_text, created_at=now_china())
     await skill_creator_store.set_initial_message(session.id, welcome, None)
     session.messages = [welcome]
     logger.info(
@@ -93,7 +92,7 @@ async def reset_session(session_id: str) -> SkillCreatorSession:
 
     await skill_creator_store.reset_messages(session_id)
     welcome_text = _WELCOME_USER if session.user_id else _WELCOME_SYSTEM
-    welcome = SkillCreatorMessage(role="assistant", content=welcome_text, created_at=datetime.utcnow())
+    welcome = SkillCreatorMessage(role="assistant", content=welcome_text, created_at=now_china())
     await skill_creator_store.set_initial_message(session_id, welcome, None)
     session.messages = [welcome]
     session.draft = None
@@ -134,7 +133,7 @@ async def send_user_message(session_id: str, content: str) -> SendMessageRespons
     if session is None:
         raise LookupError("会话不存在")
 
-    user_message = SkillCreatorMessage(role="user", content=content, created_at=datetime.utcnow())
+    user_message = SkillCreatorMessage(role="user", content=content, created_at=now_china())
     llm_messages = _to_llm_messages(session.messages) + [{"role": "user", "content": content}]
     history_text = _history_text(session.messages)
 
@@ -150,7 +149,7 @@ async def send_user_message(session_id: str, content: str) -> SendMessageRespons
     draft = extract_skill_draft(raw_reply) or session.draft
     draft = await _finalize_draft_with_mcp(session.user_id, draft, content, history_text)
     display = strip_skill_draft_blocks(raw_reply)
-    assistant_message = SkillCreatorMessage(role="assistant", content=display, created_at=datetime.utcnow())
+    assistant_message = SkillCreatorMessage(role="assistant", content=display, created_at=now_china())
 
     await skill_creator_store.append_messages(session_id, user_message, assistant_message, draft)
     return SendMessageResponse(message=assistant_message, draft=draft)

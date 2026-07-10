@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -20,7 +20,7 @@ from models.knowledge import (
     KnowledgeDocumentList,
     KnowledgeKeyResponse,
 )
-from pi_shared import merge_trace_headers
+from pi_shared import format_iso, merge_trace_headers, now_china, to_china
 from services.knowledge_config_store import get_service_config, normalize_base_url
 
 logger = logging.getLogger(__name__)
@@ -111,14 +111,15 @@ def _paginated_payload(data: Any) -> tuple[list[Any], int]:
 
 def _parse_dt(value: Any) -> datetime:
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return to_china(value)
     if isinstance(value, str) and value.strip():
         text = value.strip().replace(" ", "T")
         try:
-            return datetime.fromisoformat(text).replace(tzinfo=timezone.utc)
+            parsed = datetime.fromisoformat(text)
+            return to_china(parsed) if parsed.tzinfo else parsed
         except ValueError:
             pass
-    return datetime.now(timezone.utc)
+    return now_china()
 
 
 def _map_dataset(raw: dict) -> KnowledgeBase:
@@ -147,7 +148,7 @@ def _map_document(kb_id: str, raw: dict) -> KnowledgeDocument:
     else:
         file_size = int(file_size_raw)
 
-    now = datetime.now(timezone.utc)
+    now = now_china()
     created = _parse_dt(raw.get("created_at")) if raw.get("created_at") else now
     updated = _parse_dt(raw.get("updated_at")) if raw.get("updated_at") else created
     return KnowledgeDocument(
@@ -260,8 +261,8 @@ async def create_base(knowledge_key: str, body: KnowledgeBaseCreate) -> Knowledg
         type=body.type,
         document_count=0,
         chunking_config=body.chunking_config,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=now_china(),
+        updated_at=now_china(),
     )
 
 
@@ -391,8 +392,8 @@ async def upload_document(knowledge_key: str, kb_id: str, upload: UploadFile) ->
         "file_name": filename,
         "file_size": len(content),
         "status": "pending",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": format_iso(now_china()),
+        "updated_at": format_iso(now_china()),
     })
 
 

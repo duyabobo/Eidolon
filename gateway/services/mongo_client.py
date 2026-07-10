@@ -1,8 +1,8 @@
 import logging
-from datetime import datetime
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from pi_shared import now_china, now_china_ms
 
 from config import settings
 from models.session import SessionDocument, SessionStatus, SessionSummary
@@ -25,7 +25,55 @@ async def connect() -> None:
 
     await mcp_mongo.ensure_mcp_indexes()
     await skill_mongo.ensure_skill_indexes()
+    await _migrate_utc_naive_to_china_wallclock()
     logger.info("MongoDB 连接成功: %s / %s", settings.mongo_uri, settings.mongo_db)
+
+
+_CHINA_OFFSET_MS = 8 * 60 * 60 * 1000
+_MIGRATION_ID = "china_wallclock_v1"
+
+
+async def _migrate_utc_naive_to_china_wallclock() -> None:
+    """历史数据按 UTC naive 写入；一次性 +8h 转为东八区墙钟，避免列表时间少 8 小时。"""
+    db = get_db()
+    if await db.system_migrations.find_one({"_id": _MIGRATION_ID}):
+        return
+
+    shift = [
+        {
+            "$set": {
+                field: {
+                    "$cond": [
+                        {"$eq": [{"$type": f"${field}"}, "date"]},
+                        {"$add": [f"${field}", _CHINA_OFFSET_MS]},
+                        f"${field}",
+                    ]
+                }
+            }
+        }
+        for field in ("created_at", "started_at", "completed_at", "updated_at")
+    ]
+
+        for collection in (
+            "sessions",
+            "skills",
+            "mcp_servers",
+            "skill_creator_sessions",
+            "llm_call_records",
+            "knowledge_bases",
+            "knowledge_documents",
+            "knowledge_service_configs",
+        ):
+        if collection not in await db.list_collection_names():
+            continue
+        result = await db[collection].update_many({}, shift)
+        logger.info(
+            "东八区时间迁移 collection=%s matched=%d modified=%d",
+            collection, result.matched_count, result.modified_count,
+        )
+
+    await db.system_migrations.insert_one({"_id": _MIGRATION_ID, "applied_at": now_china()})
+    logger.info("东八区时间迁移完成 migration=%s", _MIGRATION_ID)
 
 
 async def disconnect() -> None:
@@ -50,7 +98,7 @@ async def create_session(
         conversation_id=conversation_id,
         request=request,
         skill_ids=skill_ids or [],
-        events_snapshot=[{"event_type": "user_message", "content": request, "ts": int(datetime.utcnow().timestamp() * 1000)}],
+        events_snapshot=[{"event_type": "user_message", "content": request, "ts": now_china_ms()}],
     )
     db = get_db()
     await db.sessions.insert_one(doc.model_dump(by_alias=True))
@@ -179,10 +227,10 @@ async def update_session_status(
 ) -> None:
     update: dict[str, Any] = {"status": status}
     if status == SessionStatus.RUNNING:
-        update["started_at"] = datetime.utcnow()
+        update["started_at"] = now_china()
     elif status in (SessionStatus.COMPLETED, SessionStatus.FAILED):
         # IDLE 不写 completed_at，保留其可重启语义
-        update["completed_at"] = datetime.utcnow()
+        update["completed_at"] = now_china()
     if extra_fields:
         update.update(extra_fields)
 

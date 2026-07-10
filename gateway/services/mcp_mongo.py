@@ -1,6 +1,7 @@
 import logging
-from datetime import datetime
 from typing import Any
+
+from pi_shared import now_china
 
 from models.mcp import McpScope, McpServerItem
 from services.mongo_client import get_db
@@ -72,7 +73,7 @@ async def upsert_user_server(
     enabled: bool,
     api_key: str = "",
 ) -> McpServerItem:
-    now = datetime.utcnow()
+    now = now_china()
     existing = await get_db()[_COLLECTION].find_one(_meta_key(name, user_id))
     resolved_key = api_key.strip()
     if not resolved_key and existing and existing.get("api_key"):

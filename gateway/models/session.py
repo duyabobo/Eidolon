@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+from pi_shared import now_china
 
 
 class SessionStatus(str, Enum):
@@ -24,7 +25,7 @@ class SessionDocument(BaseModel):
     request: str
     skill_ids: list[str] = Field(default_factory=list)
     events_snapshot: list[dict[str, Any]] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_china)
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None

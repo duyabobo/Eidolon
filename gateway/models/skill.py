@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
+from pi_shared import now_china
 
 
 class SkillScope(str, Enum):
@@ -16,8 +17,8 @@ class SkillMeta(BaseModel):
     tags: list[str] = Field(default_factory=list)
     mcp_servers: list[str] = Field(default_factory=list)
     hidden: bool = False
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_china)
+    updated_at: datetime = Field(default_factory=now_china)
 
 
 class SkillListItem(BaseModel):

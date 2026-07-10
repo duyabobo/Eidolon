@@ -1,11 +1,12 @@
 import logging
 import shutil
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pi_shared import now_china
 
 from config import settings
 from models.knowledge import (
@@ -28,7 +29,7 @@ MAX_FILE_BYTES = 10 * 1024 * 1024
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return now_china()
 
 
 def _knowledge_root() -> Path:

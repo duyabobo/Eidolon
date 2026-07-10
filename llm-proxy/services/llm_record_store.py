@@ -1,7 +1,8 @@
 import logging
 import uuid
-from datetime import UTC, datetime
 from typing import Any
+
+from pi_shared import now_china
 
 from models.config import LlmConfig
 from models.llm_record import LlmCallRecord, LlmCallRecordSummary
@@ -58,7 +59,7 @@ async def finalize_record(
             "status": status,
             "error": error,
             "latency_ms": latency_ms,
-            "completed_at": datetime.now(UTC),
+            "completed_at": now_china(),
         },
     )
     logger.info(

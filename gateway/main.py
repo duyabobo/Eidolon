@@ -4,11 +4,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from pi_shared import AccessLogMiddleware, setup_logging
+from pi_shared import AccessLogMiddleware, install_json_encoders, setup_logging
 from routes import mcp, session, skills, stream
 from services import mongo_client, redis_client
 
 setup_logging("gateway")
+install_json_encoders()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Pi Agent Gateway", version="1.0.0")

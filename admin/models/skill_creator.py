@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from pi_shared import now_china
 
 
 class SkillDraft(BaseModel):
@@ -16,7 +17,7 @@ class SkillDraft(BaseModel):
 class SkillCreatorMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_china)
 
 
 class SkillCreatorSession(BaseModel):
@@ -28,8 +29,8 @@ class SkillCreatorSession(BaseModel):
     published: bool = False
     # 发布后记录对应的 Skill 名称，用于"编辑已保存 Skill"时精确查找会话
     skill_name: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_china)
+    updated_at: datetime = Field(default_factory=now_china)
 
 
 class CreateSessionResponse(BaseModel):

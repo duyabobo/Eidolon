@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useChatSession } from "../context/ChatSessionContext";
+import { formatChinaDateTime } from "../utils/datetime";
 
 export default function HistoryPage() {
   const navigate = useNavigate();
@@ -106,11 +107,7 @@ export default function HistoryPage() {
                       s.status === "RUNNING" ? "bg-amber-400" :
                       s.status === "FAILED" ? "bg-rose-400" : "bg-ink-300"
                     }`} />
-                    <span>
-                      {new Date(s.created_at).toLocaleString("zh-CN", {
-                        month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
-                      })}
-                    </span>
+                    <span>{formatChinaDateTime(s.created_at)}</span>
                   </p>
                 </button>
               ))}

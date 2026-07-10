@@ -1,7 +1,8 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pi_shared import now_china
 
 from constants.knowledge import KNOWLEDGE_ENVIRONMENT_LABELS, knowledge_environment_urls
 from models.knowledge import (
@@ -22,7 +23,7 @@ async def ensure_indexes(db: AsyncIOMotorDatabase) -> None:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return now_china()
 
 
 def normalize_base_url(url: str) -> str:

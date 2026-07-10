@@ -1,6 +1,7 @@
 import logging
-from datetime import datetime
 from typing import Any
+
+from pi_shared import now_china
 
 from models.skill import SkillListItem, SkillMeta, SkillScope
 from services.mongo_client import get_db
@@ -60,7 +61,7 @@ async def list_skills_for_user(user_id: str | None) -> list[SkillListItem]:
 
 
 async def save_skill_meta(meta: SkillMeta) -> SkillMeta:
-    meta.updated_at = datetime.utcnow()
+    meta.updated_at = now_china()
     # created_at 仅在首次插入时写入（$setOnInsert），更新时不能同时出现在 $set 里，否则 MongoDB 报冲突
     set_data = {k: v for k, v in meta.model_dump().items() if k != "created_at"}
     await get_db()[_SKILL_COLLECTION].update_one(

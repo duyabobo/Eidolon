@@ -1,7 +1,8 @@
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+from pi_shared import now_china
 
 
 class LlmCallRecord(BaseModel):
@@ -17,7 +18,7 @@ class LlmCallRecord(BaseModel):
     protocol: str
     base_url: str
     request_body: dict[str, Any]
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=now_china)
     completed_at: datetime | None = None
     latency_ms: int | None = None
 

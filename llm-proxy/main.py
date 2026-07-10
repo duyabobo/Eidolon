@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from pi_shared import AccessLogMiddleware, setup_logging
+from pi_shared import AccessLogMiddleware, install_json_encoders, setup_logging
 from routes import proxy
 from routes.llm_config import router as llm_config_router
 from routes.replay import router as replay_router
@@ -11,6 +11,7 @@ from services import mongo_client
 from services.llm_config_store import load_from_db
 
 setup_logging("llm-proxy")
+install_json_encoders()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Pi Agent LLM Proxy", version="1.0.0")
