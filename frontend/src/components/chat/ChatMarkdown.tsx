@@ -1,8 +1,10 @@
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
+import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
+import { preprocessChatMarkdown } from "./chatMarkdownPreprocess";
 
 interface ChatMarkdownProps {
   content: string;
@@ -24,6 +26,11 @@ const markdownComponents: Components = {
       </a>
     );
   },
+  table: ({ children }) => (
+    <div className="chat-md-table-wrap overflow-x-auto -mx-1 px-1 my-2">
+      <table>{children}</table>
+    </div>
+  ),
 };
 
 export default function ChatMarkdown({
@@ -33,15 +40,17 @@ export default function ChatMarkdown({
 }: ChatMarkdownProps) {
   if (!content && !streaming) return null;
 
+  const processed = content ? preprocessChatMarkdown(content) : "";
+
   return (
     <div className={`chat-md prose prose-sm max-w-none text-ink-900 ${className}`.trim()}>
-      {content ? (
+      {processed ? (
         <ReactMarkdown
-          remarkPlugins={[remarkMath]}
+          remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
           components={markdownComponents}
         >
-          {content}
+          {processed}
         </ReactMarkdown>
       ) : null}
       {streaming && (

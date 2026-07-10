@@ -151,7 +151,8 @@
   .chat-md .katex-display { @apply overflow-x-auto py-2; }
   .chat-md .katex { @apply text-[1em]; }
   .chat-md a { @apply text-brand-600 hover:text-brand-700 hover:underline; }
-  .chat-md table { @apply w-full text-sm border-collapse mb-2; }
-  .chat-md th, .chat-md td { @apply border border-ink-200 px-2 py-1 text-left; }
+  .chat-md-table-wrap table { @apply w-full min-w-max text-sm border-collapse; }
+  .chat-md th, .chat-md td { @apply border border-ink-200 px-2 py-1.5 text-left align-top whitespace-nowrap; }
+  .chat-md th { @apply bg-ink-50 font-medium text-ink-700; }
   .chat-md hr { @apply my-3 border-ink-200; }
 }

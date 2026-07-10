@@ -132,6 +132,43 @@ function markAllStreamingDone(prev) {
         return next;
     });
 }
+function assistantContentLength(msgs) {
+    return msgs
+        .filter((m) => m.role === "assistant")
+        .reduce((n, m) => n + (m.content?.length ?? 0), 0);
+}
+/** 取 assistant 内容更完整的一份，避免 snapshot 尚未入库时用空数据覆盖内存消息 */
+function pickRicherMessages(memory, snapshot) {
+    const memoryLen = assistantContentLength(memory);
+    const snapshotLen = assistantContentLength(snapshot);
+    if (snapshotLen > memoryLen)
+        return snapshot;
+    if (memoryLen > snapshotLen)
+        return memory;
+    return snapshot.length >= memory.length ? snapshot : memory;
+}
+async function rebuildMessagesFromSession(sid, memory, maxAttempts = 3) {
+    let best = memory;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        try {
+            const detail = await getSessionDetail(sid);
+            if (!detail)
+                break;
+            const snapshot = buildMessagesFromSnapshot(detail.request, detail.events_snapshot);
+            best = pickRicherMessages(memory, snapshot);
+            if (assistantContentLength(best) >= assistantContentLength(memory)) {
+                return best;
+            }
+        }
+        catch {
+            break;
+        }
+        if (attempt < maxAttempts - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+        }
+    }
+    return best;
+}
 const ChatSessionContext = createContext(null);
 export function useChatSession() {
     const ctx = useContext(ChatSessionContext);
@@ -234,17 +271,8 @@ export function ChatSessionProvider({ children }) {
         const onDone = () => {
             void (async () => {
                 const runtime = sessionRuntimeRef.current.get(sid) ?? emptyRuntime();
-                let doneMessages = markAllStreamingDone(runtime.messages);
-                // 与刷新一致：turn 结束后用 snapshot 重建，修正流式拼接期间可能丢掉的 token
-                try {
-                    const detail = await getSessionDetail(sid);
-                    if (detail) {
-                        doneMessages = buildMessagesFromSnapshot(detail.request, detail.events_snapshot);
-                    }
-                }
-                catch {
-                    // 保留内存中的消息
-                }
+                const memoryMessages = markAllStreamingDone(sid === sessionIdRef.current ? messagesRef.current : runtime.messages);
+                const doneMessages = await rebuildMessagesFromSession(sid, memoryMessages);
                 sessionRuntimeRef.current.set(sid, {
                     ...runtime,
                     messages: doneMessages,
@@ -455,7 +483,14 @@ export function ChatSessionProvider({ children }) {
         setError("");
         setIsLoading(true);
         setMessages((prev) => {
-            const next = [...prev, { role: "user", type: "text", content: trimmed }];
+            const now = Date.now();
+            const next = [...prev, {
+                    role: "user",
+                    type: "text",
+                    content: trimmed,
+                    startedAt: now,
+                    endedAt: now,
+                }];
             messagesRef.current = next;
             return next;
         });
