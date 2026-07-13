@@ -41,3 +41,4 @@ logs/
 
 # Runtime artifacts
 /tmp/pi-sandbox/
+docs/*
