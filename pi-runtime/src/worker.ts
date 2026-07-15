@@ -14,7 +14,10 @@
 import Redis from "ioredis";
 import os from "os";
 import { join } from "path";
+import { setupFileLogging } from "./file-logger";
 import { config } from "./config";
+
+setupFileLogging();
 import {
   claimTaskExecution,
   completeTask,

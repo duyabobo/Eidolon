@@ -197,6 +197,7 @@ services:
       #   users/{uid}/workspace/  home/  skills/  sessions/ 
       #   global/skills/  ← admin 写入的全局 skill
       - sandbox_workspaces:/data/sandboxes
+      - ./logs/pi-runtime:/app/logs
     networks:
       - pi_net
     depends_on:
