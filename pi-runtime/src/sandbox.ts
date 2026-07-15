@@ -125,6 +125,7 @@ export async function purgeSessionData(userId: string, sessionId: string): Promi
  *   - --ro-bind / /        根文件系统只读（提供系统工具和 pi 可执行文件）
  *   - --tmpfs sandboxRoot  对沙盒内隐藏其他 session/user 目录
  *   - --bind workspace/home/tmp  session 专属目录可读写
+ *   - --bind sessionTmp → /tmp  覆盖根文件系统只读的 /tmp（pi bash 日志等写 /tmp）
  *   - --bind userMemory    用户级记忆目录可读写（跨 session 共享）
  *   - --bind userPiSessions pi JSONL 会话目录可读写（跨 session 共享，用于恢复短期记忆）
  *   - --bind userFiles     用户可读写文件区（管理页上传，跨 session 共享）
@@ -148,6 +149,8 @@ export function buildOuterSandboxArgs(
     "--bind", paths.workspace, paths.workspace,
     "--bind", paths.home, paths.home,
     "--bind", paths.sessionTmp, paths.sessionTmp,
+    // --ro-bind / / 会使 /tmp 只读；pi 的 bash 工具会写 /tmp/pi-bash-*.log，必须可写
+    "--bind", paths.sessionTmp, "/tmp",
     "--bind", paths.userMemory, paths.userMemory,
     "--bind", paths.userPiSessions, paths.userPiSessions,
     "--bind", paths.userFiles, paths.userFiles,

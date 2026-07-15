@@ -80,7 +80,10 @@ function buildBwrapArgs(cmd: string): string[] {
     "--tmpfs", sandboxRoot,
     "--bind", sandboxWorkspace, sandboxWorkspace,
     "--bind", sandboxHome, sandboxHome,
-    ...(sandboxTmp ? ["--bind", sandboxTmp, sandboxTmp] : ["--tmpfs", "/tmp"]),
+    // sandboxTmp 同时挂到自身路径和 /tmp：后者覆盖 --ro-bind / / 造成的只读 /tmp
+    ...(sandboxTmp
+      ? ["--bind", sandboxTmp, sandboxTmp, "--bind", sandboxTmp, "/tmp"]
+      : ["--tmpfs", "/tmp"]),
     ...(sandboxUserMemory ? ["--bind", sandboxUserMemory, sandboxUserMemory] : []),
     ...(sandboxUserFiles ? ["--bind", sandboxUserFiles, sandboxUserFiles] : []),
     ...(sandboxGlobalSkills ? ["--ro-bind", sandboxGlobalSkills, sandboxGlobalSkills] : []),
