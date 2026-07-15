@@ -216,13 +216,23 @@ async function startAndRegisterSession(
     process.env.LLM_PROXY_HOST ?? "llm-proxy",
     Number(process.env.LLM_PROXY_PORT ?? 9001),
   );
-  // registerSessionMcpBridgeForSkills 只用于给 session-mcp-bridge 设置 X-Mcp-Tools
-  // 工具名白名单头（不是 Server 名）；工具描述信息统一由 mcp-proxy 按真实 Server 缓存
-  // 管理（见 mcp-proxy/services/mcp_cache_manager.py），沙盒/pi-runtime 不单独请求
-  // 预热，也不自行缓存。
-  await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
+  // X-Mcp-Tools：mcp-proxy 侧过滤；同时把白名单交给 startPiSession 写成
+  // pi-mcp-adapter 的 directTools，否则模型工具列表里只有 mcp 网关，看不到具体工具。
+  const mcpToolNames = await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
 
-  const piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);
+  const piHandle = await startPiSession(
+    sessionId,
+    sandboxPaths,
+    skillIds,
+    mcpToolNames?.length
+      ? {
+          userId,
+          toolNames: mcpToolNames,
+          mcpProxyHost: process.env.MCP_PROXY_HOST ?? "mcp-proxy",
+          mcpProxyPort: Number(process.env.MCP_PROXY_PORT ?? 8080),
+        }
+      : undefined,
+  );
   console.log(`[worker] session=${sessionId}: pi 进程已启动`);
 
   const closeSubscriber = new Redis(config.redis.url);
@@ -291,10 +301,22 @@ async function restartPiForSession(
     process.env.LLM_PROXY_HOST ?? "llm-proxy",
     Number(process.env.LLM_PROXY_PORT ?? 9001),
   );
-  await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
+  const mcpToolNames = await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
 
   const sandboxPaths = await createSandbox(userId, sessionId);
-  running.piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);
+  running.piHandle = await startPiSession(
+    sessionId,
+    sandboxPaths,
+    skillIds,
+    mcpToolNames?.length
+      ? {
+          userId,
+          toolNames: mcpToolNames,
+          mcpProxyHost: process.env.MCP_PROXY_HOST ?? "mcp-proxy",
+          mcpProxyPort: Number(process.env.MCP_PROXY_PORT ?? 8080),
+        }
+      : undefined,
+  );
   running.skillIds = [...skillIds];
   await refreshSkillContentFingerprint(running);
   console.log(`[worker] session=${sessionId}: pi 进程重建完成`);

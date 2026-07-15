@@ -7,6 +7,10 @@ import { SessionOutputStream } from "./output-stream";
 import { sessionLlmSockForSandbox } from "./session-llm-bridge";
 import { sessionMcpSockForSandbox } from "./session-mcp-bridge";
 import {
+  writeSessionMcpAdapterConfig,
+  type McpDirectToolsSetup,
+} from "./session-mcp-config";
+import {
   attachPidToSessionCgroup,
   planSessionResourceLimits,
 } from "./session-cgroup";
@@ -102,26 +106,19 @@ interface ActiveTurn {
  *   - mcp.json 只配置一个条目，URL 指向沙盒内 loopback:8080（→ Unix socket → mcp-proxy）
  *   - models.json baseUrl 指向沙盒内 loopback:9001（→ Unix socket → llm-proxy）
  *   - 真实的 MCP Server 列表由 mcp-proxy 服务从 MongoDB 读取并管理
- *   - pi-session 不再直接读取 MCP 配置，职责更单一
+ *   - Skill.mcp_tools → directTools：让白名单工具以原始名出现在模型 tool list
+ *     （仅靠 X-Mcp-Tools 过滤不够——adapter 默认只有 mcp 网关）
  */
 async function setupPiConfigDir(
   sessionId: string,
   globalSkillsRoot: string,
-  userSkillsRoot: string
+  userSkillsRoot: string,
+  mcpDirectTools?: McpDirectToolsSetup,
 ): Promise<string> {
   const piConfigDir = `/tmp/pi-config/${sessionId}`;
   await mkdir(piConfigDir, { recursive: true });
 
-  // MCP 配置：仅指向沙盒内的 mcp-proxy 桥（127.0.0.1:8080）
-  // 真实 MCP Server 路由完全由 mcp-proxy 服务负责
-  const mcpJson = {
-    mcpServers: {
-      "mcp-proxy": {
-        url: "http://127.0.0.1:8080/mcp",
-      },
-    },
-  };
-  await writeFile(join(piConfigDir, "mcp.json"), JSON.stringify(mcpJson, null, 2));
+  await writeSessionMcpAdapterConfig(piConfigDir, mcpDirectTools);
 
   // LLM provider 配置：指向沙盒内的 llm-proxy 桥（127.0.0.1:9001）
   const piModelsJson = {
@@ -251,9 +248,15 @@ const CANCEL_ABORT_WAIT_MS = 3000;
 export async function startPiSession(
   sessionId: string,
   sandboxPaths: SandboxPaths,
-  skillIds: string[] = []
+  skillIds: string[] = [],
+  mcpDirectTools?: McpDirectToolsSetup,
 ): Promise<PiSessionHandle> {
-  const piConfigDir = await setupPiConfigDir(sessionId, sandboxPaths.globalSkills, sandboxPaths.userSkills);
+  const piConfigDir = await setupPiConfigDir(
+    sessionId,
+    sandboxPaths.globalSkills,
+    sandboxPaths.userSkills,
+    mcpDirectTools,
+  );
 
   const piEnv: Record<string, string> = {
     PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",

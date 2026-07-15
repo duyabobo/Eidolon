@@ -61,11 +61,15 @@
 
 ### B. 运行时（平台负责，不要写进 Skill 正文）
 
-运行时 pi 已按 `mcp_tools` 白名单注入可用工具，Agent **直接按工具名调用**即可。
+你只要在 frontmatter / 草稿里写好 `mcp_tools`。发布后平台会自动：
+1. 用 `mcp_tools` 作为 mcp-proxy 白名单（`X-Mcp-Tools`）
+2. 把同一批工具注册为 pi 的 **directTools**（原始名出现在模型 tool list，带描述）
+
+Agent **直接按工具名调用**即可（如 `wiki_combined_search({...})`），**不需要**、也**不要**在 Skill 里教 Agent 去 `mcp({ server: ... })` 或手动拉 tool list。
 
 **禁止**在 Skill `content` 中写下列平台机制说明（多余且易误导）：
 - 「先连接 mcp-proxy / 拉 tool list / `mcp({ server: ... })`」
-- 「## MCP 工具使用」「## MCP 工具参考」这类工具清单段（白名单在 frontmatter / Mongo 的 `mcp_tools`）
+- 「## MCP 工具使用」「## MCP 工具参考」这类工具清单段
 - 业务 Server 名（`mrag`、`tavily` 等）
 
 `content` 只保留业务逻辑，例如：按何条件调用 `wiki_combined_search`、如何传参、证据不足时如何降级到网络检索。
