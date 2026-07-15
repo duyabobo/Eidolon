@@ -1,4 +1,5 @@
 import logging
+import time
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
@@ -129,6 +130,19 @@ async def session_workspace_upload(
     filename = file.filename or "upload.bin"
     try:
         result = save_session_workspace_upload(uid, session_id, filename, data)
-        return ChatUploadResponse(**result)
     except WorkspaceError as exc:
         raise _http_exc(exc) from exc
+
+    # 写入 events_snapshot，刷新后历史消息可回放展示
+    await mongo_client.append_chat_session_event(
+        session_id,
+        {
+            "event_type": "user_file",
+            "content": result["filename"],
+            "filename": result["filename"],
+            "relative_path": result["relative_path"],
+            "size": result["size"],
+            "ts": int(time.time() * 1000),
+        },
+    )
+    return ChatUploadResponse(**result)

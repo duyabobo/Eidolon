@@ -41,16 +41,16 @@ interface Props {
   onInterrupt: () => void;
   userId: string;
   sessionId: string | null;
+  onUploaded?: (file: ChatUploadResponse) => void;
 }
 
 export default function ChatInput({
   skills, selectedSkillRef, onSelectSkill, onClearSkill,
-  isLoading, onSend, onInterrupt, userId, sessionId,
+  isLoading, onSend, onInterrupt, userId, sessionId, onUploaded,
 }: Props) {
   const [input, setInput] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
   const [menuIndex, setMenuIndex] = useState(0);
-  const [uploads, setUploads] = useState<ChatUploadResponse[]>([]);
   const [pendingFiles, setPendingFiles] = useState<PendingUpload[]>([]);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -68,20 +68,18 @@ export default function ChatInput({
     setUploading(true);
     setUploadErr(null);
     const remain: PendingUpload[] = [];
-    const done: ChatUploadResponse[] = [];
     for (const item of pending) {
       try {
         const res = await workspaceApi.uploadToSession(userId, sid, item.file);
-        done.push(res);
+        onUploaded?.(res);
       } catch (e) {
         remain.push(item);
         setUploadErr(e instanceof Error ? e.message : "上传失败");
       }
     }
-    if (done.length) setUploads((prev) => [...prev, ...done]);
     setPendingFiles(remain);
     setUploading(false);
-  }, [userId]);
+  }, [userId, onUploaded]);
 
   useEffect(() => {
     const prev = prevSessionIdRef.current;
@@ -89,17 +87,15 @@ export default function ChatInput({
 
     if (prev === sessionId) return;
 
-    // 新建对话 / 离开会话：清空
+    // 新建对话 / 离开会话：清空挂起
     if (sessionId == null) {
-      setUploads([]);
       setPendingFiles([]);
       setUploadErr(null);
       return;
     }
 
-    // 切换到另一个已有会话：清空并停止挂起
+    // 切换到另一个已有会话：清空挂起
     if (prev != null && prev !== sessionId) {
-      setUploads([]);
       setPendingFiles([]);
       setUploadErr(null);
       return;
@@ -207,7 +203,7 @@ export default function ChatInput({
     setUploading(true);
     try {
       const res = await workspaceApi.uploadToSession(userId, sessionId, file);
-      setUploads((prev) => [...prev, res]);
+      onUploaded?.(res);
     } catch (e) {
       setUploadErr(e instanceof Error ? e.message : "上传失败");
     } finally {
@@ -267,7 +263,7 @@ export default function ChatInput({
         </div>
       )}
 
-      {(pendingFiles.length > 0 || uploads.length > 0) && (
+      {pendingFiles.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-2">
           {pendingFiles.map((p) => (
             <span
@@ -285,15 +281,6 @@ export default function ChatInput({
               >
                 ×
               </button>
-            </span>
-          ))}
-          {uploads.map((u) => (
-            <span
-              key={u.stored_path}
-              className="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-ink-50 text-ink-600 border border-ink-200/60"
-              title={u.stored_path}
-            >
-              {u.filename}
             </span>
           ))}
         </div>

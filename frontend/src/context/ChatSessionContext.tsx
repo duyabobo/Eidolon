@@ -8,7 +8,7 @@ import {
 } from "../api/session";
 import { skillsApi, Skill, toSkillRef } from "../api/skills";
 
-export type MessageType = "text" | "thinking" | "tool_call" | "tool_result";
+export type MessageType = "text" | "thinking" | "tool_call" | "tool_result" | "file";
 
 export interface Message {
   role: "user" | "assistant";
@@ -19,6 +19,10 @@ export interface Message {
   startedAt?: number;
   /** 步骤结束时间（ms） */
   endedAt?: number;
+  /** user_file：相对 session workspace 的路径 */
+  relativePath?: string;
+  /** user_file：字节大小 */
+  size?: number;
 }
 
 interface SessionRuntime {
@@ -45,11 +49,22 @@ function savePersistedSkillRef(sessionId: string, ref: string): void {
   }
 }
 
+type SnapshotEvent = {
+  event_type: string;
+  content?: string;
+  filename?: string;
+  relative_path?: string;
+  size?: number;
+  ts?: number | string;
+};
+
 export function buildMessagesFromSnapshot(
   request: string,
-  snapshot: Array<{ event_type: string; content: string; ts?: number | string }>,
+  snapshot: SnapshotEvent[],
 ): Message[] {
-  const hasUserMessages = snapshot.some((e) => e.event_type === "user_message");
+  const hasUserMessages = snapshot.some(
+    (e) => e.event_type === "user_message" || e.event_type === "user_file",
+  );
   let msgs: Message[] = hasUserMessages
     ? []
     : [{ role: "user", type: "text", content: request }];
@@ -84,6 +99,20 @@ export function buildMessagesFromSnapshot(
 
     if (event.event_type === "user_message") {
       msgs.push({ role: "user", type: "text", content, startedAt: ts, endedAt: ts });
+      continue;
+    }
+
+    if (event.event_type === "user_file") {
+      const filename = event.filename || content || "附件";
+      msgs.push({
+        role: "user",
+        type: "file",
+        content: filename,
+        relativePath: event.relative_path || filename,
+        size: typeof event.size === "number" ? event.size : undefined,
+        startedAt: ts,
+        endedAt: ts,
+      });
       continue;
     }
 
@@ -231,6 +260,12 @@ interface ChatSessionContextValue {
   switchToSession: (s: SessionSummary) => Promise<void>;
   interrupt: () => Promise<void>;
   send: (text: string) => Promise<void>;
+  /** 附件上传成功后追加到当前会话消息列表（持久化由上传 API 写入 snapshot） */
+  appendUploadedFile: (file: {
+    filename: string;
+    relative_path: string;
+    size: number;
+  }) => void;
   isSessionGenerating: (sid: string) => boolean;
 }
 
@@ -650,6 +685,28 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     }
   }, [userId, isLoading, attachTurnStream, loadSessions]);
 
+  const appendUploadedFile = useCallback((file: {
+    filename: string;
+    relative_path: string;
+    size: number;
+  }) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    const now = Date.now();
+    updateSessionMessages(sid, (prev) => [
+      ...prev,
+      {
+        role: "user",
+        type: "file",
+        content: file.filename,
+        relativePath: file.relative_path,
+        size: file.size,
+        startedAt: now,
+        endedAt: now,
+      },
+    ]);
+  }, [updateSessionMessages]);
+
   const value: ChatSessionContextValue = {
     userId,
     setUserId,
@@ -669,6 +726,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     switchToSession,
     interrupt,
     send,
+    appendUploadedFile,
     isSessionGenerating,
   };
 

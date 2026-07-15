@@ -6,7 +6,7 @@ export default function ChatPage() {
   const {
     messages, isLoading, error, skills,
     selectedSkillRef, setSelectedSkillRef,
-    send, interrupt, userId, currentSessionId,
+    send, interrupt, userId, currentSessionId, appendUploadedFile,
   } = useChatSession();
 
   return (
@@ -40,6 +40,7 @@ export default function ChatPage() {
             onInterrupt={interrupt}
             userId={userId}
             sessionId={currentSessionId}
+            onUploaded={appendUploadedFile}
           />
         </div>
       </div>

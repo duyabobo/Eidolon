@@ -124,6 +124,19 @@ async def get_chat_session_owner(session_id: str) -> str | None:
     return str(raw.get("user_id") or "") or None
 
 
+async def append_chat_session_event(session_id: str, event: dict[str, Any]) -> None:
+    """向聊天 session 的 events_snapshot 追加事件（与 gateway 格式一致）。"""
+    await get_db()["sessions"].update_one(
+        {"_id": session_id},
+        {"$push": {"events_snapshot": event}},
+    )
+    logger.info(
+        "session 事件已追加: session=%s type=%s",
+        session_id,
+        event.get("event_type"),
+    )
+
+
 async def delete_skill_meta(name: str, user_id: str | None = None) -> bool:
     result = await get_db()[_SKILL_COLLECTION].delete_one(_meta_key(name, user_id))
     if result.deleted_count:
