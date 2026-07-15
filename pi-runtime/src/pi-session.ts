@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
 import { createInterface } from "readline";
 import { mkdir, writeFile, rm, access as fsAccess } from "fs/promises";
+import { existsSync } from "fs";
 import { join } from "path";
 import { SandboxPaths, buildOuterSandboxArgs } from "./sandbox";
 import { SessionOutputStream } from "./output-stream";
@@ -206,6 +207,54 @@ function buildSkillArgs(skillIds: string[], globalSkillsRoot: string, userSkills
 }
 
 /**
+ * 用户已明确选定的 Skill：把 SKILL.md 全量追加进 system prompt。
+ *
+ * 背景：2026-06-21 起改为仅 --skill（渐进披露），模型常跳过 read 直接乱调工具。
+ * 对「下拉已选」的 Skill，应跳过渐进披露，直接注入正文（与早期 buildSystemPrompt 语义一致）。
+ * 使用 --append-system-prompt <文件路径>，由 pi 读入文件内容，可多次追加。
+ */
+function buildSelectedSkillPromptArgs(
+  skillIds: string[],
+  globalSkillsRoot: string,
+  userSkillsRoot: string,
+): string[] {
+  if (skillIds.length === 0) return [];
+
+  const skillFiles: string[] = [];
+  for (const id of skillIds) {
+    const { scope, name } = parseSkillRef(id);
+    const candidates: string[] = [];
+    if (scope === "global" || scope === "both") {
+      candidates.push(join(globalSkillsRoot, name, "SKILL.md"));
+    }
+    if (scope === "user" || scope === "both") {
+      candidates.push(join(userSkillsRoot, name, "SKILL.md"));
+    }
+    for (const filePath of candidates) {
+      if (existsSync(filePath)) skillFiles.push(filePath);
+    }
+  }
+  if (skillFiles.length === 0) {
+    console.warn(`[pi-session] 选定 skill 无可用 SKILL.md: ${skillIds.join(", ")}`);
+    return [];
+  }
+
+  const preface = [
+    "The user explicitly selected the following skill(s) for this session.",
+    "Treat the skill body below as mandatory SOP: follow its steps in order,",
+    "do not skip intent analysis / query rewrite / primary retrieval,",
+    "and do not jump to fallback tools (e.g. web search) before the skill's primary path has been attempted.",
+  ].join(" ");
+
+  const args: string[] = ["--append-system-prompt", preface];
+  for (const filePath of skillFiles) {
+    args.push("--append-system-prompt", filePath);
+  }
+  console.log(`[pi-session] 已注入选定 skill 正文: ${skillFiles.join(", ")}`);
+  return args;
+}
+
+/**
  * 构建跨 session 长期记忆的 --append-system-prompt 参数。
  *
  * pi 通过它自己的 read/write 工具读写 MEMORY.md，无需平台层介入。
@@ -276,9 +325,22 @@ export async function startPiSession(
   };
 
   const skillArgs = buildSkillArgs(skillIds, sandboxPaths.globalSkills, sandboxPaths.userSkills);
+  const selectedSkillPromptArgs = buildSelectedSkillPromptArgs(
+    skillIds,
+    sandboxPaths.globalSkills,
+    sandboxPaths.userSkills,
+  );
   const memoryArgs = buildMemoryArgs(sandboxPaths.userMemory);
   const sessionArgs = buildSessionArgs(sandboxPaths.userPiSessions, sessionId);
-  const piArgs = ["--mode", "rpc", "--provider", "llm-proxy", "--model", "default", ...sessionArgs, ...skillArgs, ...memoryArgs];
+  const piArgs = [
+    "--mode", "rpc",
+    "--provider", "llm-proxy",
+    "--model", "default",
+    ...sessionArgs,
+    ...skillArgs,
+    ...selectedSkillPromptArgs,
+    ...memoryArgs,
+  ];
 
   // 外层 bwrap 参数：将 pi 进程整体置于网络隔离沙盒内
   const outerBwrapArgs = buildOuterSandboxArgs(sandboxPaths, piConfigDir, sessionId);
