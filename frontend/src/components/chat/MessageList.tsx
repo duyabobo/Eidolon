@@ -12,7 +12,7 @@ interface AssistantTurn {
 
 type DisplayItem =
   | { kind: "user"; content: string; startedAt?: number }
-  | { kind: "user_file"; filename: string; relativePath?: string; size?: number; startedAt?: number }
+  | { kind: "user_file"; filename: string; relativePath?: string; size?: number; docId?: string; startedAt?: number }
   | { kind: "assistant"; turn: AssistantTurn };
 
 function formatFileSize(bytes?: number): string {
@@ -42,6 +42,7 @@ function groupMessages(messages: Message[]): DisplayItem[] {
           filename: msg.content,
           relativePath: msg.relativePath,
           size: msg.size,
+          docId: msg.docId,
           startedAt: msg.startedAt,
         });
       } else {
@@ -221,21 +222,28 @@ export default function MessageList({ messages }: Props) {
           }
           if (item.kind === "user_file") {
             const sizeLabel = formatFileSize(item.size);
+            const subtitle = [sizeLabel, item.docId ? `doc:${item.docId.slice(0, 8)}…` : ""]
+              .filter(Boolean)
+              .join(" · ");
             return (
               <div key={i} className="flex justify-end">
                 <div className="max-w-[78%]">
                   <MessageTime ts={item.startedAt} align="right" />
                   <div
                     className="rounded-2.5xl rounded-br-md px-3.5 py-2.5 text-sm bg-white border border-ink-200/70 text-ink-800 shadow-soft inline-flex items-center gap-2.5"
-                    title={item.relativePath || item.filename}
+                    title={
+                      item.docId
+                        ? `${item.relativePath || item.filename}\ndoc_id: ${item.docId}`
+                        : (item.relativePath || item.filename)
+                    }
                   >
                     <span className="w-8 h-8 rounded-lg bg-ink-100 text-ink-500 flex items-center justify-center text-[10px] font-semibold shrink-0">
                       FILE
                     </span>
                     <span className="min-w-0">
                       <span className="block font-medium truncate">{item.filename}</span>
-                      {sizeLabel && (
-                        <span className="block text-[11px] text-ink-400 mt-0.5">{sizeLabel}</span>
+                      {subtitle && (
+                        <span className="block text-[11px] text-ink-400 mt-0.5">{subtitle}</span>
                       )}
                     </span>
                   </div>

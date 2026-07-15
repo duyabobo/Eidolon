@@ -21,6 +21,9 @@ export interface ChatUploadResponse {
   relative_path: string;
   stored_path: string;
   size: number;
+  doc_id: string;
+  kb_id: string;
+  knowledge_status: string;
 }
 
 async function parseError(resp: Response): Promise<string> {
@@ -94,7 +97,7 @@ export const workspaceApi = {
     URL.revokeObjectURL(url);
   },
 
-  /** 首页会话附件 → session workspace（仅存储） */
+  /** 首页会话附件 → session workspace + knowledge 入库（返回 doc_id） */
   uploadToSession: async (
     userId: string,
     sessionId: string,

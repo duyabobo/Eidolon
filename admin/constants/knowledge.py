@@ -16,6 +16,10 @@ DEFAULT_DATASET_AVATAR = "/icon/logo.svg"
 KNOWLEDGE_KEY_HEADER = "x-knowledge-key"
 SCENE_UID_HEADER = "x-scene-uid"
 
+# 对话附件自动入库的知识库（按用户 knowledge_key 隔离）
+CHAT_UPLOAD_KB_NAME = "会话附件"
+CHAT_UPLOAD_KB_DESCRIPTION = "对话中上传的文档，供后续知识检索使用"
+
 KNOWLEDGE_ENVIRONMENT_LABELS = {
     "local": "本地",
     "prod": "线上",

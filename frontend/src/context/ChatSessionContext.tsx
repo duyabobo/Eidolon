@@ -23,6 +23,10 @@ export interface Message {
   relativePath?: string;
   /** user_file：字节大小 */
   size?: number;
+  /** user_file：knowledge / mRAG 文档 ID */
+  docId?: string;
+  /** user_file：所在知识库 ID */
+  kbId?: string;
 }
 
 interface SessionRuntime {
@@ -55,6 +59,8 @@ type SnapshotEvent = {
   filename?: string;
   relative_path?: string;
   size?: number;
+  doc_id?: string;
+  kb_id?: string;
   ts?: number | string;
 };
 
@@ -110,6 +116,8 @@ export function buildMessagesFromSnapshot(
         content: filename,
         relativePath: event.relative_path || filename,
         size: typeof event.size === "number" ? event.size : undefined,
+        docId: event.doc_id || undefined,
+        kbId: event.kb_id || undefined,
         startedAt: ts,
         endedAt: ts,
       });
@@ -265,6 +273,8 @@ interface ChatSessionContextValue {
     filename: string;
     relative_path: string;
     size: number;
+    doc_id: string;
+    kb_id: string;
   }) => void;
   isSessionGenerating: (sid: string) => boolean;
 }
@@ -689,6 +699,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     filename: string;
     relative_path: string;
     size: number;
+    doc_id: string;
+    kb_id: string;
   }) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
@@ -701,6 +713,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
         content: file.filename,
         relativePath: file.relative_path,
         size: file.size,
+        docId: file.doc_id,
+        kbId: file.kb_id,
         startedAt: now,
         endedAt: now,
       },

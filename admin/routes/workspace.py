@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 
 from models.workspace import ChatUploadResponse, WorkspaceListResponse, WorkspaceMkdirRequest
 from services import mongo_client
+from services.chat_document_service import upload_chat_document_to_knowledge
 from services.workspace_fs import (
     WorkspaceError,
     delete_entry,
@@ -112,7 +113,7 @@ async def workspace_download(
 @router.post(
     "/sessions/{session_id}/upload",
     response_model=ChatUploadResponse,
-    summary="首页会话附件上传（写入 session workspace）",
+    summary="首页会话附件上传（写入 session workspace + knowledge 入库）",
 )
 async def session_workspace_upload(
     session_id: str,
@@ -128,21 +129,44 @@ async def session_workspace_upload(
 
     data = await file.read()
     filename = file.filename or "upload.bin"
+    content_type = file.content_type
+
+    # 先走 knowledge（远程 mRAG / 本地库），拿到 doc_id 后再落盘，避免半成功状态
+    knowledge = await upload_chat_document_to_knowledge(
+        user_id=uid,
+        filename=filename,
+        content=data,
+        content_type=content_type,
+    )
+
     try:
         result = save_session_workspace_upload(uid, session_id, filename, data)
     except WorkspaceError as exc:
         raise _http_exc(exc) from exc
 
-    # 写入 events_snapshot，刷新后历史消息可回放展示
-    await mongo_client.append_chat_session_event(
-        session_id,
-        {
-            "event_type": "user_file",
-            "content": result["filename"],
-            "filename": result["filename"],
-            "relative_path": result["relative_path"],
-            "size": result["size"],
-            "ts": int(time.time() * 1000),
-        },
+    event = {
+        "event_type": "user_file",
+        "content": result["filename"],
+        "filename": result["filename"],
+        "relative_path": result["relative_path"],
+        "size": result["size"],
+        "doc_id": knowledge.doc_id,
+        "kb_id": knowledge.kb_id,
+        "knowledge_status": knowledge.status,
+        "ts": int(time.time() * 1000),
+    }
+    await mongo_client.append_chat_session_event(session_id, event)
+    logger.info(
+        "会话附件已入库 session=%s user=%s doc_id=%s kb_id=%s file=%s",
+        session_id, uid, knowledge.doc_id, knowledge.kb_id, result["filename"],
     )
-    return ChatUploadResponse(**result)
+    return ChatUploadResponse(
+        filename=result["filename"],
+        relative_path=result["relative_path"],
+        stored_path=result["stored_path"],
+        size=result["size"],
+        doc_id=knowledge.doc_id,
+        kb_id=knowledge.kb_id,
+        knowledge_status=knowledge.status,
+    )
+
