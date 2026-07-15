@@ -29,13 +29,13 @@ _WELCOME_SYSTEM = (
     "你好！我是 Skill 创建助手，可以帮你通过对话生成系统级 Skill。\n"
     "请告诉我你想创建什么能力或场景的 Skill。\n"
     "若需要调用外部工具，请一并说明依赖的 MCP Server 名称（须与 Admin 中已配置的名称一致）、用途，"
-    "以及期望用到的能力；我会据此写入 Skill，并说明如何经 mcp-proxy 使用这些工具。"
+    "以及期望用到的能力；平台会按工具名白名单注入，Skill 正文只需写业务流程。"
 )
 _WELCOME_USER = (
     "你好！我是 Skill 创建助手，可以帮你通过对话生成私有 Skill。\n"
     "请告诉我你想创建什么能力或场景的 Skill。\n"
     "若需要调用外部工具，请一并说明依赖的 MCP Server 名称（须与 Admin 中已配置的名称一致）、用途，"
-    "以及期望用到的能力；我会据此写入 Skill，并说明如何经 mcp-proxy 使用这些工具。"
+    "以及期望用到的能力；平台会按工具名白名单注入，Skill 正文只需写业务流程。"
 )
 
 
@@ -123,7 +123,8 @@ async def _finalize_draft_with_mcp(
     if not server_names and draft.mcp_servers:
         server_names = draft.mcp_servers
     if not server_names:
-        return draft
+        # 无 MCP 依赖时仍剥离旧 boilerplate，避免历史草稿残留
+        return enrich_draft_with_mcp_reference(draft, [])
 
     infos = await fetch_mcp_tools(user_id, server_names)
     return enrich_draft_with_mcp_reference(draft, infos)

@@ -14,7 +14,11 @@ from services import mongo_client
 logger = logging.getLogger(__name__)
 
 _REQUEST_TIMEOUT_SECONDS = 60.0
-_MCP_REFERENCE_SECTION = "## MCP 工具参考"
+# 旧版 PLATFORM / enrich 曾要求写入的冗余段：运行时已按 mcp_tools 注入工具，正文不必再写。
+_MCP_BOILERPLATE_SECTION = re.compile(
+    r"(?:\n*## MCP 工具(?:使用|参考)\s*\n.*?)(?=\n## |\Z)",
+    re.DOTALL,
+)
 
 
 @dataclass
@@ -200,16 +204,29 @@ def build_mcp_prompt_context(infos: list[McpServerToolsInfo]) -> str:
     lines.append(
         "\n在输出 `skill-draft` 时，请设置 `mcp_tools` 为你从上面清单里挑出的具体工具名数组"
         "（这才是运行时真正生效的白名单）；`mcp_servers` 可以留空或填这些 Server 名仅供人类查看溯源，"
-        "不影响运行时行为。`content` 中包含完整的工具使用说明（无需 references/mcp-tools.md）。\n"
+        "不影响运行时行为。"
+        "`content` 只写业务步骤（何时用哪个工具名、关键参数、降级），"
+        "**禁止**再写「MCP 工具使用 / MCP 工具参考」、"
+        "禁止写 mcp-proxy 探测/`mcp({ server: ... })`/拉 tool list 等平台机制说明——"
+        "运行时工具已按 `mcp_tools` 自动注入。\n"
     )
     return "".join(lines)
 
 
-def enrich_draft_with_mcp_reference(draft: SkillDraft, infos: list[McpServerToolsInfo]) -> SkillDraft:
-    if not infos:
-        return draft
+def strip_redundant_mcp_sections(content: str) -> str:
+    """去掉正文中的「MCP 工具使用/参考」boilerplate（白名单已由平台注入）。"""
+    cleaned = _MCP_BOILERPLATE_SECTION.sub("", content or "")
+    return cleaned.strip()
 
-    content = draft.content.strip()
+
+def enrich_draft_with_mcp_reference(draft: SkillDraft, infos: list[McpServerToolsInfo]) -> SkillDraft:
+    """根据拉取到的 Server 工具，补齐 mcp_servers / mcp_tools 元数据；不改业务流程正文。"""
+    content = strip_redundant_mcp_sections(draft.content)
+    if not infos:
+        if content == draft.content.strip():
+            return draft
+        return draft.model_copy(update={"content": content, "mcp_tools_reference": ""})
+
     server_names = [info.name for info in infos]
     available_tools = sorted({tool for info in infos if info.available for tool in info.tools})
 
@@ -218,28 +235,8 @@ def enrich_draft_with_mcp_reference(draft: SkillDraft, infos: list[McpServerTool
     # 避免出现「提到了某个 Server 但白名单一个工具都没有」的空白态。
     mcp_tools = list(draft.mcp_tools) if draft.mcp_tools else available_tools
 
-    if _MCP_REFERENCE_SECTION not in content:
-        summary_lines = [
-            _MCP_REFERENCE_SECTION,
-            "",
-            "以下是本 Skill 可调用的 MCP 工具（平台已按白名单注入，只能调用下列工具，"
-            "不要调用未列出的工具，也不要臆造工具名）：",
-            "",
-        ]
-        if mcp_tools:
-            summary_lines.extend(f"- `{tool}`" for tool in mcp_tools)
-        else:
-            summary_lines.append("- （暂无可用工具）")
-        for info in infos:
-            if not info.enabled:
-                summary_lines.append(f"- 注：相关能力当前已禁用（{info.name}），启用前不要假设这些工具可用")
-            elif not info.available:
-                summary_lines.append(f"- 注：相关能力当前不可用（{info.name}：{info.error or '连接失败'}）")
-        summary_lines.append("")
-        content = content + "\n\n" + "\n".join(summary_lines)
-
     return draft.model_copy(update={
-        "content": content.strip(),
+        "content": content,
         "mcp_servers": server_names,
         "mcp_tools": mcp_tools,
         "mcp_tools_reference": "",
