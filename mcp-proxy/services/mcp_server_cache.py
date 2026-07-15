@@ -1,0 +1,122 @@
+"""
+单个真实 MCP Server 的连接、工具表与刷新状态。
+
+一个真实的 MCP Server（系统级或某用户个人配置）只对应一个 McpServerCache 实例，
+由 McpServerCacheManager 按 (owner, server_name) 缓存。无论请求方声明了怎样的
+skill 白名单组合，都只从这里读取工具，不再按"用户 + 白名单组合"重复建立连接、
+重复缓存整套工具列表——避免组合爆炸，也避免同一 Server 因为白名单组合不同而被
+反复重新连接。
+
+刷新触发条件（满足任一即触发）：
+  1. 距上次刷新超过成功 TTL（默认 300s）
+  2. 被显式标记失效（add / delete / test 后调用 invalidate）
+  3. 上次连接失败，且已超过失败重试间隔（远小于成功 TTL）
+
+失败与成功分开计时的原因：
+  连接失败（远程 Server 瞬时不可用）若与成功一样按 300s TTL 缓存，会把"暂时没有
+  工具"当成"确认没有工具"缓存 5 分钟，期间所有请求都拿到空列表却不再重试。
+"""
+import asyncio
+import logging
+import time
+from contextlib import AsyncExitStack
+from dataclasses import dataclass
+from typing import Any
+
+from mcp import ClientSession
+from mcp.types import Tool
+
+from services.mcp_connection import open_mcp_session
+from services.mongo_client import McpServerEntry
+from services.tool_args import normalize_tool_arguments
+
+logger = logging.getLogger(__name__)
+
+# 连接失败后的重试间隔（秒），远小于成功 TTL，避免瞬时故障被缓存 5 分钟
+_FAILURE_RETRY_INTERVAL_S = 10.0
+
+
+@dataclass
+class _ToolRecord:
+    tool: Tool
+    session: ClientSession
+
+
+class McpServerCache:
+    """缓存单个真实 MCP Server 的连接会话与工具列表。"""
+
+    def __init__(self, entry: McpServerEntry, refresh_interval_s: float) -> None:
+        self.entry = entry
+        self._refresh_interval_s = refresh_interval_s
+        self._tools: dict[str, _ToolRecord] = {}
+        self._exit_stack: AsyncExitStack = AsyncExitStack()
+        self._last_refresh_at: float = 0.0
+        self._invalidated: bool = False
+        self._failed_at: float | None = None
+        self._lock: asyncio.Lock = asyncio.Lock()
+
+    def needs_refresh(self) -> bool:
+        if self._invalidated:
+            return True
+        now = time.monotonic()
+        if now - self._last_refresh_at >= self._refresh_interval_s:
+            return True
+        return self._failed_at is not None and now - self._failed_at >= _FAILURE_RETRY_INTERVAL_S
+
+    def invalidate(self) -> None:
+        """标记失效：下次请求（refresh_if_stale）时触发重建。"""
+        self._invalidated = True
+
+    async def refresh_if_stale(self) -> None:
+        if not self.needs_refresh():
+            return
+        async with self._lock:
+            if not self.needs_refresh():  # 获锁后再次检查，避免并发重复刷新
+                return
+            await self._do_refresh()
+
+    async def force_refresh(self) -> None:
+        """忽略 TTL，立即重建（用于启动预热）。"""
+        async with self._lock:
+            await self._do_refresh()
+
+    async def _do_refresh(self) -> None:
+        old_stack = self._exit_stack
+        self._exit_stack = AsyncExitStack()
+        self._tools.clear()
+        self._invalidated = False
+        await old_stack.aclose()
+
+        try:
+            session = await open_mcp_session(self._exit_stack, self.entry.url, self.entry.api_key)
+            tools_result = await session.list_tools()
+            for tool in tools_result.tools:
+                self._tools[tool.name] = _ToolRecord(tool=tool, session=session)
+            self._failed_at = None
+            logger.info("server=%s: 加载 %d 个工具", self.entry.name, len(self._tools))
+        except Exception as e:
+            self._failed_at = time.monotonic()
+            logger.error(
+                "连接 MCP server 失败: name=%s url=%s err=%s，%.0fs 后重试",
+                self.entry.name, self.entry.url, e, _FAILURE_RETRY_INTERVAL_S,
+            )
+        finally:
+            self._last_refresh_at = time.monotonic()
+
+    def tool_names(self) -> list[str]:
+        return list(self._tools.keys())
+
+    def get_tool(self, name: str) -> Tool | None:
+        record = self._tools.get(name)
+        return record.tool if record else None
+
+    async def call_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        record = self._tools.get(name)
+        if record is None:
+            raise ValueError(f"工具未找到: {name}")
+        normalized_args = normalize_tool_arguments(name, args)
+        result = await record.session.call_tool(name, arguments=normalized_args)
+        return result.model_dump(by_alias=True, exclude_none=True)
+
+    async def close(self) -> None:
+        await self._exit_stack.aclose()

@@ -2,13 +2,18 @@
 mcp-proxy 入口：按 X-User-Id 加载系统 + 个人 MCP Server。
 支持 X-Mcp-Servers 头按 Skill 声明的 Server 子集过滤 tools/list 与 tools/call。
 
-缓存策略（统一 TTL = 300s）：
-  - 正常请求：命中缓存直接返回，TTL 内不重建
+缓存策略：按"真实 MCP Server"缓存，不按"用户 + Skill 白名单组合"缓存
+（详见 services/mcp_cache_manager.py）。同一个真实 Server 无论被多少种白名单
+组合引用，只连接、只缓存一次；系统级 Server 的缓存在所有用户间共享。
+
+  - 成功 TTL = 300s：命中缓存直接返回，TTL 内不重建
+  - 连接失败重试间隔 = 10s：避免瞬时故障被当作"确认无工具"缓存满 5 分钟
   - 强制失效时机（下次请求触发重建）：
       1. add / delete MCP Server 配置变更时（per-server 精确失效）
       2. 手动 probe（/servers/status）后（per-server 精确失效）
       3. 系统配置全量替换时（全量失效）
-  - 系统重启：预热系统 MCP + 后台并行预热所有用户 MCP
+  - 系统重启：预热系统 MCP + 后台并行预热所有用户 MCP（sandbox/pi-runtime 启动时
+    不再单独发请求预热，直接依赖这份全局缓存）
 """
 import asyncio
 import logging

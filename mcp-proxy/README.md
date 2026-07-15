@@ -36,34 +36,51 @@ pi 通过 mcp-proxy 间接调用外部工具，沙盒内没有任何 MCP Server 
 
 ```
 mcp-proxy/
-├── main.py                   FastAPI 入口，实现 MCP JSON-RPC 协议
-├── config.py                 环境变量配置（pydantic-settings）
-├── logger.py                 日志初始化（与 gateway 风格一致）
+├── main.py                     FastAPI 入口，实现 MCP JSON-RPC 协议
+├── config.py                   环境变量配置（pydantic-settings）
+├── logger.py                   日志初始化（与 gateway 风格一致）
 ├── requirements.txt
 ├── Dockerfile
 └── services/
-    ├── mongo_client.py       只读 MongoDB：读取启用的 MCP Server 列表
-    └── mcp_aggregator.py     聚合器：连接后端、汇总工具、路由调用
+    ├── mongo_client.py         只读 MongoDB：读取启用的 MCP Server 列表
+    ├── mcp_server_cache.py     单个真实 Server 的连接、工具表、刷新状态
+    └── mcp_cache_manager.py    按 (owner, server_name) 缓存管理 + 请求侧工具视图合并
 ```
 
 **技术栈**：FastAPI + motor（异步 MongoDB）+ `mcp` Python SDK（官方 MCP 客户端）
 
 ---
 
-## 工具刷新机制
+## 工具缓存与刷新机制
 
-mcp-proxy 不在启动时一次性加载所有工具，而是采用**带 TTL 的懒刷新**策略：
+缓存粒度是**真实 MCP Server**，不是"用户 + Skill 白名单组合"：
 
 ```
-每个 MCP 请求到来时：
-  → 检查距上次刷新是否超过 TOOL_REFRESH_INTERVAL_MS（默认 60s）
-  → 超过则重新连接所有后端，拉取最新工具列表
-  → 未超过则直接使用缓存
+缓存键 = (owner, server_name)
+  owner = "__system__"     系统级 Server，所有用户共享同一份连接
+  owner = user_id          用户级 Server，仅该用户可见
 
-admin 修改 MCP 配置后，最多等待 60s 自动生效，无需重启 mcp-proxy。
+一次 tools/list 请求：
+  1. 按 (user_id, 白名单) 从 MongoDB 读出应加载的 Server 列表
+  2. 逐个按 (owner, server_name) 查找/创建缓存，命中则直接用，否则重建
+  3. 合并这些已缓存 Server 的工具，返回给调用方
 ```
 
-**工具名冲突处理**：同名工具以先发现的后端为准，并打印 WARN 日志。
+同一个真实 Server 无论被多少种 skill 白名单组合引用（例如 skill A 只用 `mrag`，
+skill B 用 `mrag,tavily`），都只连接、只缓存一次；不会因为白名单组合不同而重复
+建连接、重复占用一份工具列表缓存。系统重启时的预热（见下）已经覆盖了系统级和
+各用户的全部 Server，pi-runtime 在沙盒启动时不需要也不应该再单独发请求预热，
+直接依赖这份全局缓存即可。
+
+刷新触发条件（满足任一即触发，懒刷新——请求到来时才检查）：
+
+| 触发条件 | 间隔 |
+|---------|------|
+| 距上次成功刷新超过 TTL | `TOOL_REFRESH_INTERVAL_S`（默认 300s） |
+| 被显式标记失效（add/delete/test/probe 后） | 下次请求立即触发 |
+| 上次连接失败 | `10s`（远小于成功 TTL，避免瞬时故障被当成"确认无工具"缓存 5 分钟） |
+
+**工具名冲突处理**：同名工具以先发现的 Server 为准，并打印 WARN 日志。
 
 ---
 
@@ -100,4 +117,4 @@ admin 修改 MCP 配置后，最多等待 60s 自动生效，无需重启 mcp-pr
 | `MCP_PROXY_PORT` | 服务监听端口 | `8080` |
 | `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27017` |
 | `MONGO_DB` | 数据库名 | `pi_agent` |
-| `TOOL_REFRESH_INTERVAL_MS` | 工具列表刷新间隔（毫秒）| `60000` |
+| `TOOL_REFRESH_INTERVAL_S` | 工具列表成功缓存 TTL（秒）| `300` |

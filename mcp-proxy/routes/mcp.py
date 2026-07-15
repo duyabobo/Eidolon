@@ -114,9 +114,12 @@ async def servers_status(
         )
     items = await probe_mcp_servers(servers)
 
-    # probe 完成后精确失效被探测的 Server，下次 tools/list 时重建其连接
+    # probe 完成后精确失效被探测的 Server，下次 tools/list 时重建其连接。
+    # 系统级 Server 缓存归属 None（全局共享），不能按发起探测的 user_id 失效，
+    # 否则会失效到一个从未存在的 (user_id, name) 缓存键，实际的系统级缓存不受影响。
     for item in items:
-        manager.invalidate_server(user_id, item["name"])
+        owner = None if item["scope"] == "system" else user_id
+        manager.invalidate_server(owner, item["name"])
 
     return {"servers": items}
 
@@ -128,7 +131,7 @@ async def _dispatch(body: dict, user_id: str | None, allowed_names: list[str] | 
     method: str = body.get("method", "")
     params: dict = body.get("params") or {}
 
-    aggregator = await manager.get_aggregator(user_id, allowed_names)
+    tools_view = await manager.get_tools(user_id, allowed_names)
 
     if method == "initialize":
         return _jsonrpc_result(request_id, {
@@ -138,13 +141,13 @@ async def _dispatch(body: dict, user_id: str | None, allowed_names: list[str] | 
         })
 
     if method == "tools/list":
-        return _jsonrpc_result(request_id, {"tools": aggregator.list_tools()})
+        return _jsonrpc_result(request_id, {"tools": tools_view.list_tools()})
 
     if method == "tools/call":
         tool_name: str = params.get("name", "")
         tool_args: dict = params.get("arguments") or {}
         try:
-            result = await aggregator.call_tool(tool_name, tool_args)
+            result = await tools_view.call_tool(tool_name, tool_args)
             return _jsonrpc_result(request_id, result)
         except ValueError as e:
             logger.error("tools/call 失败 user=%s tool=%s %s", user_id, tool_name, e)

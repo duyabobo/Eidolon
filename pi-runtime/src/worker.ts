@@ -41,7 +41,6 @@ import {
 } from "./session-mcp-bridge";
 import { resolveMcpServersForSkills } from "./skill-mcp";
 import { computeSkillContentFingerprint } from "./skill-reload";
-import { warmMcpCache } from "./mcp-warmup";
 import { AgentTask, ReliableTaskQueue, TaskProcessResult } from "./task-queue";
 
 // ── 消息类型定义 ──────────────────────────────────────────────────────────────
@@ -217,15 +216,10 @@ async function startAndRegisterSession(
     process.env.LLM_PROXY_HOST ?? "llm-proxy",
     Number(process.env.LLM_PROXY_PORT ?? 9001),
   );
-  const mcpServerNames = await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
-
-  // 启动 pi 前预热 mcp-proxy 工具列表缓存，避免 pi 调用 tools/list 时缓存尚未建好
-  await warmMcpCache(
-    userId,
-    mcpServerNames,
-    process.env.MCP_PROXY_HOST ?? "mcp-proxy",
-    Number(process.env.MCP_PROXY_PORT ?? 8080),
-  );
+  // mcpServerNames 仅用于给 session-mcp-bridge 设置 X-Mcp-Servers 白名单头；
+  // 工具描述信息统一由 mcp-proxy 按真实 Server 缓存管理（见 mcp-proxy/services/
+  // mcp_cache_manager.py），沙盒/pi-runtime 不单独请求预热，也不自行缓存。
+  await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
 
   const piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);
   console.log(`[worker] session=${sessionId}: pi 进程已启动`);
@@ -296,13 +290,7 @@ async function restartPiForSession(
     process.env.LLM_PROXY_HOST ?? "llm-proxy",
     Number(process.env.LLM_PROXY_PORT ?? 9001),
   );
-  const restartMcpNames = await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
-  await warmMcpCache(
-    userId,
-    restartMcpNames,
-    process.env.MCP_PROXY_HOST ?? "mcp-proxy",
-    Number(process.env.MCP_PROXY_PORT ?? 8080),
-  );
+  await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
 
   const sandboxPaths = await createSandbox(userId, sessionId);
   running.piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);
