@@ -278,7 +278,7 @@ export async function startPiSession(
   const piArgs = ["--mode", "rpc", "--provider", "llm-proxy", "--model", "default", ...sessionArgs, ...skillArgs, ...memoryArgs];
 
   // 外层 bwrap 参数：将 pi 进程整体置于网络隔离沙盒内
-  const outerBwrapArgs = buildOuterSandboxArgs(sandboxPaths, piConfigDir);
+  const outerBwrapArgs = buildOuterSandboxArgs(sandboxPaths, piConfigDir, sessionId);
 
   // 完整命令：bwrap <沙盒参数> <启动脚本> pi <pi参数>
   // sandbox-init.sh 负责：启用 loopback、启动 TCP↔Unix socket 桥、exec pi

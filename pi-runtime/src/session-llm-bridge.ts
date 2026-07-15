@@ -10,7 +10,7 @@ import fs from "fs";
 import net from "net";
 import path from "path";
 
-import { SOCKS_DIR } from "./socket-bridge";
+import { sessionSocksDir } from "./socket-bridge";
 
 const HEADER_END = Buffer.from("\r\n\r\n");
 const CRLF = "\r\n";
@@ -23,7 +23,7 @@ interface SessionBridgeState {
 const sessionBridges = new Map<string, SessionBridgeState>();
 
 function sessionLlmSockPath(sessionId: string): string {
-  return path.join(SOCKS_DIR, "sessions", sessionId, "llm.sock");
+  return path.join(sessionSocksDir(sessionId), "llm.sock");
 }
 
 function parseContentLength(headerText: string): number | null {

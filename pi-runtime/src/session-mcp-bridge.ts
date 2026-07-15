@@ -12,7 +12,7 @@ import fs from "fs";
 import http from "http";
 import path from "path";
 
-import { SOCKS_DIR } from "./socket-bridge";
+import { sessionSocksDir } from "./socket-bridge";
 
 interface SessionMcpBridgeState {
   server: http.Server;
@@ -21,7 +21,7 @@ interface SessionMcpBridgeState {
 const sessionBridges = new Map<string, SessionMcpBridgeState>();
 
 function sessionMcpSockPath(sessionId: string): string {
-  return path.join(SOCKS_DIR, "sessions", sessionId, "mcp.sock");
+  return path.join(sessionSocksDir(sessionId), "mcp.sock");
 }
 
 function buildSessionHeaders(

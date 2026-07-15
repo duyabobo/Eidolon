@@ -81,11 +81,13 @@ pi 进程本身运行在外层 bwrap 沙盒内，不仅 bash 命令被隔离，p
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  pi-runtime（宿主进程，有网）                             │
-│  socket-bridge: /tmp/pi-socks/llm.sock → llm-proxy     │
-│                 /tmp/pi-socks/mcp.sock → mcp-proxy     │
+│  session socket:                                        │
+│    /tmp/pi-socks/sessions/{sessionId}/llm.sock → llm    │
+│    /tmp/pi-socks/sessions/{sessionId}/mcp.sock → mcp    │
 │                                                         │
 │  ┌──────────────────────────────────────────────────┐  │
 │  │  bwrap 沙盒（--unshare-net，per session）         │  │
+│  │  （tmpfs 覆盖 SOCKS_DIR，仅 ro-bind 本 session）  │  │
 │  │                                                  │  │
 │  │  bridge.js: 127.0.0.1:9001 ↔ llm.sock           │  │
 │  │             127.0.0.1:8080 ↔ mcp.sock           │  │
@@ -107,18 +109,19 @@ pi 进程本身运行在外层 bwrap 沙盒内，不仅 bash 命令被隔离，p
 | `--bind {home}` | session home | 读写 | .bashrc / pip 包路径 |
 | `--bind {tmp}` | session tmp | 读写 | 临时文件 |
 | `--bind {piConfigDir}` | pi config 目录 | 读写 | mcp.json / models.json / bwrap.ready |
-| `--ro-bind /tmp/pi-socks` | Unix socket 目录 | **只读** | 网络白名单，pi 只能连接不能篡改 |
+| `--tmpfs /tmp/pi-socks` | sock 根目录 | 覆盖 | 清空整棵 sock 树，阻断跨 session 可见 |
+| `--ro-bind .../sessions/{id}` | 本 session sock | **只读** | 仅暴露本会话 llm/mcp.sock |
 | `--unshare-net` | — | — | 完全断网，唯一出口是 Unix socket |
 | `--unshare-pid` | — | — | 独立 PID 空间 |
 
 ### 网络白名单安全性
 
-`/tmp/pi-socks/` 以只读方式挂载进沙盒：
+沙盒内只看得到本 session 的 Unix socket：
 
-- pi 只能 **connect** 到 socket（读操作）
-- pi 无法**创建、删除、替换** socket 文件（只读目录）
+- 整棵 `/tmp/pi-socks` 先用 tmpfs 覆盖，同机其他 session 的 sock 不可见
+- 再只读挂载 `sessions/{sessionId}/`，pi 只能 **connect** 本会话出口
 - `--unshare-net` 切断所有其他网络出口
-- socket 文件由 pi-runtime 在沙盒外创建，pi 无法伪造
+- socket 文件由 pi-runtime 在沙盒外创建；身份头（session / user）由 runtime 桥注入，沙盒不可伪造
 
 ### pi 沙盒内无法访问的内容
 
@@ -127,6 +130,7 @@ pi 进程本身运行在外层 bwrap 沙盒内，不仅 bash 命令被隔离，p
 | MongoDB | 无凭据，无网络 |
 | Redis | 无凭据，无网络 |
 | 其他 session 的文件 | `--tmpfs {sandboxRoot}` 覆盖 |
+| 其他 session 的 sock | `--tmpfs /tmp/pi-socks` + 仅 bind 本 session |
 | 外部网络 / 互联网 | `--unshare-net` |
 | MCP Server（直连） | 无路由，只能经由 mcp-proxy |
 
@@ -164,14 +168,14 @@ pi 在外层沙盒内运行时（`PI_OUTER_SANDBOX=1`）：
 
 ## Socket Bridge
 
-pi-runtime 启动时创建两个 Unix socket 代理服务器，作为沙盒的网络白名单出口：
+每个 session 在宿主侧注册一对 Unix socket，作为该沙盒唯一网络出口：
 
 ```
-/tmp/pi-socks/llm.sock  →  llm-proxy:9001  （LLM 推理）
-/tmp/pi-socks/mcp.sock  →  mcp-proxy:8080  （MCP 工具调用）
+/tmp/pi-socks/sessions/{sessionId}/llm.sock  →  llm-proxy:9001  （LLM 推理）
+/tmp/pi-socks/sessions/{sessionId}/mcp.sock  →  mcp-proxy:8080  （MCP 工具调用）
 ```
 
-两个 socket 均为纯字节转发，不解析协议，支持 HTTP、SSE 等所有 TCP 上层协议。
+沙盒内 bridge.js 按 `PI_SOCKS_LLM` / `PI_SOCKS_MCP` 连接上述路径；runtime 桥注入会话身份头后再转发到代理。
 
 ---
 

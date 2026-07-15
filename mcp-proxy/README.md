@@ -21,7 +21,7 @@ mcp-proxy 是 MCP 工具调用的统一出口，负责：
 ```
 pi（bwrap 沙盒内，完全无网）
   ↓ HTTP 127.0.0.1:8080（loopback）
-  ↓ Unix socket /tmp/pi-socks/mcp.sock（挂载进沙盒）
+  ↓ Unix socket /tmp/pi-socks/sessions/{sessionId}/mcp.sock（仅本 session 挂载）
   ↓ TCP
 mcp-proxy（沙盒外，有网）
   ↓ MCP HTTP 协议

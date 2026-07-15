@@ -2,9 +2,9 @@
 /**
  * 沙盒内网络桥接器（TCP loopback ↔ Unix socket）。
  *
- * 在 bwrap 沙盒内运行，将两个 loopback TCP 端口桥接到挂载进来的 Unix socket：
- *   127.0.0.1:9001 ↔ /tmp/pi-socks/llm.sock  → pi-runtime → llm-proxy
- *   127.0.0.1:8080 ↔ /tmp/pi-socks/mcp.sock  → pi-runtime → mcp-proxy
+ * 在 bwrap 沙盒内运行，将两个 loopback TCP 端口桥接到本 session 的 Unix socket：
+ *   127.0.0.1:9001 ↔ $PI_SOCKS_LLM  → pi-runtime → llm-proxy
+ *   127.0.0.1:8080 ↔ $PI_SOCKS_MCP  → pi-runtime → mcp-proxy
  *
  * 纯字节转发，不解析协议，支持 HTTP、SSE 等所有 TCP 协议。
  * 沙盒内 pi 进程通过这两个端口完成 LLM 推理和 MCP 工具调用。

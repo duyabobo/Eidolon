@@ -27,7 +27,7 @@
 import { access, mkdir, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { config } from "./config";
-import { SOCKS_DIR } from "./socket-bridge";
+import { SOCKS_DIR, sessionSocksDir } from "./socket-bridge";
 
 export interface SandboxPaths {
   workspace: string;
@@ -123,15 +123,18 @@ export async function purgeSessionData(userId: string, sessionId: string): Promi
  *   - --bind userPiSessions pi JSONL 会话目录可读写（跨 session 共享，用于恢复短期记忆）
  *   - --ro-bind globalSkills/userSkills  Skill 目录只读（pi 渐进式披露读 SKILL.md）
  *   - --bind piConfigDir   pi config 目录可读写（bwrap 扩展需写入 bwrap.ready）
- *   - --ro-bind socketsDir  Unix socket 白名单，只读挂载（pi 可连接不可篡改）
+ *   - --tmpfs SOCKS_DIR    覆盖整棵 sock 树，阻止看到同机其它 session
+ *   - --ro-bind sessionSocksDir  仅挂载本 session 的 llm/mcp.sock（可 connect，不可篡改）
  *   - --unshare-net        完全断网，唯一网络出口是挂载的 Unix socket
  *   - --unshare-pid        独立 PID 空间
  *   - --die-with-parent    pi-runtime 退出时沙盒子进程自动终止
  */
 export function buildOuterSandboxArgs(
   paths: SandboxPaths,
-  piConfigDir: string
+  piConfigDir: string,
+  sessionId: string,
 ): string[] {
+  const socksDir = sessionSocksDir(sessionId);
   return [
     "--ro-bind", "/", "/",
     "--tmpfs", config.sandbox.root,
@@ -143,7 +146,10 @@ export function buildOuterSandboxArgs(
     "--ro-bind", paths.globalSkills, paths.globalSkills,
     "--ro-bind", paths.userSkills, paths.userSkills,
     "--bind", piConfigDir, piConfigDir,
-    "--ro-bind", SOCKS_DIR, SOCKS_DIR,
+    // 先盖住整棵 sock 树（否则 --ro-bind / / 已暴露全部 session sock）
+    "--tmpfs", SOCKS_DIR,
+    "--dir", socksDir,
+    "--ro-bind", socksDir, socksDir,
     "--proc", "/proc",
     "--dev", "/dev",
     "--unshare-net",
