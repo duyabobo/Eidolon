@@ -120,6 +120,36 @@ services:
       timeout: 5s
       retries: 5
 
+  # gateway-sse：SSE 长连接服务，从 gateway 拆出的独立运行单元。
+  # 长驻连接按"并发连接数"扩容，与 gateway 按"QPS"扩容的节奏不同，
+  # 拆分后二者可分别调整副本数和资源上限，互不拖累。
+  gateway-sse:
+    build:
+      context: .
+      dockerfile: gateway-sse/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      GATEWAY_SSE_HOST: "0.0.0.0"
+      GATEWAY_SSE_PORT: "8001"
+      TZ: "Asia/Shanghai"
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./logs/gateway-sse:/app/logs
+    networks:
+      - pi_net
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   frontend:
     build:
       context: ./frontend
@@ -131,6 +161,8 @@ services:
       - pi_net
     depends_on:
       gateway:
+        condition: service_healthy
+      gateway-sse:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000"]

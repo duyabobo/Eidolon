@@ -111,7 +111,7 @@ do_start() {
 
 # ── 等待健康检查 ─────────────────────────────────────────────────────────────────
 wait_healthy() {
-  local services=("mongo" "redis" "llm-proxy" "admin" "gateway" "frontend")
+  local services=("mongo" "redis" "llm-proxy" "admin" "gateway" "gateway-sse" "frontend")
   local timeout=120
   local interval=5
 
@@ -149,9 +149,10 @@ print_summary() {
   echo "  pi-runtime 实例数：${PI_RUNTIME_REPLICAS}"
   echo ""
   echo "  服务地址："
-  echo "    前端     →  http://localhost:3000"
-  echo "    Gateway  →  http://localhost:8000"
-  echo "    Admin    →  http://localhost:9000"
+  echo "    前端        →  http://localhost:3000"
+  echo "    Gateway     →  http://localhost:8000  （会话 CRUD / 任务派发，按 QPS 扩容）"
+  echo "    Gateway-SSE →  http://localhost:8001  （SSE 长连接，按并发连接数独立扩容）"
+  echo "    Admin       →  http://localhost:9000"
   echo ""
   echo "  API 示例："
   echo "    # 创建会话"
@@ -159,11 +160,12 @@ print_summary() {
   echo "      -H 'Content-Type: application/json' \\"
   echo "      -d '{\"user_id\": \"alice\", \"request\": \"帮我写一个 hello world\"}'"
   echo ""
-  echo "    # 拉取 SSE 流（替换 SESSION_ID）"
-  echo "    curl -N http://localhost:8000/sessions/SESSION_ID/stream"
+  echo "    # 拉取 SSE 流（替换 SESSION_ID，注意端口是 gateway-sse 的 8001）"
+  echo "    curl -N http://localhost:8001/sessions/SESSION_ID/stream"
   echo ""
   echo "  查看日志："
   echo "    docker compose logs -f gateway"
+  echo "    docker compose logs -f gateway-sse"
   echo "    docker compose logs -f pi-runtime"
   echo ""
 }

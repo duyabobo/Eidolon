@@ -19,7 +19,7 @@ def resolve_resume_seq(last_seq: str, last_event_id: str | None) -> str:
     """
     解析 SSE 恢复游标。
 
-    浏览器原生 EventSource 断线重连时会携带 Last-Event-ID。Gateway 重启后，
+    浏览器原生 EventSource 断线重连时会携带 Last-Event-ID。gateway-sse 重启后，
     该请求头可将 Redis Stream 订阅恢复到最后已确认事件的下一条，避免从头回放。
     显式传入的 last_seq 优先级更高，便于非浏览器客户端主动恢复。
     """

@@ -10,9 +10,10 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      // SSE 长连接：关闭超时压缩，避免开发态流式被缓冲/掐断
-      "/sessions": {
-        target: "http://localhost:8000",
+      // SSE 长连接 → gateway-sse（独立扩容单元，按连接数而非 QPS 伸缩）
+      // 正则 key（以 ^ 开头）需先于下面的 /sessions 前缀匹配到，否则会被转发到 gateway
+      "^/sessions/.*/stream": {
+        target: "http://localhost:8001",
         changeOrigin: true,
         timeout: 0,
         configure: (proxy) => {
@@ -25,6 +26,8 @@ export default defineConfig({
           });
         },
       },
+      // session CRUD / 任务派发 → gateway
+      "/sessions": "http://localhost:8000",
       "/skills": "http://localhost:8000",
       "/mcp": "http://localhost:8000",    // skill 列表 → gateway
       "/health": "http://localhost:8000",

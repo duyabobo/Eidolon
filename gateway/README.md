@@ -2,13 +2,15 @@
 
 ## 职责边界
 
-Gateway 是整个平台对外的唯一入口，负责：
+Gateway 负责平台对外的会话 CRUD 与任务派发（短请求、按 QPS 扩容）：
 
 - 接收用户请求，创建/查询 Session
-- 向 pi-runtime 派发任务（通过 Redis Pub/Sub）
-- 通过 SSE 接口将 pi-runtime 的流式输出返回给客户端
+- 向 pi-runtime 派发任务（通过 Redis Streams）
+- Skill 列表、MCP Server 配置查询/CRUD
 
 **不负责**：
+- SSE 流式输出：长驻连接的扩容依据（并发连接数）与本服务（QPS）不同，
+  拆分为独立服务 [gateway-sse](../gateway-sse/README.md) 部署，避免两者互相拖累扩容节奏
 - 执行 pi agent（由 pi-runtime 负责）
 - 调用 LLM（由 pi-runtime 通过 admin 负责）
 - 配置管理（由 admin 负责）
@@ -55,29 +57,11 @@ PENDING → RUNNING → COMPLETED
 
 ---
 
-### `GET /sessions/{session_id}/stream` — SSE 流式拉取
+### SSE 流式拉取 — 已迁移至 gateway-sse
 
-`Content-Type: text/event-stream`
-
-**查询参数：**
-- `last_seq`（可选，默认 `0`）：断线重连时传入上次收到的 Redis Stream ID，跳过已接收消息
-
-**响应事件类型：**
-
-| event 名 | 含义 | data 格式 |
-|----------|------|-----------|
-| `snapshot` | 历史事件快照（断线重连时回放）| `{"events": [...]}` |
-| `token` | pi 生成的文本 token | 原始文本 |
-| `tool_call` | pi 调用工具 | `{"name": "bash", "input": {...}}` |
-| `tool_result` | 工具执行结果 | `{"name": "bash", "output": "..."}` |
-| `done` | 任务完成 | `""` |
-| `error` | 任务出错 | 错误信息文本 |
-| `heartbeat` | 保活心跳（5s 一次）| `""` |
-
-**断线重连示例：**
-```
-curl -N "http://localhost:8000/sessions/SESSION_ID/stream?last_seq=1718000000000-0"
-```
+`GET /sessions/{session_id}/stream` 与 `GET /sessions/{session_id}/turns/{turn_id}/stream`
+两个 SSE 接口现由独立服务 [gateway-sse](../gateway-sse/README.md) 提供（默认端口 `8001`），
+接口路径、参数、事件类型均未变化，详见该服务的 README。
 
 ---
 
@@ -91,15 +75,11 @@ curl -N "http://localhost:8000/sessions/SESSION_ID/stream?last_seq=1718000000000
 gateway/routes/session.py
   ├── 查询 MongoDB: find_active_session_by_request（幂等）
   ├── 创建 MongoDB session 文档（status: PENDING）
-  └── PUBLISH sessions:new → Redis
+  └── XADD agent:tasks → Redis Stream
                                │
-                               └── pi-runtime 消费
+                               └── pi-runtime 消费（XREADGROUP）
 
-  │ GET /sessions/{id}/stream
-  ▼
-gateway/routes/stream.py
-  ├── 从 MongoDB 读取 events_snapshot（断线重连回放）
-  └── XREAD BLOCK session:{id}:stream → 持续从 Redis Stream 拉取
+  │ GET /sessions/{id}/stream（gateway-sse，见 ../gateway-sse/README.md）
 ```
 
 ---
@@ -124,10 +104,10 @@ gateway/routes/stream.py
 | 依赖 | 用途 | 连接方式 |
 |------|------|---------|
 | MongoDB | session 文档、Skill 元数据 | motor（async）|
-| Redis | 发布任务 / 读取输出流 | redis[asyncio] |
+| Redis | 发布任务 / 读写控制信号 | redis[asyncio] |
 | 共享文件系统 | Skill 正文读写 | 挂载 `SANDBOX_ROOT` |
 
-**不依赖**：admin、pi-runtime（单向依赖，gateway 不调用这两个服务）
+**不依赖**：admin、pi-runtime、gateway-sse（单向依赖，gateway 不调用这三个服务）
 
 ---
 
@@ -141,4 +121,6 @@ gateway/routes/stream.py
 | `GATEWAY_HOST` | 监听地址 | `0.0.0.0` |
 | `GATEWAY_PORT` | 监听端口 | `8000` |
 | `SANDBOX_ROOT` | 共享文件系统（Skill 正文） | `/data/sandboxes` |
-| `SSE_BLOCK_MS` | SSE 拉取阻塞超时（心跳间隔）| `5000` |
+
+SSE 相关配置（`GATEWAY_SSE_PORT`、`SSE_BLOCK_MS` 等）见
+[gateway-sse/README.md](../gateway-sse/README.md#配置)。
