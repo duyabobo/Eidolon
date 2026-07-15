@@ -1,7 +1,7 @@
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from sse_starlette.sse import EventSourceResponse
 
 from models.session import SessionStatus
@@ -15,12 +15,26 @@ _HEARTBEAT_EVENT = "heartbeat"
 _SNAPSHOT_EVENT = "snapshot"
 
 
+def resolve_resume_seq(last_seq: str, last_event_id: str | None) -> str:
+    """
+    解析 SSE 恢复游标。
+
+    浏览器原生 EventSource 断线重连时会携带 Last-Event-ID。Gateway 重启后，
+    该请求头可将 Redis Stream 订阅恢复到最后已确认事件的下一条，避免从头回放。
+    显式传入的 last_seq 优先级更高，便于非浏览器客户端主动恢复。
+    """
+    if last_seq != "0":
+        return last_seq
+    return last_event_id or "0"
+
+
 @router.get("/{session_id}/turns/{turn_id}/stream")
 async def stream_turn(
     request: Request,
     session_id: str,
     turn_id: str,
     last_seq: str = Query(default="0"),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
 ) -> EventSourceResponse:
     """
     SSE 接口：订阅指定轮次（turn）的输出流。
@@ -31,11 +45,19 @@ async def stream_turn(
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session 不存在")
 
-    logger.info("Turn SSE 连接建立: session_id=%s turn_id=%s last_seq=%s", session_id, turn_id, last_seq)
+    resume_seq = resolve_resume_seq(last_seq, last_event_id)
+    logger.info(
+        "Turn SSE 连接建立: session_id=%s turn_id=%s last_seq=%s last_event_id=%s resume_seq=%s",
+        session_id,
+        turn_id,
+        last_seq,
+        last_event_id,
+        resume_seq,
+    )
 
     async def event_generator():
         event_count = 0
-        async for item in redis_client.stream_turn_output(session_id, turn_id, start_seq=last_seq):
+        async for item in redis_client.stream_turn_output(session_id, turn_id, start_seq=resume_seq):
             if await request.is_disconnected():
                 logger.info(
                     "Turn SSE 客户端断开: session_id=%s turn_id=%s 累计推送=%d",
@@ -76,6 +98,7 @@ async def pull_session_stream_resp(
     request: Request,
     session_id: str,
     last_seq: str = Query(default="0", description="断线重连时传入上次收到的 Redis Stream ID"),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
 ) -> EventSourceResponse:
     """
     SSE 接口：先回放 MongoDB 中的历史快照，再持续从 Redis Stream 拉取增量输出。
@@ -85,11 +108,19 @@ async def pull_session_stream_resp(
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session 不存在")
 
-    logger.info("SSE 连接建立: session_id=%s status=%s last_seq=%s", session_id, session.status, last_seq)
+    resume_seq = resolve_resume_seq(last_seq, last_event_id)
+    logger.info(
+        "SSE 连接建立: session_id=%s status=%s last_seq=%s last_event_id=%s resume_seq=%s",
+        session_id,
+        session.status,
+        last_seq,
+        last_event_id,
+        resume_seq,
+    )
 
     async def event_generator():
         # 先发送历史快照（仅首次连接或 last_seq=0 时有意义）
-        if last_seq == "0" and session.events_snapshot:
+        if resume_seq == "0" and session.events_snapshot:
             yield {
                 "event": _SNAPSHOT_EVENT,
                 "data": json.dumps({"events": session.events_snapshot}),
@@ -102,11 +133,11 @@ async def pull_session_stream_resp(
             yield {"event": "done", "data": json.dumps({"status": session.status})}
             return
 
-        logger.info("session %s: 开始订阅 Redis Stream（start_seq=%s）", session_id, last_seq)
+        logger.info("session %s: 开始订阅 Redis Stream（start_seq=%s）", session_id, resume_seq)
         event_count = 0
 
         # 持续从 Redis Stream 拉取增量
-        async for item in redis_client.stream_session_output(session_id, start_seq=last_seq):
+        async for item in redis_client.stream_session_output(session_id, start_seq=resume_seq):
             # 客户端断开时停止
             if await request.is_disconnected():
                 logger.info("session %s: 客户端断开，累计推送 %d 条事件", session_id, event_count)
