@@ -63,10 +63,63 @@ def _normalize_draft(data: dict[str, Any], base: SkillDraft | None = None) -> Sk
     )
 
 
+def _escape_raw_control_chars_in_strings(raw: str) -> str:
+    """把 JSON 字符串字面量里的裸控制字符转义成 \\n/\\r/\\t/\\uXXXX。
+
+    LLM 常把 Markdown 正文直接写进 content，留下未转义的真实换行，
+    触发 json.loads 的 Invalid control character。只改字符串内部，不碰结构。
+    """
+    result: list[str] = []
+    in_string = False
+    escape_next = False
+    for char in raw:
+        if escape_next:
+            result.append(char)
+            escape_next = False
+            continue
+        if in_string and char == "\\":
+            result.append(char)
+            escape_next = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            result.append(char)
+            continue
+        if in_string and ord(char) < 0x20:
+            if char == "\n":
+                result.append("\\n")
+            elif char == "\r":
+                result.append("\\r")
+            elif char == "\t":
+                result.append("\\t")
+            else:
+                result.append(f"\\u{ord(char):04x}")
+            continue
+        result.append(char)
+    return "".join(result)
+
+
+def _loads_draft_json(raw: str) -> Any:
+    """先严格解析；遇控制字符错误时本地转义后再解析一次。"""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as first_error:
+        if "Invalid control character" not in str(first_error):
+            raise
+        repaired = _escape_raw_control_chars_in_strings(raw)
+        if repaired == raw:
+            raise
+        logger.info(
+            "skill-creator parser: 已本地转义 JSON 字符串内控制字符 pos=%s",
+            getattr(first_error, "pos", None),
+        )
+        return json.loads(repaired)
+
+
 def _parse_draft_payload(raw: str, base: SkillDraft | None) -> tuple[SkillDraft | None, str | None]:
     """解析单个 JSON 候选文本，返回 (草稿, 失败原因)；成功时失败原因为 None。"""
     try:
-        data = json.loads(raw)
+        data = _loads_draft_json(raw)
     except json.JSONDecodeError as exc:
         return None, f"JSON 语法错误: {exc}"
     if not _looks_like_skill_draft(data):
@@ -135,7 +188,7 @@ def parse_draft_text(text: str, base: SkillDraft | None = None) -> tuple[SkillDr
 
 def _is_skill_draft_json(raw: str) -> bool:
     try:
-        data = json.loads(raw)
+        data = _loads_draft_json(raw)
     except json.JSONDecodeError:
         return False
     return _looks_like_skill_draft(data)

@@ -31,7 +31,13 @@ export default defineConfig({
       "/skills": "http://localhost:8000",
       "/mcp": "http://localhost:8000",    // skill 列表 → gateway
       "/health": "http://localhost:8000",
-      "/config": "http://localhost:9000",    // LLM / MCP / Skill CRUD → admin
+      // skill-creator 单轮可能串行多次 LLM，需长于默认超时
+      "/config": {
+        target: "http://localhost:9000",
+        changeOrigin: true,
+        timeout: 300_000,
+        proxyTimeout: 300_000,
+      },
     },
   },
 });
