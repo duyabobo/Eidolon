@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SkillScope } from "../api/skills";
 import { SkillCreatorMessage, SkillDraft, skillCreatorApi, buildSkillMarkdown } from "../api/skillCreator";
+import { useAutoGrowTextarea } from "../hooks/useAutoGrowTextarea";
 import ChatMarkdown from "./chat/ChatMarkdown";
 
 interface Props {
@@ -29,6 +30,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortCtrlRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { textareaRef, syncHeight } = useAutoGrowTextarea(input);
 
   const scopeLabel = scope === "user" ? "我的 Skill" : "系统 Skill";
   const isEditMode = !!editSkillName;
@@ -69,6 +71,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
     if (!text || !sessionId || sending) return;
 
     setInput("");
+    requestAnimationFrame(() => syncHeight());
     setSending(true);
     setError(null);
     setMessages((prev) => [...prev, { role: "user", content: text }]);
@@ -256,24 +259,25 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
               title="上传附件到 Skill 目录"
               disabled={loading || !sessionId || uploading || sending}
               onClick={() => fileInputRef.current?.click()}
-              className="shrink-0 text-sm px-2.5 py-1.5 rounded-lg border border-ink-200 text-ink-600 hover:bg-ink-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="shrink-0 self-end text-sm px-2.5 py-1.5 rounded-lg border border-ink-200 text-ink-600 hover:bg-ink-50 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {uploading ? "…" : "附件"}
             </button>
             <textarea
-              rows={2}
+              ref={textareaRef}
+              rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="描述你想创建的 Skill…"
               disabled={loading || !sessionId}
-              className="flex-1 resize-none bg-transparent border border-ink-200/80 rounded-xl px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-300 transition-all duration-200 disabled:opacity-60"
+              className="flex-1 resize-none bg-transparent border border-ink-200/80 rounded-xl px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-300 disabled:opacity-60 leading-relaxed"
             />
             {sending ? (
               <button
                 type="button"
                 onClick={handleInterrupt}
-                className="ui-btn-danger shrink-0"
+                className="ui-btn-danger shrink-0 self-end"
               >
                 中断
               </button>
@@ -282,7 +286,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
                 type="button"
                 onClick={handleSend}
                 disabled={loading || !sessionId || !input.trim()}
-                className="ui-btn-primary shrink-0"
+                className="ui-btn-primary shrink-0 self-end"
               >
                 发送
               </button>

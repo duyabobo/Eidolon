@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { Skill, SkillScope, toSkillRef } from "../api/skills";
 import { workspaceApi, type ChatUploadResponse } from "../api/workspace";
+import { useAutoGrowTextarea } from "../hooks/useAutoGrowTextarea";
 
 interface SlashContext {
   query: string;
@@ -25,6 +26,11 @@ function SkillScopeBadge({ scope }: { scope: SkillScope }) {
   );
 }
 
+interface PendingUpload {
+  id: string;
+  file: File;
+}
+
 interface Props {
   skills: Skill[];
   selectedSkillRef: string;
@@ -45,17 +51,65 @@ export default function ChatInput({
   const [cursorPos, setCursorPos] = useState(0);
   const [menuIndex, setMenuIndex] = useState(0);
   const [uploads, setUploads] = useState<ChatUploadResponse[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<PendingUpload[]>([]);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevSessionIdRef = useRef<string | null>(sessionId);
+  const pendingRef = useRef(pendingFiles);
+  pendingRef.current = pendingFiles;
 
-  const canUpload = Boolean(userId.trim() && sessionId);
+  const { textareaRef, syncHeight } = useAutoGrowTextarea(input);
+  const canPickFile = Boolean(userId.trim()) && !isLoading && !uploading;
+
+  const flushPending = useCallback(async (sid: string) => {
+    const pending = pendingRef.current;
+    if (!pending.length || !userId.trim()) return;
+    setUploading(true);
+    setUploadErr(null);
+    const remain: PendingUpload[] = [];
+    const done: ChatUploadResponse[] = [];
+    for (const item of pending) {
+      try {
+        const res = await workspaceApi.uploadToSession(userId, sid, item.file);
+        done.push(res);
+      } catch (e) {
+        remain.push(item);
+        setUploadErr(e instanceof Error ? e.message : "上传失败");
+      }
+    }
+    if (done.length) setUploads((prev) => [...prev, ...done]);
+    setPendingFiles(remain);
+    setUploading(false);
+  }, [userId]);
 
   useEffect(() => {
-    setUploads([]);
-    setUploadErr(null);
-  }, [sessionId]);
+    const prev = prevSessionIdRef.current;
+    prevSessionIdRef.current = sessionId;
+
+    if (prev === sessionId) return;
+
+    // 新建对话 / 离开会话：清空
+    if (sessionId == null) {
+      setUploads([]);
+      setPendingFiles([]);
+      setUploadErr(null);
+      return;
+    }
+
+    // 切换到另一个已有会话：清空并停止挂起
+    if (prev != null && prev !== sessionId) {
+      setUploads([]);
+      setPendingFiles([]);
+      setUploadErr(null);
+      return;
+    }
+
+    // null → 新建 session：把挂起文件写入 workspace
+    if (prev == null) {
+      void flushPending(sessionId);
+    }
+  }, [sessionId, flushPending]);
 
   const slashCtx = useMemo(() => detectSlash(input, cursorPos), [input, cursorPos]);
   const menuOpen = slashCtx !== null;
@@ -89,7 +143,7 @@ export default function ChatInput({
     }
     setMenuIndex(0);
     textareaRef.current?.focus();
-  }, [slashCtx, input, cursorPos, onSelectSkill]);
+  }, [slashCtx, input, cursorPos, onSelectSkill, textareaRef]);
 
   const handleSend = () => {
     const trimmed = input.trim();
@@ -97,6 +151,7 @@ export default function ChatInput({
     onSend(trimmed);
     setInput("");
     setMenuIndex(0);
+    requestAnimationFrame(() => syncHeight());
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -139,9 +194,17 @@ export default function ChatInput({
   };
 
   const handleUpload = async (file: File | undefined) => {
-    if (!file || !sessionId || !userId.trim()) return;
-    setUploading(true);
+    if (!file || !userId.trim()) {
+      setUploadErr("请先在「历史」页设置用户 ID");
+      return;
+    }
     setUploadErr(null);
+    if (!sessionId) {
+      setPendingFiles((prev) => [...prev, { id: crypto.randomUUID(), file }]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    setUploading(true);
     try {
       const res = await workspaceApi.uploadToSession(userId, sessionId, file);
       setUploads((prev) => [...prev, res]);
@@ -151,6 +214,10 @@ export default function ChatInput({
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  const removePending = (id: string) => {
+    setPendingFiles((prev) => prev.filter((p) => p.id !== id));
   };
 
   return (
@@ -200,11 +267,29 @@ export default function ChatInput({
         </div>
       )}
 
-      {uploads.length > 0 && (
+      {(pendingFiles.length > 0 || uploads.length > 0) && (
         <div className="flex flex-wrap gap-1.5 mb-2">
+          {pendingFiles.map((p) => (
+            <span
+              key={p.id}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200/70"
+              title="发送消息创建会话后自动上传"
+            >
+              {p.file.name}
+              <span className="text-[10px] opacity-70">待上传</span>
+              <button
+                type="button"
+                className="text-amber-500 hover:text-amber-800"
+                onClick={() => removePending(p.id)}
+                aria-label="移除"
+              >
+                ×
+              </button>
+            </span>
+          ))}
           {uploads.map((u) => (
             <span
-              key={`${u.stored_path}`}
+              key={u.stored_path}
               className="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-ink-50 text-ink-600 border border-ink-200/60"
               title={u.stored_path}
             >
@@ -226,10 +311,16 @@ export default function ChatInput({
         />
         <button
           type="button"
-          title={canUpload ? "上传附件到当前会话" : "请先发送一条消息创建会话后再上传"}
-          disabled={!canUpload || isLoading || uploading}
+          title={
+            !userId.trim()
+              ? "请先在「历史」页设置用户 ID"
+              : sessionId
+                ? "上传附件到当前会话"
+                : "选择附件（发送消息创建会话后自动上传）"
+          }
+          disabled={!canPickFile}
           onClick={() => fileInputRef.current?.click()}
-          className="shrink-0 text-sm px-2.5 py-1.5 rounded-lg border border-ink-200 text-ink-600 hover:bg-ink-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="shrink-0 self-end text-sm px-2.5 py-1.5 rounded-lg border border-ink-200 text-ink-600 hover:bg-ink-50 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {uploading ? "…" : "附件"}
         </button>
@@ -242,12 +333,12 @@ export default function ChatInput({
           onClick={syncCursor}
           onSelect={syncCursor}
           placeholder="输入消息…  输入 / 选择 Skill"
-          rows={2}
+          rows={1}
           disabled={isLoading}
-          className="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none disabled:opacity-60"
+          className="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none disabled:opacity-60 leading-relaxed"
         />
         {isLoading ? (
-          <button type="button" onClick={onInterrupt} className="ui-btn-danger shrink-0">
+          <button type="button" onClick={onInterrupt} className="ui-btn-danger shrink-0 self-end">
             中断
           </button>
         ) : (
@@ -255,7 +346,7 @@ export default function ChatInput({
             type="button"
             onClick={handleSend}
             disabled={!input.trim()}
-            className="ui-btn-primary shrink-0"
+            className="ui-btn-primary shrink-0 self-end"
           >
             发送
           </button>
