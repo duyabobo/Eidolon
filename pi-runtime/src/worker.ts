@@ -39,7 +39,7 @@ import {
   registerSessionMcpBridge,
   unregisterSessionMcpBridge,
 } from "./session-mcp-bridge";
-import { resolveMcpServersForSkills } from "./skill-mcp";
+import { resolveMcpToolsForSkills } from "./skill-mcp";
 import { computeSkillContentFingerprint } from "./skill-reload";
 import { AgentTask, ReliableTaskQueue, TaskProcessResult } from "./task-queue";
 
@@ -185,15 +185,15 @@ async function registerSessionMcpBridgeForSkills(
   userId: string,
   skillIds: string[],
 ): Promise<string[] | undefined> {
-  const mcpServerNames = await resolveMcpServersForSkills(userId, skillIds);
+  const mcpToolNames = await resolveMcpToolsForSkills(userId, skillIds);
   registerSessionMcpBridge(
     sessionId,
     userId,
     process.env.MCP_PROXY_HOST ?? "mcp-proxy",
     Number(process.env.MCP_PROXY_PORT ?? 8080),
-    mcpServerNames,
+    mcpToolNames,
   );
-  return mcpServerNames;
+  return mcpToolNames;
 }
 
 /**
@@ -216,9 +216,10 @@ async function startAndRegisterSession(
     process.env.LLM_PROXY_HOST ?? "llm-proxy",
     Number(process.env.LLM_PROXY_PORT ?? 9001),
   );
-  // mcpServerNames 仅用于给 session-mcp-bridge 设置 X-Mcp-Servers 白名单头；
-  // 工具描述信息统一由 mcp-proxy 按真实 Server 缓存管理（见 mcp-proxy/services/
-  // mcp_cache_manager.py），沙盒/pi-runtime 不单独请求预热，也不自行缓存。
+  // registerSessionMcpBridgeForSkills 只用于给 session-mcp-bridge 设置 X-Mcp-Tools
+  // 工具名白名单头（不是 Server 名）；工具描述信息统一由 mcp-proxy 按真实 Server 缓存
+  // 管理（见 mcp-proxy/services/mcp_cache_manager.py），沙盒/pi-runtime 不单独请求
+  // 预热，也不自行缓存。
   await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
 
   const piHandle = await startPiSession(sessionId, sandboxPaths, skillIds);

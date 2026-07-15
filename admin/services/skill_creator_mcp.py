@@ -173,12 +173,13 @@ def build_mcp_prompt_context(infos: list[McpServerToolsInfo]) -> str:
         "\n\n---\n\n## 平台注入：MCP Server 工具清单（经 mcp-proxy 按 Server 名实时拉取）\n",
         "用户已提到 MCP Server；下列 tool list 来自 **mcp-proxy 服务接口**（按业务 Server 名过滤）。\n",
         "你必须先基于本清单编写 Skill，再描述调用方式；禁止跳过 tool list 臆造工具名。\n",
-        "Skill `content` 须写明运行时标准顺序：",
-        "① 只连 `mcp-proxy` → ② `mcp({ server: \"mcp-proxy\" })` 拉 tool list → ",
-        "③ 结合 Skill 描述与 tool list 再发起工具调用。\n",
-        "业务 Server 名只写入 `mcp_servers` 供平台过滤，",
-        "**禁止**让 Agent 对业务名执行 `mcp({ server: \"业务名\" })`。\n",
-        "**不要**在 references 中写死 tool 列表（运行时再经 mcp-proxy 拉取）。\n",
+        "白名单是**工具粒度**，不是 Server 粒度：从下面清单里挑出这个 Skill 实际会用到的具体工具名"
+        "（不需要每个都用，只挑相关的），写入 `mcp_tools`。运行时 pi 只能看到 `mcp_tools` 里列出的工具，"
+        "看不到 Server 名，也看不到未列出的工具。\n",
+        "Skill `content` 只描述**工具名**和调用顺序/参数/降级策略，**不要出现业务 Server 名**"
+        "（如下面清单标题里的名字）——运行时 Agent 根本看不到 Server 名，写了也没用，还会误导它去猜"
+        "`mcp({ server: \"业务名\" })`（一定会失败）。\n",
+        "**不要**在 references 中写死 tool 列表（运行时再经 mcp-proxy 拉取，也不需要 Agent 自己拉）。\n",
     ]
     for info in infos:
         lines.append(f"\n### MCP Server `{info.name}` ({info.scope})\n")
@@ -197,8 +198,9 @@ def build_mcp_prompt_context(infos: list[McpServerToolsInfo]) -> str:
             lines.append("- 工具列表：（空）\n")
 
     lines.append(
-        "\n在输出 `skill-draft` 时，请设置 `mcp_servers` 为上述 Server 名称数组，"
-        "并在 `content` 中包含完整的 MCP / mcp-proxy 使用说明（无需 references/mcp-tools.md）。\n"
+        "\n在输出 `skill-draft` 时，请设置 `mcp_tools` 为你从上面清单里挑出的具体工具名数组"
+        "（这才是运行时真正生效的白名单）；`mcp_servers` 可以留空或填这些 Server 名仅供人类查看溯源，"
+        "不影响运行时行为。`content` 中包含完整的工具使用说明（无需 references/mcp-tools.md）。\n"
     )
     return "".join(lines)
 
@@ -209,32 +211,37 @@ def enrich_draft_with_mcp_reference(draft: SkillDraft, infos: list[McpServerTool
 
     content = draft.content.strip()
     server_names = [info.name for info in infos]
+    available_tools = sorted({tool for info in infos if info.available for tool in info.tools})
+
+    # 模型已经按新规则在 draft.mcp_tools 里挑了具体工具就尊重它的选择；
+    # 没挑（例如模型忘记按规则输出）时兜底成这些 Server 当前的全部工具，
+    # 避免出现「提到了某个 Server 但白名单一个工具都没有」的空白态。
+    mcp_tools = list(draft.mcp_tools) if draft.mcp_tools else available_tools
 
     if _MCP_REFERENCE_SECTION not in content:
         summary_lines = [
             _MCP_REFERENCE_SECTION,
             "",
-            "标准顺序：先经 **mcp-proxy** 拉 tool list（`mcp({ server: \"mcp-proxy\" })`），",
-            "再结合本 Skill 描述与 tool list 完成调用；禁止对业务 Server 名做 connect 探测。",
-            "业务名仅写入 `mcp_servers` 供平台白名单过滤。",
+            "以下是本 Skill 可调用的 MCP 工具（平台已按白名单注入，只能调用下列工具，"
+            "不要调用未列出的工具，也不要臆造工具名）：",
             "",
         ]
+        if mcp_tools:
+            summary_lines.extend(f"- `{tool}`" for tool in mcp_tools)
+        else:
+            summary_lines.append("- （暂无可用工具）")
         for info in infos:
-            if info.available and info.tools:
-                summary_lines.append(
-                    f"- 业务能力 **{info.name}**（{info.scope}）：约 {len(info.tools)} 个工具，"
-                    "经 mcp-proxy 聚合暴露（勿把该名称当作 Agent 侧 server 去 connect）"
-                )
-            elif not info.enabled:
-                summary_lines.append(f"- **{info.name}**：已禁用")
-            else:
-                summary_lines.append(f"- **{info.name}**：不可用（{info.error or '连接失败'}）")
+            if not info.enabled:
+                summary_lines.append(f"- 注：相关能力当前已禁用（{info.name}），启用前不要假设这些工具可用")
+            elif not info.available:
+                summary_lines.append(f"- 注：相关能力当前不可用（{info.name}：{info.error or '连接失败'}）")
         summary_lines.append("")
         content = content + "\n\n" + "\n".join(summary_lines)
 
     return draft.model_copy(update={
         "content": content.strip(),
         "mcp_servers": server_names,
+        "mcp_tools": mcp_tools,
         "mcp_tools_reference": "",
     })
 

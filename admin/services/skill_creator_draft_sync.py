@@ -16,7 +16,7 @@ _DRAFT_SYNC_SYSTEM = """你是 Skill 草稿同步器。平台会把你的 JSON �
 
 输出规则（必须遵守）：
 1. 只输出一个 JSON 对象，或 exactly 单词 SKIP（全大写）。禁止 markdown 代码块、禁止解释、禁止其它文字。
-2. JSON 字段 name, description, content, tags（数组）, mcp_servers（数组）均为可选。
+2. JSON 字段 name, description, content, tags（数组）, mcp_tools（数组，工具名）均为可选。
 3. 只输出本轮用户要求「实际发生变化」的字段；未提及、不需要修改的字段（尤其是长篇的 content）请直接省略，
    平台会自动沿用现有草稿中的原值。例如用户只要求改 description，就只输出 {"description": "..."}。
    这样可以避免每次都要重新转义整段正文导致 JSON 语法出错。

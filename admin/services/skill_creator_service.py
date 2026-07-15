@@ -185,6 +185,7 @@ def _merge_draft(session_draft: SkillDraft | None, body: PublishSkillRequest) ->
         content=(body.content or base.content).strip(),
         tags=body.tags if body.tags is not None else base.tags,
         mcp_servers=base.mcp_servers,
+        mcp_tools=base.mcp_tools,
         mcp_tools_reference=base.mcp_tools_reference,
     )
 
@@ -213,6 +214,7 @@ async def publish_session(session_id: str, body: PublishSkillRequest) -> SkillMe
             draft.description,
             draft.content,
             mcp_servers=draft.mcp_servers,
+            mcp_tools=draft.mcp_tools,
         )
     else:
         write_skill(
@@ -220,6 +222,7 @@ async def publish_session(session_id: str, body: PublishSkillRequest) -> SkillMe
             draft.description,
             draft.content,
             mcp_servers=draft.mcp_servers,
+            mcp_tools=draft.mcp_tools,
         )
 
     meta = SkillMeta(
@@ -228,6 +231,7 @@ async def publish_session(session_id: str, body: PublishSkillRequest) -> SkillMe
         user_id=user_id,
         tags=draft.tags,
         mcp_servers=draft.mcp_servers,
+        mcp_tools=draft.mcp_tools,
         hidden=body.hidden if not user_id else False,
     )
     saved = await mongo_client.save_skill_meta(meta)

@@ -1,5 +1,12 @@
 /**
- * 从 MongoDB skills 元数据解析 session 应加载的 MCP Server 白名单。
+ * 从 MongoDB skills 元数据解析 session 应加载的 MCP 工具白名单。
+ *
+ * 白名单粒度是工具名（mcp_tools），不是 Server 名：
+ *   - skill 声明的是它实际会用到的具体工具（如 wiki_combined_search），
+ *     不是 mrag/tavily 这类业务 Server 名——Server 名从不出现在 SKILL.md 正文里，
+ *     Agent 也就没有理由去猜 mcp({ server: "业务名" })。
+ *   - mcp-proxy 收到工具名白名单后，在合并好的工具视图里按名字过滤，
+ *     不需要预先知道白名单里的工具具体来自哪个 Server。
  */
 import { getDb } from "./mongo-client";
 
@@ -45,12 +52,12 @@ function buildLookupQueries(userId: string, skillIds: string[]): object[] {
 }
 
 /**
- * 根据 session 选中的 skill_ids 合并 MCP Server 白名单。
- * - 无 skill：undefined（加载全部已启用 MCP）
- * - 有 skill 且并集非空：返回 Server 名称数组
- * - 有 skill 但未声明 mcp_servers：undefined（兼容旧 Skill）
+ * 根据 session 选中的 skill_ids 合并 MCP 工具白名单。
+ * - 无 skill：undefined（加载全部已启用 MCP 工具）
+ * - 有 skill 且并集非空：返回工具名称数组
+ * - 有 skill 但未声明 mcp_tools：undefined（兼容不依赖 MCP 的 Skill）
  */
-export async function resolveMcpServersForSkills(
+export async function resolveMcpToolsForSkills(
   userId: string,
   skillIds: string[],
 ): Promise<string[] | undefined> {
@@ -66,13 +73,13 @@ export async function resolveMcpServersForSkills(
   const docs = await getDb()
     .collection("skills")
     .find({ $or: queries })
-    .project({ mcp_servers: 1 })
+    .project({ mcp_tools: 1 })
     .toArray();
 
   const merged = new Set<string>();
   for (const doc of docs) {
-    if (!Array.isArray(doc.mcp_servers)) continue;
-    for (const item of doc.mcp_servers) {
+    if (!Array.isArray(doc.mcp_tools)) continue;
+    for (const item of doc.mcp_tools) {
       const cleaned = String(item).trim();
       if (cleaned) merged.add(cleaned);
     }
@@ -80,14 +87,14 @@ export async function resolveMcpServersForSkills(
 
   if (merged.size === 0) {
     console.log(
-      `[skill-mcp] user=${userId} skills=${skillIds.join(",")}: 未声明 mcp_servers，使用全部 MCP`,
+      `[skill-mcp] user=${userId} skills=${skillIds.join(",")}: 未声明 mcp_tools，使用全部 MCP`,
     );
     return undefined;
   }
 
   const result = Array.from(merged).sort();
   console.log(
-    `[skill-mcp] user=${userId} skills=${skillIds.join(",")}: mcp_servers=${result.join(",")}`,
+    `[skill-mcp] user=${userId} skills=${skillIds.join(",")}: mcp_tools=${result.join(",")}`,
   );
   return result;
 }

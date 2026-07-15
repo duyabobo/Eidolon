@@ -38,13 +38,29 @@ def _skill_file(name: str) -> Path:
     return _skill_dir(name) / "SKILL.md"
 
 
-def _build_skill_md(name: str, description: str, content: str, mcp_servers: list[str] | None = None) -> str:
-    """按 Agent Skills 标准拼装 SKILL.md 内容"""
+def _build_skill_md(
+    name: str,
+    description: str,
+    content: str,
+    mcp_servers: list[str] | None = None,
+    mcp_tools: list[str] | None = None,
+) -> str:
+    """
+    按 Agent Skills 标准拼装 SKILL.md 内容。
+
+    mcp_servers 仅写入 frontmatter 供人类查看溯源（这个 skill 的工具来自哪些 Server）；
+    mcp_tools 才是运行时白名单（精确到工具名），实际生效的是 MongoDB SkillMeta.mcp_tools，
+    frontmatter 里的 mcp_tools 只是让 SKILL.md 文件本身自描述、便于版本管理时查看。
+    """
     lines = ["---", f"name: {name}", f"description: {description}"]
     servers = [item.strip() for item in (mcp_servers or []) if item.strip()]
     if servers:
         lines.append("mcp_servers:")
         lines.extend(f"  - {item}" for item in servers)
+    tools = [item.strip() for item in (mcp_tools or []) if item.strip()]
+    if tools:
+        lines.append("mcp_tools:")
+        lines.extend(f"  - {item}" for item in tools)
     lines.extend(["---", ""])
     return "\n".join(lines) + content
 
@@ -55,9 +71,10 @@ def write_skill(
     content: str,
     references: dict[str, str] | None = None,
     mcp_servers: list[str] | None = None,
+    mcp_tools: list[str] | None = None,
 ) -> None:
     """将系统 skill 写入 global/skills/{name}/SKILL.md"""
-    _write_skill_files(_skill_dir(name), name, description, content, references, mcp_servers)
+    _write_skill_files(_skill_dir(name), name, description, content, references, mcp_servers, mcp_tools)
 
 
 def write_user_skill(
@@ -67,9 +84,12 @@ def write_user_skill(
     content: str,
     references: dict[str, str] | None = None,
     mcp_servers: list[str] | None = None,
+    mcp_tools: list[str] | None = None,
 ) -> None:
     """将用户 skill 写入 users/{user_id}/skills/{name}/SKILL.md"""
-    _write_skill_files(_user_skills_root(user_id) / name, name, description, content, references, mcp_servers)
+    _write_skill_files(
+        _user_skills_root(user_id) / name, name, description, content, references, mcp_servers, mcp_tools,
+    )
 
 
 def _write_skill_files(
@@ -79,10 +99,11 @@ def _write_skill_files(
     content: str,
     references: dict[str, str] | None,
     mcp_servers: list[str] | None = None,
+    mcp_tools: list[str] | None = None,
 ) -> None:
     skill_dir.mkdir(parents=True, exist_ok=True)
     skill_file = skill_dir / "SKILL.md"
-    skill_file.write_text(_build_skill_md(name, description, content, mcp_servers), encoding="utf-8")
+    skill_file.write_text(_build_skill_md(name, description, content, mcp_servers, mcp_tools), encoding="utf-8")
     logger.info("skill 文件已写入: %s", skill_file)
 
     if not references:

@@ -9,7 +9,8 @@
    - 系统 Skill：`global/skills/{name}/SKILL.md`，MongoDB `user_id` 为空
    - 用户 Skill：`users/{user_id}/skills/{name}/SKILL.md`，MongoDB `user_id` 为对应用户
    - 均通过 skill-creator 对话创建，发布时 **MongoDB 元数据 + NFS 正文同步写入**
-   - `mcp_servers` 写入 MongoDB 元数据与 SKILL.md frontmatter；**不**生成静态 `references/mcp-tools.md`
+   - `mcp_tools`（工具名数组）写入 MongoDB 元数据与 SKILL.md frontmatter，**这是运行时真正生效的白名单**；
+     `mcp_servers`（Server 名数组）仅供人类查看溯源，不参与运行时过滤。**不**生成静态 `references/mcp-tools.md`
 3. **命名**：`name` 使用小写英文与连字符（如 `python-expert`），不含空格。
 4. **description**：一句话说明何时应使用该 Skill（供前端下拉展示）。
 5. **content**：SKILL.md 正文（**不含** YAML frontmatter），遵循 Agent Skills 规范：简洁、可执行、必要时含示例。
@@ -44,35 +45,41 @@
 
 只要用户提到某个 **MCP Server**（名称、用途或「要用某某 MCP」），你与最终 Skill 都必须按下列顺序工作，**禁止跳过 tool list 直接臆造工具名或调用方式**：
 
+白名单是**工具粒度**，不是 Server 粒度：平台运行时只按 `mcp_tools`（具体工具名数组）过滤，
+不按 Server 名过滤。这意味着 Skill `content` 里**永远不应该出现业务 Server 名**（如 `mrag`、
+`tavily`）——运行时 Agent 本来就看不到 Server 名，写了不但没用，还会误导它去猜
+`mcp({ server: "业务名" })`（一定会失败）。
+
 ### A. Skill Creator 创作阶段（你自己）
 
-1. **确认 Server 名**：与 Admin 已配置名称对齐，写入 `mcp_servers`。
+1. **确认 Server 名**：与 Admin 已配置名称对齐（仅用于定位要拉哪个 Server 的 tool list，
+   不直接写入运行时白名单）。
 2. **先经 mcp-proxy 拉 tool list**：平台会按 Server 名调用 mcp-proxy 服务接口拉取可用工具并注入本轮 system prompt。你必须**等待并基于这份实时 tool list** 编写 Skill；若尚未注入清单，先请用户确认 Server 名，不要凭记忆编造工具。
-3. **再写调用说明**：结合用户场景描述 + mcp-proxy 返回的 tool list，在 `content` 中写清何时调用哪个工具、关键参数与降级策略。
-4. **定稿**：`skill-draft.mcp_servers` 填业务 Server 名；`content` 写运行时调用流程（见下）；**不要**把完整 tool 列表固化进 `references/`。
+3. **从 tool list 里挑出具体工具**：结合用户场景描述，选出这个 Skill 实际会用到的工具子集（不需要该 Server 的全部工具），写入 `mcp_tools`——这才是运行时真正生效的白名单。
+4. **再写调用说明**：在 `content` 中只用工具名描述何时调用哪个工具、关键参数与降级策略，**不提业务 Server 名**。
+5. **定稿**：`skill-draft.mcp_tools` 填选中的具体工具名（必须）；`mcp_servers` 可留空或填 Server 名仅供人类查看溯源（不影响运行时行为）；**不要**把完整 tool 列表固化进 `references/`。
 
 ### B. 运行时 Agent（必须写进 Skill `content`）
 
 Skill 正文须要求 Agent 按同样顺序执行：
 
-1. **唯一连接入口是 `mcp-proxy`**：不要对业务名（如 `mrag`、`tavily`）做 `mcp({ server: "业务名" })`（会 `Server not found`）。
-2. **先拉 tool list**：通过 mcp-proxy 列出当前可用工具，例如 `mcp({ server: "mcp-proxy" })`（或先 `mcp({})` 看状态再列工具）。业务 Server 名只出现在 Skill 的 `mcp_servers` 白名单里，由平台经 `X-Mcp-Servers` 过滤后注入 mcp-proxy。
-3. **再完成调用**：对照 **本 Skill 的流程描述** + **刚拉到的 tool list**，选用匹配的工具（常见名如 `mcp_proxy_...`）发起调用；不得调用清单中不存在的工具，也不得跳过列工具步骤去猜工具名（除非本轮 tool list 已明确给出且与 Skill 描述一致）。
-4. **失败与降级**：tool list 为空、工具不可用或调用失败时，按 Skill 约定降级；仍不要改去探测业务 Server 名。
+1. **只能使用 Skill 里列出的工具**：直接调用列出的工具名（常见 `mcp_proxy_...`），不得调用未列出的工具，也不得臆造工具名。
+2. **结合本 Skill 的流程描述**发起调用，按需传参、解读结果。
+3. **失败与降级**：工具不可用或调用失败时，按 Skill 约定降级。
 
 ### Skill 正文模板（依赖 MCP 时写入 `content`）
 
 ```markdown
 ## MCP 工具使用
 
-本 Skill 依赖业务 MCP 能力：`server-a`（由平台按 `mcp_servers` 注入 mcp-proxy）。
+本 Skill 可调用以下 MCP 工具（平台已按白名单注入，只能调用下列工具，不要调用未列出的工具，也不要臆造工具名）：
 
-**标准调用顺序（必须遵守）**：
-1. 只连接 **`mcp-proxy`**，禁止 `mcp({ server: "server-a" })` 等业务名探测。
-2. **先**通过 mcp-proxy 拉取可用 tool list：`mcp({ server: "mcp-proxy" })`。
-3. **再**结合本 Skill 流程与 tool list，选择匹配工具完成调用（常见 `mcp_proxy_...`）。
-4. 推荐场景流程：……（在 tool list 确认后，按何条件调用何工具、关键参数、如何解读结果）
-5. 若 tool list 为空或调用失败：……（降级策略）
+- `tool-a`
+- `tool-b`
+
+**调用要点**：
+1. 推荐场景流程：……（按何条件调用何工具、关键参数、如何解读结果）
+2. 若工具不可用或调用失败：……（降级策略）
 ```
 
 ## 输出草稿格式（必须遵守）
@@ -85,6 +92,7 @@ Skill 正文须要求 Agent 按同样顺序执行：
   "description": "当用户需要……时使用",
   "content": "Skill 正文（Markdown，不含 frontmatter）",
   "tags": ["coding", "example"],
+  "mcp_tools": ["tool-a", "tool-b"],
   "mcp_servers": ["my-mcp-server"]
 }
 ```
@@ -93,8 +101,9 @@ Skill 正文须要求 Agent 按同样顺序执行：
 - **首次**生成草稿（当前还没有任何草稿）时，必须在回复**末尾**输出这个 `skill-draft` 块，字段需完整（`content` 是完整可用的 Skill 正文）。
 - **已有草稿后的每一轮修改**，平台会用一次独立的后台调用把你这轮对话的修改意图同步进草稿并刷新右侧预览，你**不需要**、也**不必**在自然语言回复里重复输出整段 `skill-draft` 块——只需正常用自然语言说明改了什么即可，平台会自动同步。
 - 用户未要求修改草稿、仅闲聊时，不必输出该块。
-- `content` 必须是完整可用的 Skill 正文；若依赖 MCP，须含「先经 mcp-proxy 拉 tool list，再按 Skill+清单调用」的标准流程说明。
-- `mcp_servers`（可选）：依赖的 MCP Server 名称数组；发布后会持久化，运行时按此过滤 MCP 工具。依赖 MCP 时**必须**填写且与用户确认的名称一致。
+- `content` 必须是完整可用的 Skill 正文；若依赖 MCP，须列出具体工具名与调用顺序，**不要出现业务 Server 名**。
+- `mcp_tools`（依赖 MCP 时**必须**填写）：从 mcp-proxy 返回的 tool list 里挑出的具体工具名数组；发布后会持久化，**运行时按此过滤 MCP 工具（工具粒度，不是 Server 粒度）**。
+- `mcp_servers`（可选）：这些工具来自哪些 Server，仅供人类在 Admin 界面查看溯源，不影响运行时行为。
 - 用自然语言向用户说明下一步（例如在 Admin 中点击「保存 Skill」）。
 
 ## 语言

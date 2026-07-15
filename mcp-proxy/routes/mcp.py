@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, Response
 
 from services import mongo_client
 from services.manager import manager
-from services.mcp_filter import parse_csv_names, parse_mcp_server_header
+from services.mcp_filter import parse_csv_names, parse_mcp_tools_header
 from services.mcp_probe import probe_mcp_servers
 
 logger = logging.getLogger(__name__)
@@ -32,36 +32,19 @@ def _jsonrpc_error(request_id: JsonRpcId, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
-def _resolve_server_names(
-    header_names: list[str] | None,
-    query_names: list[str] | None,
-) -> list[str] | None:
-    """合并 X-Mcp-Servers 与查询参数；返回 None 表示加载全部已启用 Server。"""
-    merged: list[str] = []
-    seen: set[str] = set()
-    for name in (header_names or []) + (query_names or []):
-        cleaned = name.strip()
-        if cleaned and cleaned not in seen:
-            seen.add(cleaned)
-            merged.append(cleaned)
-    return sorted(merged) if merged else None
-
-
 # ── 路由 ─────────────────────────────────────────────────────────────────────
 
 @router.post("/mcp", tags=["mcp"])
 async def handle_mcp(request: Request) -> Response:
     user_id = request.headers.get("X-User-Id") or None
-    allowed_names = _resolve_server_names(
-        parse_mcp_server_header(request.headers.get("X-Mcp-Servers")),
-        None,
-    )
+    # 白名单是工具粒度（X-Mcp-Tools），不是 Server 粒度：见 mcp_cache_manager.get_tools
+    allowed_tool_names = parse_mcp_tools_header(request.headers.get("X-Mcp-Tools"))
     try:
         body = await request.json()
     except Exception:
         return JSONResponse(_jsonrpc_error(None, -32700, "Parse error"), status_code=400)
 
-    response = await _dispatch(body, user_id, allowed_names)
+    response = await _dispatch(body, user_id, allowed_tool_names)
     if response is None:
         return Response(status_code=202)
     return JSONResponse(response)
@@ -126,12 +109,12 @@ async def servers_status(
 
 # ── JSON-RPC 分发（内部）──────────────────────────────────────────────────────
 
-async def _dispatch(body: dict, user_id: str | None, allowed_names: list[str] | None) -> dict | None:
+async def _dispatch(body: dict, user_id: str | None, allowed_tool_names: list[str] | None) -> dict | None:
     request_id: JsonRpcId = body.get("id")
     method: str = body.get("method", "")
     params: dict = body.get("params") or {}
 
-    tools_view = await manager.get_tools(user_id, allowed_names)
+    tools_view = await manager.get_tools(user_id, allowed_tool_names)
 
     if method == "initialize":
         return _jsonrpc_result(request_id, {

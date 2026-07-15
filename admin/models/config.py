@@ -38,13 +38,17 @@ class SkillMeta(BaseModel):
     MongoDB 存储 Skill 元数据（列表/下拉用，不含正文）。
     user_id 为空表示系统 Skill；否则为用户私有 Skill。
     正文在 NFS：global/skills/{name}/ 或 users/{user_id}/skills/{name}/。
-    mcp_servers：运行时由 mcp-proxy 按此列表过滤可用 MCP 工具。
+
+    mcp_servers：仅展示/溯源用（这个 Skill 的工具来自哪些 Server），不参与运行时过滤。
+    mcp_tools：运行时白名单，精确到工具名，由 mcp-proxy 按此过滤可用 MCP 工具
+      （见 pi-runtime/src/skill-mcp.ts、mcp-proxy/services/mcp_cache_manager.py）。
     """
     name: str
     description: str
     user_id: str | None = None
     tags: list[str] = []
     mcp_servers: list[str] = []
+    mcp_tools: list[str] = []
     hidden: bool = False
     created_at: datetime = None  # type: ignore[assignment]
     updated_at: datetime = None  # type: ignore[assignment]

@@ -81,6 +81,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
           ...res.draft,
           tags: [...(res.draft.tags ?? [])],
           mcp_servers: [...(res.draft.mcp_servers ?? [])],
+          mcp_tools: [...(res.draft.mcp_tools ?? [])],
         });
       }
     } catch (e) {
@@ -253,8 +254,11 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
                 {(draft.tags ?? []).length > 0 && (
                   <PreviewRow label="标签" value={(draft.tags ?? []).join(", ")} />
                 )}
+                {(draft.mcp_tools ?? []).length > 0 && (
+                  <PreviewRow label="MCP 工具" value={(draft.mcp_tools ?? []).join(", ")} />
+                )}
                 {(draft.mcp_servers ?? []).length > 0 && (
-                  <PreviewRow label="MCP Servers" value={(draft.mcp_servers ?? []).join(", ")} />
+                  <PreviewRow label="依赖 Server（溯源）" value={(draft.mcp_servers ?? []).join(", ")} />
                 )}
                 <div>
                   <p className="font-medium text-gray-600 mb-1">正文</p>

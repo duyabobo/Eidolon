@@ -5,9 +5,11 @@ McpServerCacheManager：全局唯一的 MCP Server 缓存管理器。
   - 系统级 Server（user_id 为空）→ 缓存键 ("__system__", name)，所有用户共享同一份连接
   - 用户级 Server        → 缓存键 (user_id, name)，仅该用户可见
 
-任何请求（无论是否声明了 skill 白名单）都只从这里按需读取已缓存的若干 Server，
-实时合并出工具视图（McpToolsView），不再按"用户 + Server 白名单组合"单独维护一份
-缓存：同一个真实 Server 无论被多少种 skill 白名单组合引用，只连接、只缓存一次。
+请求侧的白名单是**工具粒度**，不是 Server 粒度：get_tools 总是加载该用户全部已启用
+的 Server（反正已经全局预热好了，命中缓存几乎零开销），合并成完整工具视图后，
+再按 tool_names 过滤出请求方声明的具体工具。这样"该连哪些 Server"和"该给哪些工具"
+两件事解耦：缓存层永远按真实 Server 组织（同一个 Server 无论被多少种工具白名单引用，
+只连接、只缓存一次），过滤层按工具名做一次性、无网络开销的内存过滤。
 """
 import asyncio
 import logging
@@ -27,12 +29,21 @@ def _owner_of(user_id: str | None, entry: McpServerEntry) -> str:
 
 
 class McpToolsView:
-    """单次请求的工具视图：合并若干已缓存 Server 的工具，不持有自己的连接状态。"""
+    """
+    单次请求的工具视图：合并若干已缓存 Server 的工具，按工具名白名单过滤，
+    不持有自己的连接状态。
+    """
 
-    def __init__(self, caches: list[McpServerCache]) -> None:
+    def __init__(
+        self,
+        caches: list[McpServerCache],
+        allowed_tool_names: set[str] | None = None,
+    ) -> None:
         self._owner_by_tool: dict[str, McpServerCache] = {}
         for cache in caches:
             for name in cache.tool_names():
+                if allowed_tool_names is not None and name not in allowed_tool_names:
+                    continue
                 existing = self._owner_by_tool.get(name)
                 if existing is not None:
                     logger.warning(
@@ -69,15 +80,20 @@ class McpServerCacheManager:
             self._caches[key] = cache
         return cache
 
-    async def get_tools(self, user_id: str | None, server_names: list[str] | None = None) -> McpToolsView:
+    async def get_tools(self, user_id: str | None, tool_names: list[str] | None = None) -> McpToolsView:
         """
-        读取指定用户在给定 Server 白名单下可用的工具视图。
-        server_names 为空表示该用户已启用的全部 Server（系统 + 个人）。
+        读取指定用户在给定工具白名单下可用的工具视图。
+        tool_names 为空表示不过滤，返回该用户已启用的全部 Server 的全部工具（系统 + 个人）。
+
+        始终加载该用户全部已启用 Server（不按 tool_names 反查该连哪个 Server），
+        因为这些 Server 早已被全局预热覆盖，命中缓存的合并开销可忽略；
+        真正的过滤发生在 McpToolsView 按工具名做的内存过滤这一步。
         """
-        entries = await read_mcp_servers(user_id, names=server_names)
+        entries = await read_mcp_servers(user_id)
         caches = [self._get_or_create(user_id, entry) for entry in entries]
         await asyncio.gather(*(cache.refresh_if_stale() for cache in caches))
-        return McpToolsView(caches)
+        allowed = set(tool_names) if tool_names else None
+        return McpToolsView(caches, allowed_tool_names=allowed)
 
     async def force_refresh(self, user_id: str | None) -> None:
         """

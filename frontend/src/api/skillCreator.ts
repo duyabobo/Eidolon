@@ -5,7 +5,10 @@ export interface SkillDraft {
   description: string;
   content: string;
   tags?: string[];
+  /** 仅展示/溯源用（这个 Skill 的工具来自哪些 Server），不参与运行时过滤 */
   mcp_servers?: string[];
+  /** 运行时白名单，精确到工具名，由 mcp-proxy 按此过滤可用 MCP 工具 */
+  mcp_tools?: string[];
 }
 
 export interface SkillCreatorMessage {

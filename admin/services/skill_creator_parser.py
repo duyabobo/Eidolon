@@ -23,16 +23,10 @@ def _looks_like_skill_draft(data: Any) -> bool:
     return any(key in data for key in ("name", "description", "content"))
 
 
-def _merge_tags(base_tags: list[str], raw_tags: Any) -> list[str]:
-    if raw_tags is None:
-        return list(base_tags)
-    return [str(item).strip() for item in raw_tags if str(item).strip()]
-
-
-def _merge_mcp_servers(base_servers: list[str], raw_servers: Any) -> list[str]:
-    if raw_servers is None:
-        return list(base_servers)
-    return [str(item).strip() for item in raw_servers if str(item).strip()]
+def _merge_string_list(base_list: list[str], raw_list: Any) -> list[str]:
+    if raw_list is None:
+        return list(base_list)
+    return [str(item).strip() for item in raw_list if str(item).strip()]
 
 
 def _normalize_draft(data: dict[str, Any], base: SkillDraft | None = None) -> SkillDraft | None:
@@ -48,6 +42,7 @@ def _normalize_draft(data: dict[str, Any], base: SkillDraft | None = None) -> Sk
         "content": "",
         "tags": [],
         "mcp_servers": [],
+        "mcp_tools": [],
         "mcp_tools_reference": "",
     }
 
@@ -61,8 +56,9 @@ def _normalize_draft(data: dict[str, Any], base: SkillDraft | None = None) -> Sk
         name=name,
         description=description,
         content=content,
-        tags=_merge_tags(base_fields["tags"], data.get("tags")),
-        mcp_servers=_merge_mcp_servers(base_fields["mcp_servers"], data.get("mcp_servers")),
+        tags=_merge_string_list(base_fields["tags"], data.get("tags")),
+        mcp_servers=_merge_string_list(base_fields["mcp_servers"], data.get("mcp_servers")),
+        mcp_tools=_merge_string_list(base_fields["mcp_tools"], data.get("mcp_tools")),
         mcp_tools_reference=str(data.get("mcp_tools_reference", base_fields["mcp_tools_reference"])).strip(),
     )
 
