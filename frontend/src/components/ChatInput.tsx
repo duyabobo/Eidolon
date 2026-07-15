@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { Skill, SkillScope, toSkillRef } from "../api/skills";
+import { workspaceApi, type ChatUploadResponse } from "../api/workspace";
 
 interface SlashContext {
   query: string;
@@ -32,16 +33,29 @@ interface Props {
   isLoading: boolean;
   onSend: (text: string) => void;
   onInterrupt: () => void;
+  userId: string;
+  sessionId: string | null;
 }
 
 export default function ChatInput({
   skills, selectedSkillRef, onSelectSkill, onClearSkill,
-  isLoading, onSend, onInterrupt,
+  isLoading, onSend, onInterrupt, userId, sessionId,
 }: Props) {
   const [input, setInput] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
   const [menuIndex, setMenuIndex] = useState(0);
+  const [uploads, setUploads] = useState<ChatUploadResponse[]>([]);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const canUpload = Boolean(userId.trim() && sessionId);
+
+  useEffect(() => {
+    setUploads([]);
+    setUploadErr(null);
+  }, [sessionId]);
 
   const slashCtx = useMemo(() => detectSlash(input, cursorPos), [input, cursorPos]);
   const menuOpen = slashCtx !== null;
@@ -124,6 +138,21 @@ export default function ChatInput({
     if (el) setCursorPos(el.selectionStart);
   };
 
+  const handleUpload = async (file: File | undefined) => {
+    if (!file || !sessionId || !userId.trim()) return;
+    setUploading(true);
+    setUploadErr(null);
+    try {
+      const res = await workspaceApi.uploadToSession(userId, sessionId, file);
+      setUploads((prev) => [...prev, res]);
+    } catch (e) {
+      setUploadErr(e instanceof Error ? e.message : "上传失败");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   return (
     <div className="relative">
       {menuOpen && filteredSkills.length > 0 && (
@@ -171,7 +200,39 @@ export default function ChatInput({
         </div>
       )}
 
+      {uploads.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {uploads.map((u) => (
+            <span
+              key={`${u.stored_path}`}
+              className="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-ink-50 text-ink-600 border border-ink-200/60"
+              title={u.stored_path}
+            >
+              {u.filename}
+            </span>
+          ))}
+        </div>
+      )}
+      {uploadErr && (
+        <p className="text-xs text-rose-600 mb-2">{uploadErr}</p>
+      )}
+
       <div className="flex gap-3 items-end rounded-2xl border border-ink-200/80 bg-white/90 p-2 shadow-soft focus-within:ring-2 focus-within:ring-brand-500/20 focus-within:border-brand-300 transition-all duration-200">
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => void handleUpload(e.target.files?.[0])}
+        />
+        <button
+          type="button"
+          title={canUpload ? "上传附件到当前会话" : "请先发送一条消息创建会话后再上传"}
+          disabled={!canUpload || isLoading || uploading}
+          onClick={() => fileInputRef.current?.click()}
+          className="shrink-0 text-sm px-2.5 py-1.5 rounded-lg border border-ink-200 text-ink-600 hover:bg-ink-50 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {uploading ? "…" : "附件"}
+        </button>
         <textarea
           ref={textareaRef}
           value={input}

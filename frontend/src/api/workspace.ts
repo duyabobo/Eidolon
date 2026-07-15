@@ -16,6 +16,13 @@ export interface WorkspaceListResponse {
   entries: WorkspaceEntry[];
 }
 
+export interface ChatUploadResponse {
+  filename: string;
+  relative_path: string;
+  stored_path: string;
+  size: number;
+}
+
 async function parseError(resp: Response): Promise<string> {
   const err = await resp.json().catch(() => ({}));
   const detail = (err as { detail?: string | { msg?: string }[] }).detail;
@@ -85,5 +92,27 @@ export const workspaceApi = {
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  },
+
+  /** 首页会话附件 → session workspace（仅存储） */
+  uploadToSession: async (
+    userId: string,
+    sessionId: string,
+    file: File,
+  ): Promise<ChatUploadResponse> => {
+    const form = new FormData();
+    form.append("file", file);
+    const qs = new URLSearchParams({ user_id: userId.trim() });
+    const resp = await fetch(
+      `/config/workspace/sessions/${encodeURIComponent(sessionId)}/upload?${qs}`,
+      {
+        method: "POST",
+        body: form,
+        cache: "no-store",
+        headers: mergeTraceHeaders(),
+      },
+    );
+    if (!resp.ok) throw new Error(await parseError(resp));
+    return resp.json();
   },
 };

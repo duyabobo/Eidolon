@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 
 from models.config import SkillMeta
 from models.skill_creator import (
@@ -8,8 +8,10 @@ from models.skill_creator import (
     SendMessageRequest,
     SendMessageResponse,
     SkillCreatorSession,
+    SkillCreatorUploadResponse,
 )
 from services import skill_creator_service
+from services.skills_fs import save_skill_creator_upload
 
 logger = logging.getLogger(__name__)
 
@@ -74,5 +76,36 @@ async def publish_skill(session_id: str, body: PublishSkillRequest) -> SkillMeta
         return await skill_creator_service.publish_session(session_id, body)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/sessions/{session_id}/files",
+    response_model=SkillCreatorUploadResponse,
+    summary="Skill Creator 会话附件上传（写入 skill 目录 uploads/）",
+)
+async def upload_session_file(
+    session_id: str,
+    file: UploadFile = File(...),
+) -> SkillCreatorUploadResponse:
+    """将文件存到对应 skill 目录；尚无名称时暂存 _creator/{session_id}/uploads/。"""
+    session = await skill_creator_service.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+
+    data = await file.read()
+    filename = file.filename or "upload.bin"
+    draft_name = session.draft.name if session.draft else None
+    try:
+        result = save_skill_creator_upload(
+            user_id=session.user_id,
+            session_id=session.id,
+            skill_name=session.skill_name,
+            draft_name=draft_name,
+            filename=filename,
+            data=data,
+        )
+        return SkillCreatorUploadResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

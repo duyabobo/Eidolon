@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 
-from models.workspace import WorkspaceListResponse, WorkspaceMkdirRequest
+from models.workspace import ChatUploadResponse, WorkspaceListResponse, WorkspaceMkdirRequest
 from services import mongo_client
 from services.workspace_fs import (
     WorkspaceError,
@@ -11,6 +11,7 @@ from services.workspace_fs import (
     list_directory,
     mkdir,
     open_download,
+    save_session_workspace_upload,
     save_upload,
 )
 
@@ -103,5 +104,31 @@ async def workspace_download(
     try:
         abs_path, filename = open_download(uid, path)
         return FileResponse(path=abs_path, filename=filename)
+    except WorkspaceError as exc:
+        raise _http_exc(exc) from exc
+
+
+@router.post(
+    "/sessions/{session_id}/upload",
+    response_model=ChatUploadResponse,
+    summary="首页会话附件上传（写入 session workspace）",
+)
+async def session_workspace_upload(
+    session_id: str,
+    user_id: str = Query(..., description="用户 ID"),
+    file: UploadFile = File(...),
+) -> ChatUploadResponse:
+    uid = _require_user_id(user_id)
+    owner = await mongo_client.get_chat_session_owner(session_id)
+    if owner is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    if owner != uid:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该会话")
+
+    data = await file.read()
+    filename = file.filename or "upload.bin"
+    try:
+        result = save_session_workspace_upload(uid, session_id, filename, data)
+        return ChatUploadResponse(**result)
     except WorkspaceError as exc:
         raise _http_exc(exc) from exc

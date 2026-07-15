@@ -4,9 +4,12 @@ Skill 文件系统管理。
 存储结构：
   /data/sandboxes/global/skills/{name}/
     SKILL.md      ← pi 直接读取（frontmatter + 正文）
+    uploads/      ← skill-creator 会话上传附件
 
 全局 skill（admin 管理的公共 skill）放在 global/skills/。
 用户 skill 放在 users/{user_id}/skills/，仅通过 skill-creator 对话创建。
+
+尚无 skill 名时，暂存到 skills/_creator/{session_id}/uploads/。
 
 SKILL.md 格式（Agent Skills 标准）：
   ---
@@ -16,14 +19,18 @@ SKILL.md 格式（Agent Skills 标准）：
   skill 正文指令...
 """
 import logging
-import os
+import re
 from pathlib import Path
 
 from config import settings
+from constants.workspace import MAX_UPLOAD_BYTES
 
 logger = logging.getLogger(__name__)
 
 _GLOBAL_SKILLS_ROOT = Path(settings.sandbox_root) / "global" / "skills"
+_UNSAFE_NAME_RE = re.compile(r'[/\\\0:*?"<>|]')
+_CREATOR_STAGING_DIR = "_creator"
+_UPLOADS_SUBDIR = "uploads"
 
 
 def _user_skills_root(user_id: str) -> Path:
@@ -145,3 +152,85 @@ def get_global_skills_root() -> str:
     """返回全局 skill 根目录绝对路径（供 pi-runtime 使用）"""
     _GLOBAL_SKILLS_ROOT.mkdir(parents=True, exist_ok=True)
     return str(_GLOBAL_SKILLS_ROOT)
+
+
+def _skills_root_for_user(user_id: str | None) -> Path:
+    if user_id:
+        return _user_skills_root(user_id)
+    return _GLOBAL_SKILLS_ROOT
+
+
+def resolve_skill_creator_dir(
+    user_id: str | None,
+    session_id: str,
+    skill_name: str | None,
+    draft_name: str | None,
+) -> tuple[Path, str]:
+    """
+    解析 skill-creator 附件目标目录。
+    优先 published skill_name → draft.name → _creator/{session_id}。
+    返回 (skill_dir_abs, skill_dir_key)。
+    """
+    root = _skills_root_for_user(user_id)
+    name = (skill_name or draft_name or "").strip()
+    if name and not _UNSAFE_NAME_RE.search(name) and "/" not in name and name not in (".", ".."):
+        skill_dir = root / name
+        return skill_dir, name
+
+    sid = session_id.strip()
+    if not sid or _UNSAFE_NAME_RE.search(sid) or "/" in sid:
+        raise ValueError("无效的 session_id")
+    key = f"{_CREATOR_STAGING_DIR}/{sid}"
+    return root / _CREATOR_STAGING_DIR / sid, key
+
+
+def _unique_file(dir_abs: Path, safe_name: str) -> Path:
+    dest = dir_abs / safe_name
+    if not dest.exists():
+        return dest
+    stem, suffix = dest.stem, dest.suffix
+    index = 1
+    while True:
+        candidate = dir_abs / f"{stem}_{index}{suffix}"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def save_skill_creator_upload(
+    user_id: str | None,
+    session_id: str,
+    skill_name: str | None,
+    draft_name: str | None,
+    filename: str,
+    data: bytes,
+) -> dict:
+    """
+    将附件写入 skill 目录下 uploads/。
+    仅存储，不与 Skill 正文融合（后续由对话逻辑处理）。
+    """
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ValueError(f"文件超过大小限制（{MAX_UPLOAD_BYTES} bytes）")
+
+    safe_name = Path(filename).name
+    if not safe_name or safe_name in (".", "..") or _UNSAFE_NAME_RE.search(safe_name):
+        raise ValueError("非法文件名")
+
+    skill_dir, skill_key = resolve_skill_creator_dir(user_id, session_id, skill_name, draft_name)
+    upload_dir = skill_dir / _UPLOADS_SUBDIR
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    dest = _unique_file(upload_dir, safe_name)
+    dest.write_bytes(data)
+    relative_path = f"{_UPLOADS_SUBDIR}/{dest.name}"
+    logger.info(
+        "skill-creator upload user=%s session=%s skill_dir=%s file=%s size=%d",
+        user_id, session_id, skill_key, relative_path, len(data),
+    )
+    return {
+        "filename": dest.name,
+        "relative_path": relative_path,
+        "stored_path": str(dest),
+        "skill_dir": skill_key,
+        "size": len(data),
+    }

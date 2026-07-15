@@ -55,3 +55,13 @@ class PublishSkillRequest(BaseModel):
     content: str | None = None
     tags: list[str] | None = None
     hidden: bool = False
+
+
+class SkillCreatorUploadResponse(BaseModel):
+    """Skill Creator 会话附件上传结果（仅存储，不做后续融合处理）。"""
+
+    filename: str
+    relative_path: str = Field(description="相对 skill 目录的路径，如 uploads/doc.pdf")
+    stored_path: str = Field(description="落盘绝对路径")
+    skill_dir: str = Field(description="目标 skill 目录名（含 _creator/{session_id} 暂存）")
+    size: int

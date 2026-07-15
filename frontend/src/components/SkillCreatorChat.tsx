@@ -24,8 +24,11 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
   const [error, setError] = useState<string | null>(null);
   // 当前会话是否已发布（已发布时才显示「新建对话」按钮）
   const [isPublished, setIsPublished] = useState(false);
+  const [uploads, setUploads] = useState<{ filename: string; relative_path: string; skill_dir: string }[]>([]);
+  const [uploading, setUploading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortCtrlRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scopeLabel = scope === "user" ? "我的 Skill" : "系统 Skill";
   const isEditMode = !!editSkillName;
@@ -99,6 +102,24 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
     abortCtrlRef.current?.abort();
   };
 
+  const handleUpload = async (file: File | undefined) => {
+    if (!file || !sessionId || uploading) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const res = await skillCreatorApi.uploadFile(sessionId, file);
+      setUploads((prev) => [
+        ...prev,
+        { filename: res.filename, relative_path: res.relative_path, skill_dir: res.skill_dir },
+      ]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "上传失败");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // 中文输入法组合期间的 Enter 不触发发送
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -156,6 +177,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
                   setMessages(session.messages);
                   setDraft(null);
                   setInput("");
+                  setUploads([]);
                 });
               }}
               disabled={loading || sending}
@@ -171,6 +193,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
               onClick={() => {
                 setDraft(null);
                 setInput("");
+                setUploads([]);
                 setIsPublished(false);
                 openSession(true);
               }}
@@ -207,7 +230,36 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
             <p className="mx-4 mb-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
           )}
 
+          {uploads.length > 0 && (
+            <div className="px-4 pb-2 flex flex-wrap gap-1.5">
+              {uploads.map((u) => (
+                <span
+                  key={`${u.skill_dir}/${u.relative_path}`}
+                  className="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-ink-50 text-ink-600 border border-ink-200/60"
+                  title={`${u.skill_dir}/${u.relative_path}`}
+                >
+                  {u.filename}
+                </span>
+              ))}
+            </div>
+          )}
+
           <div className="px-4 py-3 border-t flex gap-2 items-end shrink-0">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => void handleUpload(e.target.files?.[0])}
+            />
+            <button
+              type="button"
+              title="上传附件到 Skill 目录"
+              disabled={loading || !sessionId || uploading || sending}
+              onClick={() => fileInputRef.current?.click()}
+              className="shrink-0 text-sm px-2.5 py-1.5 rounded-lg border border-ink-200 text-ink-600 hover:bg-ink-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {uploading ? "…" : "附件"}
+            </button>
             <textarea
               rows={2}
               value={input}

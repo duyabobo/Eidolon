@@ -1,4 +1,4 @@
-import { apiFetch } from "./http";
+import { apiFetch, mergeTraceHeaders } from "./http";
 
 export interface SkillDraft {
   name: string;
@@ -89,4 +89,30 @@ export const skillCreatorApi = {
       `/config/skills/creator/sessions/${encodeURIComponent(sessionId)}/publish`,
       { method: "POST", body: JSON.stringify(payload) },
     ),
+
+  /** 附件写入对应 skill 目录 uploads/（仅存储，不做融合） */
+  uploadFile: async (sessionId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const resp = await fetch(
+      `/config/skills/creator/sessions/${encodeURIComponent(sessionId)}/files`,
+      {
+        method: "POST",
+        body: form,
+        cache: "no-store",
+        headers: mergeTraceHeaders(),
+      },
+    );
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
+    }
+    return resp.json() as Promise<{
+      filename: string;
+      relative_path: string;
+      stored_path: string;
+      skill_dir: string;
+      size: number;
+    }>;
+  },
 };

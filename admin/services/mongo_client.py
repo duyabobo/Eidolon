@@ -116,6 +116,14 @@ async def list_user_session_meta(user_id: str) -> dict[str, dict[str, Any]]:
     return result
 
 
+async def get_chat_session_owner(session_id: str) -> str | None:
+    """返回聊天 session 的 user_id；不存在则 None。"""
+    raw = await get_db()["sessions"].find_one({"_id": session_id}, {"user_id": 1})
+    if raw is None:
+        return None
+    return str(raw.get("user_id") or "") or None
+
+
 async def delete_skill_meta(name: str, user_id: str | None = None) -> bool:
     result = await get_db()[_SKILL_COLLECTION].delete_one(_meta_key(name, user_id))
     if result.deleted_count:

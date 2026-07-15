@@ -309,3 +309,63 @@ def open_download(user_id: str, rel_path: str) -> tuple[Path, str]:
     if top not in ROOT_VISIBLE_DIRS:
         raise WorkspaceError("禁止下载该路径", 403)
     return abs_path, abs_path.name
+
+
+def _safe_filename(filename: str) -> str:
+    safe_name = Path(filename).name
+    if not safe_name or safe_name in _DOT_ENTRIES or _UNSAFE_NAME_RE.search(safe_name):
+        raise WorkspaceError("非法文件名", 400)
+    return safe_name
+
+
+def _unique_dest(dir_abs: Path, safe_name: str) -> Path:
+    """同名时追加 _1/_2…，避免覆盖。"""
+    dest = dir_abs / safe_name
+    if not dest.exists():
+        return dest
+    stem = dest.stem
+    suffix = dest.suffix
+    index = 1
+    while True:
+        candidate = dir_abs / f"{stem}_{index}{suffix}"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def save_session_workspace_upload(
+    user_id: str,
+    session_id: str,
+    filename: str,
+    data: bytes,
+) -> dict:
+    """
+    首页会话附件：写入 users/{uid}/sessions/{sid}/workspace/{filename}。
+    仅存储，不触发对话处理。
+    """
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise WorkspaceError(f"文件超过大小限制（{MAX_UPLOAD_BYTES} bytes）", 413)
+
+    sid = (session_id or "").strip()
+    if not sid or "/" in sid or "\\" in sid or sid in _DOT_ENTRIES:
+        raise WorkspaceError("无效的 session_id", 400)
+
+    safe_name = _safe_filename(filename)
+    dir_rel = f"sessions/{sid}/workspace"
+    dir_abs, _ = resolve_under_user(user_id, dir_rel)
+    dir_abs.mkdir(parents=True, exist_ok=True)
+
+    dest_abs = _unique_dest(dir_abs, safe_name)
+    dest_abs.write_bytes(data)
+    relative_path = dest_abs.name
+    stored_path = str(dest_abs)
+    logger.info(
+        "session workspace upload user=%s session=%s file=%s size=%d",
+        user_id, sid, relative_path, len(data),
+    )
+    return {
+        "filename": relative_path,
+        "relative_path": relative_path,
+        "stored_path": stored_path,
+        "size": len(data),
+    }
