@@ -1,7 +1,18 @@
 export const config = {
   redis: {
     url: process.env.REDIS_URL ?? "redis://redis:6379",
-    taskChannel: "sessions:new",
+    taskStream: process.env.TASK_STREAM ?? "agent:tasks",
+    taskGroup: process.env.TASK_CONSUMER_GROUP ?? "pi-runtime-workers",
+    taskDlqStream: process.env.TASK_DLQ_STREAM ?? "agent:tasks:dlq",
+    taskBlockMs: Number(process.env.TASK_BLOCK_MS ?? 5_000),
+    taskReadCount: Number(process.env.TASK_READ_COUNT ?? 10),
+    taskClaimIdleMs: Number(process.env.TASK_CLAIM_IDLE_MS ?? 15 * 60_000),
+    taskClaimIntervalMs: Number(process.env.TASK_CLAIM_INTERVAL_MS ?? 30_000),
+    taskClaimCount: Number(process.env.TASK_CLAIM_COUNT ?? 10),
+    // 必须小于 claim idle：消费者崩溃后，租约先过期，再由 XAUTOCLAIM 接管。
+    taskLeaseMs: Number(process.env.TASK_LEASE_MS ?? 14 * 60_000),
+    taskLeaseRenewMs: Number(process.env.TASK_LEASE_RENEW_MS ?? 30_000),
+    taskMaxAttempts: Number(process.env.TASK_MAX_ATTEMPTS ?? 3),
   },
   mongo: {
     uri: process.env.MONGO_URI ?? "mongodb://mongo:27017",

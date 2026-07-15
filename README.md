@@ -38,9 +38,9 @@
     │                 │                 │                 │                 │
     │                 │2.Write session─►│MongoDB          │                 │
     │                 │                 │                 │                 │
-    │                 │─3.PUBLISH task─►│Redis            │                 │
+    │                 │─3.XADD task────►│Redis Stream     │                 │
     │                 │                 │                 │                 │
-    │                 │                 │─4.deliver task─►│                 │
+    │                 │                 │─4.XREADGROUP───►│                 │
     │◄─────session────│                 │                 │                 │
     │                 │                 │                 │5.start bwrap    │
     │                 │      MongoDB/NFS│◄──────Read──────│                 │
@@ -49,11 +49,16 @@
     │                 │                 │                 │                 │
     │                 │─7.Read Stream──►│Redis            │                 │
     │                 │                 │                 │                 │
-    │                 │            Redis│◄─────8.push─────│                 │
+    │                 │            Redis│◄─8.XADD output──│                 │
     │◄──────token─────│                 │                 │                 │
     │                 │                 │                 │─9.Unix socket──►│► 外部 LLM/MCP
     ▼                 ▼                 ▼                 ▼                 ▼
 ```
+
+任务派发使用 Redis Streams Consumer Group：Gateway 以 `XADD` 写入带 `task_id` 的任务，
+pi-runtime 通过 `XREADGROUP` 认领并在任务完成后 `XACK`。超时未确认任务由
+`XAUTOCLAIM` 认领恢复；任务状态和执行租约共同抑制重复执行。取消和关闭等实时控制信号
+继续使用 Pub/Sub，不承担可靠任务投递职责。
 
 ---
 
@@ -65,7 +70,7 @@
 | **llm-proxy** | 9001 | Python FastAPI | LLM 代理（OpenAI 兼容）、Provider 配置热更新 |
 | **mcp-proxy** | 8080 | Python FastAPI | MCP 聚合代理：汇总所有 MCP Server 工具，统一路由调用 |
 | **pi-runtime** | — | Node.js + Pi Agent | Agent 任务执行、bwrap 沙盒隔离、Unix socket 网络白名单 |
-| **redis** | 6379 | Redis 7 | 会话任务 Pub/Sub + 增量输出 Stream |
+| **redis** | 6379 | Redis 7 | 任务 Stream Consumer Group、增量输出 Stream、实时控制通知 |
 | **mongo** | 27017 | MongoDB 7 | 会话数据、LLM / MCP 配置、Skill 元数据 |
 
 ---

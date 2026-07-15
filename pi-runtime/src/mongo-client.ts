@@ -69,6 +69,88 @@ export async function appendEventSnapshot(
     );
 }
 
+// ── 可靠任务状态 ──────────────────────────────────────────────────────────────
+
+interface TaskPayload {
+  taskId: string;
+  taskType: "start" | "message";
+  sessionId: string;
+  userId: string;
+  request: string;
+  turnId: string;
+  skillIds: string[];
+}
+
+export type TaskClaimResult = "execute" | "completed";
+
+/**
+ * 持久化任务完成状态，防止 Redis Stream 至少一次投递导致已完成 task_id
+ * 再次触发 LLM/MCP 调用。
+ */
+export async function claimTaskExecution(
+  task: TaskPayload,
+  consumerId: string,
+): Promise<TaskClaimResult> {
+  const collection = getDb().collection("agent_tasks");
+  const existing = await collection.findOne({ _id: task.taskId } as unknown as Filter<Document>);
+  if (existing?.status === "COMPLETED") {
+    return "completed";
+  }
+
+  await collection.updateOne(
+    { _id: task.taskId } as unknown as Filter<Document>,
+    {
+      $setOnInsert: {
+        task_type: task.taskType,
+        session_id: task.sessionId,
+        user_id: task.userId,
+        request: task.request,
+        turn_id: task.turnId,
+        skill_ids: task.skillIds,
+        created_at: new Date(),
+        retry_count: 0,
+      },
+      $set: {
+        status: "RUNNING",
+        consumer_id: consumerId,
+        started_at: new Date(),
+        updated_at: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+  return "execute";
+}
+
+export async function completeTask(taskId: string): Promise<void> {
+  await getDb().collection("agent_tasks").updateOne(
+    { _id: taskId } as unknown as Filter<Document>,
+    {
+      $set: {
+        status: "COMPLETED",
+        completed_at: new Date(),
+        updated_at: new Date(),
+      },
+    },
+  );
+}
+
+export async function recordTaskFailure(taskId: string, error: string): Promise<number> {
+  const result = await getDb().collection("agent_tasks").findOneAndUpdate(
+    { _id: taskId } as unknown as Filter<Document>,
+    {
+      $set: {
+        status: "PENDING",
+        last_error: error,
+        updated_at: new Date(),
+      },
+      $inc: { retry_count: 1 },
+    },
+    { returnDocument: "after" },
+  );
+  return Number(result?.retry_count ?? 1);
+}
+
 // ── 启动恢复 ──────────────────────────────────────────────────────────────────
 
 export interface OrphanedSession {

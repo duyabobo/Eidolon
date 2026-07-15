@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     mongo_db: str = "pi_agent"
 
     redis_url: str = "redis://redis:6379"
+    task_stream: str = "agent:tasks"
+    task_dedupe_ttl_seconds: int = 86400
 
     mcp_proxy_base_url: str = "http://mcp-proxy:8080"
 

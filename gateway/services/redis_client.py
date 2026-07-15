@@ -13,10 +13,6 @@ _pool: aioredis.ConnectionPool | None = None
 
 # Redis Stream key 模板
 STREAM_KEY = "session:{session_id}:stream"
-# 全局任务频道：所有 pi-runtime 实例都订阅（无 sticky session 时使用）
-TASK_CHANNEL_GLOBAL = "sessions:new"
-# 实例专属任务频道：sticky session 模式下路由到特定实例
-TASK_CHANNEL_INSTANCE = "sessions:{instance_id}:new"
 # user → pi-runtime instance 的亲和映射，TTL 24h（用于 sticky session）
 USER_INSTANCE_KEY = "user:{user_id}:instance"
 USER_INSTANCE_TTL = 86400
@@ -52,24 +48,6 @@ async def disconnect() -> None:
         logger.info("Redis 连接池已关闭")
 
 
-async def _get_user_instance(user_id: str) -> str | None:
-    """查询 user 绑定的 pi-runtime 实例，并验证实例是否存活。
-    若实例心跳 key 不存在（实例已重启或下线），清除 stale 绑定并返回 None。
-    """
-    client = get_redis()
-    instance_id = await client.get(USER_INSTANCE_KEY.format(user_id=user_id))
-    if not instance_id:
-        return None
-
-    alive = await client.exists(INSTANCE_ALIVE_KEY.format(instance_id=instance_id))
-    if not alive:
-        logger.info("sticky 实例 %s 已下线，清除 user=%s 的 stale 绑定", instance_id, user_id)
-        await client.delete(USER_INSTANCE_KEY.format(user_id=user_id))
-        return None
-
-    return instance_id
-
-
 async def publish_task(
     session_id: str,
     user_id: str,
@@ -78,31 +56,19 @@ async def publish_task(
     skill_ids: list[str] | None = None,
 ) -> None:
     """
-    向 pi-runtime 发布新 session 任务（创建 session + 发送第一条消息）。
+    写入可靠任务 Stream，创建 session 并发送第一条消息。
 
-    Sticky session 路由逻辑：
-      1. 查询该 user 是否已绑定到某个 pi-runtime 实例
-      2. 若已绑定，发布到该实例专属频道（保证 workspace 连续性）
-      3. 若未绑定，发布到全局频道（由任意实例认领，认领时写入绑定关系）
+    任务以 session_id + turn_id 作为幂等键。重复 HTTP 请求会写入同一个
+    task_id，执行层通过任务状态和租约锁抑制重复执行。
     """
-    payload = json.dumps({
-        "session_id": session_id,
-        "user_id": user_id,
-        "request": request,
-        "turn_id": turn_id,
-        "skill_ids": skill_ids or [],
-    })
-    client = get_redis()
-
-    instance_id = await _get_user_instance(user_id)
-    if instance_id:
-        channel = TASK_CHANNEL_INSTANCE.format(instance_id=instance_id)
-        logger.info("sticky session 路由: user=%s → instance=%s session=%s", user_id, instance_id, session_id)
-    else:
-        channel = TASK_CHANNEL_GLOBAL
-        logger.info("全局路由（新用户或实例未知）: session=%s user=%s", session_id, user_id)
-
-    await client.publish(channel, payload)
+    await _enqueue_task(
+        task_type="start",
+        session_id=session_id,
+        user_id=user_id,
+        request=request,
+        turn_id=turn_id,
+        skill_ids=skill_ids,
+    )
     await set_active_turn(session_id, turn_id)
 
 
@@ -113,18 +79,72 @@ async def publish_message(
     turn_id: str,
     skill_ids: list[str] | None = None,
 ) -> None:
-    """向已有 session 发送新消息（新轮次），发布到 session 专属频道。"""
-    payload = json.dumps({
-        "session_id": session_id,
-        "user_id": user_id,
-        "request": request,
-        "turn_id": turn_id,
-        "skill_ids": skill_ids or [],
-    })
-    channel = f"sessions:{session_id}:message"
-    await get_redis().publish(channel, payload)
-    logger.info("消息已发布: session=%s turn=%s channel=%s", session_id, turn_id, channel)
+    """向已有 session 发送新轮次，写入可靠任务 Stream。"""
+    await _enqueue_task(
+        task_type="message",
+        session_id=session_id,
+        user_id=user_id,
+        request=request,
+        turn_id=turn_id,
+        skill_ids=skill_ids,
+    )
     await set_active_turn(session_id, turn_id)
+
+
+async def _enqueue_task(
+    *,
+    task_type: str,
+    session_id: str,
+    user_id: str,
+    request: str,
+    turn_id: str,
+    skill_ids: list[str] | None,
+) -> None:
+    task_id = f"{session_id}:{turn_id}"
+    task_dedupe_key = f"agent:task:{task_id}:enqueued"
+    client = get_redis()
+
+    # SET NX 与 XADD 在 Lua 脚本内原子执行：同一 task_id 仅入队一次。
+    script = """
+    if redis.call('SET', KEYS[1], '1', 'NX', 'EX', ARGV[1]) then
+        return redis.call(
+            'XADD', KEYS[2], '*',
+            'task_id', ARGV[2],
+            'task_type', ARGV[3],
+            'session_id', ARGV[4],
+            'user_id', ARGV[5],
+            'request', ARGV[6],
+            'turn_id', ARGV[7],
+            'skill_ids', ARGV[8]
+        )
+    end
+    return false
+    """
+    message_id = await client.eval(
+        script,
+        2,
+        task_dedupe_key,
+        settings.task_stream,
+        str(settings.task_dedupe_ttl_seconds),
+        task_id,
+        task_type,
+        session_id,
+        user_id,
+        request,
+        turn_id,
+        json.dumps(skill_ids or []),
+    )
+    if message_id:
+        logger.info(
+            "任务已写入 Stream: task_id=%s type=%s stream=%s message_id=%s",
+            task_id,
+            task_type,
+            settings.task_stream,
+            message_id,
+        )
+        return
+
+    logger.info("重复任务已抑制: task_id=%s type=%s", task_id, task_type)
 
 
 async def set_active_turn(session_id: str, turn_id: str) -> None:
