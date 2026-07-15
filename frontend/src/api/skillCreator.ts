@@ -11,23 +11,29 @@ export interface SkillDraft {
   mcp_tools?: string[];
 }
 
-/** 与后端 SKILL.md 格式对齐，供右侧预览直接渲染 */
+/**
+ * 与后端 SKILL.md 格式对齐，供右侧预览直接渲染。
+ *
+ * frontmatter 用 ```yaml 代码块包裹，而不是裸的 `---`：Markdown 渲染器（CommonMark）
+ * 把没有空行分隔的连续行当作同一段落，单个换行会被合并成空格，导致 name/description/
+ * mcp_servers 等字段挤成一行。代码块内文本按原样保留换行，可以正确逐行展示。
+ * 正文 content 已是标准 Markdown（含空行分隔），仍在代码块外正常渲染。
+ */
 export function buildSkillMarkdown(draft: SkillDraft): string {
-  const lines = ["---", `name: ${draft.name}`, `description: ${draft.description}`];
+  const meta = [`name: ${draft.name}`, `description: ${draft.description}`];
   if ((draft.tags ?? []).length > 0) {
-    lines.push("tags:");
-    for (const tag of draft.tags ?? []) lines.push(`  - ${tag}`);
+    meta.push("tags:");
+    for (const tag of draft.tags ?? []) meta.push(`  - ${tag}`);
   }
   if ((draft.mcp_servers ?? []).length > 0) {
-    lines.push("mcp_servers:");
-    for (const server of draft.mcp_servers ?? []) lines.push(`  - ${server}`);
+    meta.push("mcp_servers:");
+    for (const server of draft.mcp_servers ?? []) meta.push(`  - ${server}`);
   }
   if ((draft.mcp_tools ?? []).length > 0) {
-    lines.push("mcp_tools:");
-    for (const tool of draft.mcp_tools ?? []) lines.push(`  - ${tool}`);
+    meta.push("mcp_tools:");
+    for (const tool of draft.mcp_tools ?? []) meta.push(`  - ${tool}`);
   }
-  lines.push("---", "", draft.content.trim(), "");
-  return lines.join("\n");
+  return ["```yaml", ...meta, "```", "", draft.content.trim(), ""].join("\n");
 }
 
 export interface SkillCreatorMessage {
