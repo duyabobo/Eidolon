@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { SkillScope } from "../api/skills";
-import { SkillCreatorMessage, SkillDraft, skillCreatorApi } from "../api/skillCreator";
+import { SkillCreatorMessage, SkillDraft, skillCreatorApi, buildSkillMarkdown } from "../api/skillCreator";
 import ChatMarkdown from "./chat/ChatMarkdown";
 
 interface Props {
@@ -244,27 +244,13 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
             <h3 className="text-sm font-medium text-gray-700">草稿预览</h3>
             <p className="text-xs text-gray-500 mt-0.5">继续对话完善，定稿后保存</p>
           </div>
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 text-xs">
+          <div className="flex-1 overflow-y-auto px-4 py-3 text-xs">
             {!draft ? (
               <p className="text-gray-400 text-center py-8">对话生成 Skill 后显示在此</p>
             ) : (
-              <>
-                <PreviewRow label="名称" value={draft.name} />
-                <PreviewRow label="描述" value={draft.description} />
-                {(draft.tags ?? []).length > 0 && (
-                  <PreviewRow label="标签" value={(draft.tags ?? []).join(", ")} />
-                )}
-                {(draft.mcp_tools ?? []).length > 0 && (
-                  <PreviewRow label="MCP 工具" value={(draft.mcp_tools ?? []).join(", ")} />
-                )}
-                {(draft.mcp_servers ?? []).length > 0 && (
-                  <PreviewRow label="依赖 Server（溯源）" value={(draft.mcp_servers ?? []).join(", ")} />
-                )}
-                <div>
-                  <p className="font-medium text-gray-600 mb-1">正文</p>
-                  <pre className="bg-white border rounded-lg p-2 text-[10px] whitespace-pre-wrap max-h-48 overflow-y-auto font-mono">{draft.content}</pre>
-                </div>
-              </>
+              <div className="bg-white border rounded-lg p-3 max-h-full overflow-y-auto">
+                <ChatMarkdown content={buildSkillMarkdown(draft)} />
+              </div>
             )}
           </div>
           <div className="px-4 py-3 border-t">
@@ -286,15 +272,6 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
   return (
     <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       {panel}
-    </div>
-  );
-}
-
-function PreviewRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="font-medium text-gray-600">{label}</p>
-      <p className="text-gray-800 mt-0.5">{value}</p>
     </div>
   );
 }

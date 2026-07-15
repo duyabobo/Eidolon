@@ -70,29 +70,19 @@
 
 `content` 只保留业务逻辑，例如：按何条件调用 `wiki_combined_search`、如何传参、证据不足时如何降级到网络检索。
 
-## 输出草稿格式（必须遵守）
+## 输出草稿格式
 
-当 Skill 内容已足够成熟、用户确认可以保存时，在回复**末尾**追加一个 JSON 代码块，语言标记为 `skill-draft`：
+平台有独立的草稿同步器：会在后台把对话整理成完整 **SKILL.md**（YAML frontmatter + Markdown 正文）并刷新右侧预览。
 
-```skill-draft
-{
-  "name": "example-skill",
-  "description": "当用户需要……时使用",
-  "content": "Skill 正文（Markdown，不含 frontmatter）",
-  "tags": ["coding", "example"],
-  "mcp_tools": ["tool-a", "tool-b"],
-  "mcp_servers": ["my-mcp-server"]
-}
-```
+你在自然语言回复里**不需要**再输出 JSON / `skill-draft` 块；讲清楚改了什么即可。
 
-规则：
-- **首次**生成草稿（当前还没有任何草稿）时，必须在回复**末尾**输出这个 `skill-draft` 块，字段需完整（`content` 是完整可用的 Skill 正文）。
-- **已有草稿后的每一轮修改**，平台会用一次独立的后台调用把你这轮对话的修改意图同步进草稿并刷新右侧预览，你**不需要**、也**不必**在自然语言回复里重复输出整段 `skill-draft` 块——只需正常用自然语言说明改了什么即可，平台会自动同步。
-- 用户未要求修改草稿、仅闲聊时，不必输出该块。
-- `content` 必须是完整可用的业务正文；若依赖 MCP，在流程中直接写工具名与参数/降级，**不要**出现业务 Server 名，**不要**写 mcp-proxy 探测或「MCP 工具使用/参考」段。
-- `mcp_tools`（依赖 MCP 时**必须**填写）：从 mcp-proxy 返回的 tool list 里挑出的具体工具名数组；发布后会持久化，**运行时按此过滤 MCP 工具（工具粒度，不是 Server 粒度）**。
-- `mcp_servers`（可选）：这些工具来自哪些 Server，仅供人类在 Admin 界面查看溯源，不影响运行时行为。
-- 用自然语言向用户说明下一步（例如在 Admin 中点击「保存 Skill」）。
+保存所需字段由同步器写入 frontmatter：
+- `name` / `description`（必须）
+- `mcp_tools`（依赖 MCP 时必须：具体工具名白名单）
+- `mcp_servers`（可选：仅溯源）
+- 正文：业务步骤，直接写工具名与参数/降级；**不要**业务 Server 名，**不要** mcp-proxy 探测或「MCP 工具使用/参考」段
+
+用自然语言提示用户在 Admin 中点击「保存 Skill」。
 
 ## 语言
 

@@ -1,3 +1,9 @@
+"""
+Skill 草稿解析：以完整 SKILL.md（YAML frontmatter + Markdown 正文）为主。
+
+不再依赖把长正文塞进 JSON 字符串——那是 draft-sync 反复失败的根因。
+仍兼容历史 skill-draft / json 块，便于旧会话过渡。
+"""
 import json
 import logging
 import re
@@ -7,35 +13,112 @@ from models.skill_creator import SkillDraft
 
 logger = logging.getLogger(__name__)
 
-_SKILL_DRAFT_BLOCK = re.compile(
-    r"```skill-draft\s*\n(.*?)\n?```",
+_SKILL_MD_BLOCK = re.compile(
+    r"```(?:skill-draft|skill\.md|markdown|md)\s*\n(.*?)\n?```",
     re.DOTALL | re.IGNORECASE,
 )
 _JSON_BLOCK = re.compile(
     r"```json\s*\n(.*?)\n?```",
     re.DOTALL | re.IGNORECASE,
 )
+_FRONTMATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
+_LIST_ITEM = re.compile(r"^\s*-\s+(.*)$")
+_KEY_VALUE = re.compile(r"^([A-Za-z0-9_]+)\s*:\s*(.*)$")
 
 
-def _looks_like_skill_draft(data: Any) -> bool:
-    if not isinstance(data, dict):
-        return False
-    return any(key in data for key in ("name", "description", "content"))
+def _unquote(value: str) -> str:
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+        return text[1:-1]
+    return text
+
+
+def _parse_frontmatter(fm: str) -> dict[str, Any]:
+    """解析 Skill 常用的简单 YAML frontmatter（标量 + 字符串列表）。"""
+    result: dict[str, Any] = {}
+    current_list_key: str | None = None
+
+    for raw_line in fm.splitlines():
+        line = raw_line.rstrip()
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+
+        list_match = _LIST_ITEM.match(line)
+        if list_match and current_list_key:
+            items = result.setdefault(current_list_key, [])
+            if isinstance(items, list):
+                items.append(_unquote(list_match.group(1)))
+            continue
+
+        kv = _KEY_VALUE.match(line)
+        if not kv:
+            current_list_key = None
+            continue
+
+        key, val = kv.group(1), kv.group(2).strip()
+        if val == "":
+            result[key] = []
+            current_list_key = key
+            continue
+
+        current_list_key = None
+        result[key] = _unquote(val)
+
+    return result
+
+
+def _strip_wrapping_fence(text: str) -> str:
+    stripped = text.strip()
+    fence = re.match(r"^```(?:[^\n]*)\n([\s\S]*?)\n```$", stripped)
+    if fence:
+        return fence.group(1).strip()
+    return stripped
+
+
+def parse_skill_markdown(text: str) -> dict[str, Any] | None:
+    """解析完整 SKILL.md；成功返回 dict（含 content），否则 None。"""
+    body_source = _strip_wrapping_fence(text)
+    if not body_source or body_source.upper() == "SKIP":
+        return None
+
+    match = _FRONTMATTER.match(body_source)
+    if not match:
+        return {"content": body_source.strip()}
+
+    data = _parse_frontmatter(match.group(1))
+    data["content"] = match.group(2).strip()
+    return data
+
+
+def build_skill_markdown(draft: SkillDraft) -> str:
+    """把结构化草稿拼成完整 SKILL.md，供预览与 draft-sync 上下文。"""
+    lines = ["---", f"name: {draft.name}", f"description: {draft.description}"]
+    if draft.tags:
+        lines.append("tags:")
+        lines.extend(f"  - {item}" for item in draft.tags)
+    if draft.mcp_servers:
+        lines.append("mcp_servers:")
+        lines.extend(f"  - {item}" for item in draft.mcp_servers)
+    if draft.mcp_tools:
+        lines.append("mcp_tools:")
+        lines.extend(f"  - {item}" for item in draft.mcp_tools)
+    lines.extend(["---", "", draft.content.strip(), ""])
+    return "\n".join(lines)
+
+
+def _looks_like_meta(data: dict[str, Any]) -> bool:
+    return "name" in data or "description" in data or "mcp_tools" in data or "mcp_servers" in data
 
 
 def _merge_string_list(base_list: list[str], raw_list: Any) -> list[str]:
     if raw_list is None:
         return list(base_list)
+    if isinstance(raw_list, str):
+        return [raw_list.strip()] if raw_list.strip() else []
     return [str(item).strip() for item in raw_list if str(item).strip()]
 
 
 def _normalize_draft(data: dict[str, Any], base: SkillDraft | None = None) -> SkillDraft | None:
-    """把模型输出的 dict 与已有草稿合并。
-
-    模型只需返回本轮实际变化的字段，未提及的字段（尤其是长篇的 content）
-    自动沿用 base——这样可以避免每轮都要求模型重新转义整段 SKILL.md 正文，
-    这正是 JSON 解析失败的主要来源。
-    """
     base_fields = base.model_dump() if base else {
         "name": "",
         "description": "",
@@ -63,66 +146,34 @@ def _normalize_draft(data: dict[str, Any], base: SkillDraft | None = None) -> Sk
     )
 
 
-def _escape_raw_control_chars_in_strings(raw: str) -> str:
-    """把 JSON 字符串字面量里的裸控制字符转义成 \\n/\\r/\\t/\\uXXXX。
+def _parse_markdown_candidate(raw: str, base: SkillDraft | None) -> tuple[SkillDraft | None, str | None]:
+    data = parse_skill_markdown(raw)
+    if data is None:
+        return None, None
 
-    LLM 常把 Markdown 正文直接写进 content，留下未转义的真实换行，
-    触发 json.loads 的 Invalid control character。只改字符串内部，不碰结构。
-    """
-    result: list[str] = []
-    in_string = False
-    escape_next = False
-    for char in raw:
-        if escape_next:
-            result.append(char)
-            escape_next = False
-            continue
-        if in_string and char == "\\":
-            result.append(char)
-            escape_next = True
-            continue
-        if char == '"':
-            in_string = not in_string
-            result.append(char)
-            continue
-        if in_string and ord(char) < 0x20:
-            if char == "\n":
-                result.append("\\n")
-            elif char == "\r":
-                result.append("\\r")
-            elif char == "\t":
-                result.append("\\t")
-            else:
-                result.append(f"\\u{ord(char):04x}")
-            continue
-        result.append(char)
-    return "".join(result)
+    content_only = not _looks_like_meta(data)
+    if content_only and base is None:
+        return None, "不是完整 SKILL.md（缺 frontmatter）"
+    if content_only and base is not None:
+        draft = _normalize_draft({"content": data.get("content", "")}, base)
+        if draft is None:
+            return None, "合并后 name/description/content 仍有缺失"
+        return draft, None
+
+    draft = _normalize_draft(data, base)
+    if draft is None:
+        return None, "合并后 name/description/content 仍有缺失"
+    return draft, None
 
 
-def _loads_draft_json(raw: str) -> Any:
-    """先严格解析；遇控制字符错误时本地转义后再解析一次。"""
+def _parse_json_candidate(raw: str, base: SkillDraft | None) -> tuple[SkillDraft | None, str | None]:
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError as first_error:
-        if "Invalid control character" not in str(first_error):
-            raise
-        repaired = _escape_raw_control_chars_in_strings(raw)
-        if repaired == raw:
-            raise
-        logger.info(
-            "skill-creator parser: 已本地转义 JSON 字符串内控制字符 pos=%s",
-            getattr(first_error, "pos", None),
-        )
-        return json.loads(repaired)
-
-
-def _parse_draft_payload(raw: str, base: SkillDraft | None) -> tuple[SkillDraft | None, str | None]:
-    """解析单个 JSON 候选文本，返回 (草稿, 失败原因)；成功时失败原因为 None。"""
-    try:
-        data = _loads_draft_json(raw)
+        data = json.loads(raw)
     except json.JSONDecodeError as exc:
         return None, f"JSON 语法错误: {exc}"
-    if not _looks_like_skill_draft(data):
+    if not isinstance(data, dict) or not (
+        "name" in data or "description" in data or "content" in data
+    ):
         return None, "JSON 不含 name/description/content 任一字段，不是草稿"
     draft = _normalize_draft(data, base)
     if draft is None:
@@ -131,12 +182,14 @@ def _parse_draft_payload(raw: str, base: SkillDraft | None) -> tuple[SkillDraft 
 
 
 def _extract_from_blocks(
-    text: str, pattern: re.Pattern[str], base: SkillDraft | None
+    text: str,
+    pattern: re.Pattern[str],
+    base: SkillDraft | None,
+    parser,
 ) -> tuple[SkillDraft | None, str | None]:
-    matches = list(pattern.finditer(text))
     last_error: str | None = None
-    for match in reversed(matches):
-        draft, error = _parse_draft_payload(match.group(1).strip(), base)
+    for match in reversed(list(pattern.finditer(text))):
+        draft, error = parser(match.group(1).strip(), base)
         if draft:
             return draft, None
         last_error = error
@@ -144,61 +197,72 @@ def _extract_from_blocks(
 
 
 def extract_skill_draft(text: str, base: SkillDraft | None = None) -> SkillDraft | None:
-    """从 assistant 回复中解析最新的 skill-draft JSON 块，并与已有草稿合并。"""
-    draft, _ = _extract_from_blocks(text, _SKILL_DRAFT_BLOCK, base)
+    """从 assistant 回复中解析草稿（优先 SKILL.md 代码块）。"""
+    draft, _ = _extract_from_blocks(text, _SKILL_MD_BLOCK, base, _parse_markdown_candidate)
     if draft:
         return draft
-    draft, _ = _extract_from_blocks(text, _JSON_BLOCK, base)
+    draft, _ = _parse_markdown_candidate(text, base)
+    if draft and parse_skill_markdown(text) and _looks_like_meta(parse_skill_markdown(text) or {}):
+        return draft
+    draft, _ = _extract_from_blocks(text, _JSON_BLOCK, base, _parse_json_candidate)
     return draft
 
 
 def parse_draft_text(text: str, base: SkillDraft | None = None) -> tuple[SkillDraft | None, str | None]:
-    """从任意 LLM 文本解析草稿：代码块 → 整段 JSON → 文本中的 JSON 对象。
+    """解析 LLM 草稿输出：SKILL.md → 代码块 → 旧 JSON。"""
+    stripped = text.strip()
+    if not stripped or stripped.upper() == "SKIP":
+        return None, None
 
-    返回 (草稿, 最后一次失败原因)；解析成功时失败原因为 None。
-    """
-    draft, error = _extract_from_blocks(text, _SKILL_DRAFT_BLOCK, base)
+    draft, error = _parse_markdown_candidate(stripped, base)
     if draft:
         return draft, None
 
-    draft, block_error = _extract_from_blocks(text, _JSON_BLOCK, base)
+    draft, block_error = _extract_from_blocks(stripped, _SKILL_MD_BLOCK, base, _parse_markdown_candidate)
     if draft:
         return draft, None
     error = block_error or error
 
-    stripped = text.strip()
-    if not stripped or stripped.upper() == "SKIP":
-        return None, error
-
-    draft, payload_error = _parse_draft_payload(stripped, base)
-    if draft:
-        return draft, None
-    error = payload_error or error
-
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start >= 0 and end > start:
-        draft, brace_error = _parse_draft_payload(stripped[start:end + 1], base)
+    fm_start = stripped.find("---\n")
+    if fm_start < 0:
+        fm_start = stripped.find("---\r\n")
+    if fm_start >= 0:
+        draft, sliced_error = _parse_markdown_candidate(stripped[fm_start:], base)
         if draft:
             return draft, None
-        error = brace_error or error
+        error = sliced_error or error
 
-    return None, error
+    draft, json_block_error = _extract_from_blocks(stripped, _JSON_BLOCK, base, _parse_json_candidate)
+    if draft:
+        logger.info("skill-creator parser: 回退解析旧 JSON 草稿块")
+        return draft, None
+    error = json_block_error or error
+
+    if stripped.startswith("{"):
+        draft, payload_error = _parse_json_candidate(stripped, base)
+        if draft:
+            logger.info("skill-creator parser: 回退解析旧 JSON 对象")
+            return draft, None
+        error = payload_error or error
+
+    return None, error or "无法识别为 SKILL.md 或草稿 JSON"
 
 
 def _is_skill_draft_json(raw: str) -> bool:
     try:
-        data = _loads_draft_json(raw)
+        data = json.loads(raw)
     except json.JSONDecodeError:
         return False
-    return _looks_like_skill_draft(data)
+    return isinstance(data, dict) and (
+        "name" in data or "description" in data or "content" in data
+    )
 
 
 def strip_skill_draft_blocks(text: str) -> str:
-    """展示给用户时去掉 skill-draft / skill 草稿 JSON 块，避免重复 JSON。"""
-    cleaned = _SKILL_DRAFT_BLOCK.sub("", text)
+    """展示给用户时去掉草稿代码块，避免重复。"""
+    cleaned = _SKILL_MD_BLOCK.sub("", text)
     for match in reversed(list(_JSON_BLOCK.finditer(cleaned))):
         if _is_skill_draft_json(match.group(1).strip()):
-            cleaned = cleaned[:match.start()] + cleaned[match.end():]
+            cleaned = cleaned[: match.start()] + cleaned[match.end() :]
     cleaned = cleaned.strip()
     return cleaned or text.strip()

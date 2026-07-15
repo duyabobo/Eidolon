@@ -1,36 +1,44 @@
 """
-Skill 草稿同步：对话与写草稿分离，避免模型「说了改但没输出 JSON」导致预览不更新。
+Skill 草稿同步：对话与写草稿分离。
+
+输出格式为完整 SKILL.md（YAML frontmatter + Markdown 正文），
+避免把长正文塞进 JSON 字符串导致转义失败、右侧草稿空白。
 """
-import json
 import logging
 
 from models.skill_creator import SkillCreatorMessage, SkillDraft
 from services.skill_creator_llm import chat_completion
-from services.skill_creator_parser import parse_draft_text
+from services.skill_creator_parser import build_skill_markdown, parse_draft_text
 
 logger = logging.getLogger(__name__)
 
-_DRAFT_SYNC_SYSTEM = """你是 Skill 草稿同步器。平台会把你的 JSON 输出直接写入右侧「草稿预览」，用户看不到本段输出。
+_DRAFT_SYNC_SYSTEM = """你是 Skill 草稿同步器。平台会把你的输出直接写入右侧「草稿预览」，用户看不到本段输出。
 
 任务：根据完整对话、当前草稿与用户最新指令，生成或更新 Skill 草稿。
 
 输出规则（必须遵守）：
-1. 只输出一个 JSON 对象，或 exactly 单词 SKIP（全大写）。禁止 markdown 代码块、禁止解释、禁止其它文字。
-2. JSON 字段 name, description, content, tags（数组）, mcp_tools（数组，工具名）均为可选。
-3. 只输出本轮用户要求「实际发生变化」的字段；未提及、不需要修改的字段（尤其是长篇的 content）请直接省略，
-   平台会自动沿用现有草稿中的原值。例如用户只要求改 description，就只输出 {"description": "..."}。
-   这样可以避免每次都要重新转义整段正文导致 JSON 语法出错。
-4. 只有当用户明确要求修改正文时才输出 content：必须是完整可用正文（不含 YAML frontmatter，不要只输出 diff 片段），
-   字符串内的换行、引号必须正确转义。
-5. name 使用小写英文与连字符。
-6. 仅当用户明显在闲聊、与 Skill 能力/正文完全无关，且当前无草稿时，输出 SKIP。
-7. 用户明确要求修改某个字段时，必须在 JSON 中包含该字段的新值，禁止 SKIP。"""
+1. 只输出下面两种之一，禁止解释、禁止其它文字：
+   A) 单词 SKIP（全大写）
+   B) 一份完整的 SKILL.md 原文，格式固定为：
 
+---
+name: skill-name
+description: 一句话说明何时使用
+mcp_tools:
+  - tool-a
+  - tool-b
+mcp_servers:
+  - server-a
+---
 
-def _format_current_draft(draft: SkillDraft | None) -> str:
-    if draft is None:
-        return "（尚无草稿）"
-    return json.dumps(draft.model_dump(), ensure_ascii=False, indent=2)
+这里是 Markdown 正文（原始文本，换行与引号都不用转义）。
+不要写「MCP 工具使用 / MCP 工具参考」，不要写 mcp-proxy 探测说明。
+
+2. name 使用小写英文与连字符；description 必须有；正文必须是完整可用内容（不含第二段 frontmatter）。
+3. mcp_tools 为运行时工具名白名单（依赖 MCP 时必填）；mcp_servers 仅溯源可选；tags 可选。
+4. 仅当用户明显在闲聊、与 Skill 完全无关，且当前无草稿时，输出 SKIP。
+5. 用户确认定稿、修改需求、或对话里已具备足够信息生成 Skill 时，禁止 SKIP，必须输出完整 SKILL.md。
+6. 可以外层包一层 ```md ... ```，但不要输出 JSON。"""
 
 
 def _build_sync_user_prompt(
@@ -45,12 +53,13 @@ def _build_sync_user_prompt(
         history_lines.append(f"[{role}] {item.content.strip()}")
 
     history = "\n\n".join(history_lines)
+    current = build_skill_markdown(current_draft) if current_draft else "（尚无草稿）"
     return (
-        f"## 当前草稿\n{_format_current_draft(current_draft)}\n\n"
+        f"## 当前草稿（SKILL.md）\n{current}\n\n"
         f"## 对话历史\n{history}\n\n"
         f"## 用户最新消息\n{user_message.strip()}\n\n"
         f"## 助手刚回复（理解修改意图，草稿以对话与当前草稿为准）\n{assistant_reply.strip()}\n\n"
-        "请只输出本轮实际变化的字段组成的 JSON（未变化字段直接省略），或 SKIP。"
+        "请输出完整更新后的 SKILL.md，或 SKIP。"
     )
 
 
@@ -60,7 +69,6 @@ async def _self_correct_retry(
     error: str,
     current_draft: SkillDraft | None,
 ) -> tuple[SkillDraft | None, str | None]:
-    """把上一次的错误原因反馈给模型，请它只重新输出修正后的 JSON。"""
     retry_raw = await chat_completion(
         _DRAFT_SYNC_SYSTEM,
         [
@@ -69,8 +77,9 @@ async def _self_correct_retry(
             {
                 "role": "user",
                 "content": (
-                    f"你上一次的输出不是合法 JSON（错误：{error}）。"
-                    "请只重新输出修正后的合法 JSON 对象本身，不要加 markdown 代码块标记，不要包含任何解释文字。"
+                    f"你上一次的输出无法解析（错误：{error}）。"
+                    "请重新输出完整 SKILL.md：以 --- frontmatter --- 开头，后接 Markdown 正文；"
+                    "不要 JSON，不要解释。"
                 ),
             },
         ],

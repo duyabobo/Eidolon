@@ -11,6 +11,25 @@ export interface SkillDraft {
   mcp_tools?: string[];
 }
 
+/** 与后端 SKILL.md 格式对齐，供右侧预览直接渲染 */
+export function buildSkillMarkdown(draft: SkillDraft): string {
+  const lines = ["---", `name: ${draft.name}`, `description: ${draft.description}`];
+  if ((draft.tags ?? []).length > 0) {
+    lines.push("tags:");
+    for (const tag of draft.tags ?? []) lines.push(`  - ${tag}`);
+  }
+  if ((draft.mcp_servers ?? []).length > 0) {
+    lines.push("mcp_servers:");
+    for (const server of draft.mcp_servers ?? []) lines.push(`  - ${server}`);
+  }
+  if ((draft.mcp_tools ?? []).length > 0) {
+    lines.push("mcp_tools:");
+    for (const tool of draft.mcp_tools ?? []) lines.push(`  - ${tool}`);
+  }
+  lines.push("---", "", draft.content.trim(), "");
+  return lines.join("\n");
+}
+
 export interface SkillCreatorMessage {
   role: "user" | "assistant";
   content: string;
