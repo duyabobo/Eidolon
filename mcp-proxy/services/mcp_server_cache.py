@@ -85,7 +85,7 @@ class McpServerCache:
         self._exit_stack = AsyncExitStack()
         self._tools.clear()
         self._invalidated = False
-        await old_stack.aclose()
+        await self._close_stack_ignoring_cross_task_errors(old_stack)
 
         try:
             session = await open_mcp_session(self._exit_stack, self.entry.url, self.entry.api_key)
@@ -119,4 +119,21 @@ class McpServerCache:
         return result.model_dump(by_alias=True, exclude_none=True)
 
     async def close(self) -> None:
-        await self._exit_stack.aclose()
+        await self._close_stack_ignoring_cross_task_errors(self._exit_stack)
+
+    async def _close_stack_ignoring_cross_task_errors(self, stack: AsyncExitStack) -> None:
+        """
+        关闭上一轮连接的 AsyncExitStack。
+
+        每次刷新都由调用方所在的 asyncio task 驱动（HTTP 请求 task 或预热 task），
+        而上一轮连接是在另一个（可能早已结束的）task 中打开的。MCP SDK 的
+        streamable-http 传输内部用 anyio 任务组管理请求生命周期，其取消范围要求
+        __aenter__/__aexit__ 发生在同一个 task，跨 task 关闭会抛
+        RuntimeError("Attempted to exit cancel scope in a different task ...")。
+        这里只是关闭一个即将丢弃的旧连接，关闭失败不影响新连接是否成功，因此
+        仅记录日志、不向上抛出，避免这个已知的库限制拖垮正常的刷新流程。
+        """
+        try:
+            await stack.aclose()
+        except Exception as e:
+            logger.debug("关闭旧 MCP 连接时出现异常（忽略，不影响新连接）: server=%s err=%s", self.entry.name, e)
