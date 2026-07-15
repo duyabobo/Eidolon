@@ -31,6 +31,7 @@
  *   PI_SANDBOX_HOME        → session 专属 home
  *   PI_SANDBOX_TMP         → session 临时目录
  *   PI_SANDBOX_USER_MEMORY → 用户级长期记忆目录（MEMORY.md，跨 session）
+ *   PI_SANDBOX_USER_FILES  → 用户可读写文件区（管理页上传，跨 session）
  *   PI_SANDBOX_GLOBAL_SKILLS → 系统 Skill 根目录（只读）
  *   PI_SANDBOX_USER_SKILLS  → 用户 Skill 根目录（只读）
  *   --unshare-net        → 禁止网络访问
@@ -57,6 +58,7 @@ const sandboxWorkspace = process.env.PI_SANDBOX_WORKSPACE ?? "";
 const sandboxHome = process.env.PI_SANDBOX_HOME ?? "";
 const sandboxTmp = process.env.PI_SANDBOX_TMP ?? "";
 const sandboxUserMemory = process.env.PI_SANDBOX_USER_MEMORY ?? "";
+const sandboxUserFiles = process.env.PI_SANDBOX_USER_FILES ?? "";
 const sandboxGlobalSkills = process.env.PI_SANDBOX_GLOBAL_SKILLS ?? "";
 const sandboxUserSkills = process.env.PI_SANDBOX_USER_SKILLS ?? "";
 const piCodingAgentDir = process.env.PI_CODING_AGENT_DIR ?? "";
@@ -79,6 +81,10 @@ function buildBwrapArgs(cmd: string): string[] {
     "--bind", sandboxWorkspace, sandboxWorkspace,
     "--bind", sandboxHome, sandboxHome,
     ...(sandboxTmp ? ["--bind", sandboxTmp, sandboxTmp] : ["--tmpfs", "/tmp"]),
+    ...(sandboxUserMemory ? ["--bind", sandboxUserMemory, sandboxUserMemory] : []),
+    ...(sandboxUserFiles ? ["--bind", sandboxUserFiles, sandboxUserFiles] : []),
+    ...(sandboxGlobalSkills ? ["--ro-bind", sandboxGlobalSkills, sandboxGlobalSkills] : []),
+    ...(sandboxUserSkills ? ["--ro-bind", sandboxUserSkills, sandboxUserSkills] : []),
     "--proc", "/proc",
     "--dev", "/dev",
     "--unshare-net",
@@ -197,7 +203,7 @@ function createBwrapInnerOperations(): BashOperations {
 // ── 路径白名单校验 ────────────────────────────────────────────────────────────
 
 /**
- * 校验路径是否在 workspace / home / userMemory 范围内。
+ * 校验路径是否在 workspace / home / userMemory / userFiles / skills 范围内。
  * 使用 fs.realpath() 解析符号链接后再做白名单判断，防止：
  *   1. ../路径遍历（path.resolve 字符串层面已处理）
  *   2. 符号链接逃逸（workspace/link → /data/sandboxes/other-user）
@@ -214,6 +220,7 @@ async function guardPath(rawPath: string): Promise<{ safe: true } | { safe: fals
     sandboxWorkspace,
     sandboxHome,
     sandboxUserMemory,
+    sandboxUserFiles,
     sandboxGlobalSkills,
     sandboxUserSkills,
   ].filter(Boolean);
@@ -221,7 +228,7 @@ async function guardPath(rawPath: string): Promise<{ safe: true } | { safe: fals
   // 第一道：字符串检查（快速排除明显越界，如绝对路径、../遍历）
   const tentativeOk = allowed.some((base) => tentative.startsWith(base + "/") || tentative === base);
   if (!tentativeOk) {
-    return { safe: false, reason: `路径越界: ${rawPath} → ${tentative}（只允许访问 workspace、home、userMemory 和 skills）` };
+    return { safe: false, reason: `路径越界: ${rawPath} → ${tentative}（只允许访问 workspace、home、userMemory、userFiles 和 skills）` };
   }
 
   // 第二道：realpath 检查（解析符号链接后再做白名单判断，防止 symlink 逃逸）
@@ -240,7 +247,7 @@ async function guardPath(rawPath: string): Promise<{ safe: true } | { safe: fals
 
   const canonicalOk = allowed.some((base) => canonical.startsWith(base + "/") || canonical === base);
   if (!canonicalOk) {
-    return { safe: false, reason: `路径越界（符号链接解析后）: ${rawPath} → ${canonical}（只允许访问 workspace、home、userMemory 和 skills）` };
+    return { safe: false, reason: `路径越界（符号链接解析后）: ${rawPath} → ${canonical}（只允许访问 workspace、home、userMemory、userFiles 和 skills）` };
   }
 
   return { safe: true };
@@ -320,7 +327,7 @@ export default function (pi: ExtensionAPI) {
   // pi-session.ts 依赖此文件做 fail-closed 启动校验。
   if (piCodingAgentDir) {
     writeFileSync(join(piCodingAgentDir, "bwrap.ready"), "1", { flag: "w" });
-    console.error(`[bwrap] 沙盒扩展已就绪 workspace=${sandboxWorkspace} home=${sandboxHome} memory=${sandboxUserMemory} tmp=${sandboxTmp}`);
+    console.error(`[bwrap] 沙盒扩展已就绪 workspace=${sandboxWorkspace} home=${sandboxHome} memory=${sandboxUserMemory} files=${sandboxUserFiles} tmp=${sandboxTmp}`);
   } else {
     console.error("[bwrap] 警告: PI_CODING_AGENT_DIR 未设置，无法写入就绪标记文件");
   }

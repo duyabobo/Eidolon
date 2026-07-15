@@ -12,6 +12,7 @@
  *   {SANDBOX_ROOT}/users/{user_id}/memory/      ← 用户专属长期记忆（MEMORY.md），跨 session 永久保留
  *   {SANDBOX_ROOT}/users/{user_id}/pi-sessions/ ← pi JSONL 会话文件，跨 session 永久保留，用于短期记忆恢复
  *   {SANDBOX_ROOT}/users/{user_id}/skills/      ← 用户专属 skill，跨 session 永久保留
+ *   {SANDBOX_ROOT}/users/{user_id}/files/       ← 用户可读写文件区（管理页上传），跨 session 永久保留
  *   {SANDBOX_ROOT}/global/skills/              ← admin 管理的全局 skill
  *
  * 生命周期：
@@ -39,6 +40,8 @@ export interface SandboxPaths {
   userMemory: string;
   /** 用户级 pi JSONL 会话目录，存放每个 session 的对话历史，支持重启后恢复短期记忆 */
   userPiSessions: string;
+  /** 用户可读写文件区（管理页上传），跨 session 共享 */
+  userFiles: string;
 }
 
 function buildSessionRoot(userId: string, sessionId: string): string {
@@ -72,6 +75,7 @@ export async function createSandbox(userId: string, sessionId: string): Promise<
   const globalSkills = join(config.sandbox.root, "global", "skills");
   const userMemory = join(config.sandbox.root, "users", userId, "memory");
   const userPiSessions = join(config.sandbox.root, "users", userId, "pi-sessions");
+  const userFiles = join(config.sandbox.root, "users", userId, "files");
 
   await mkdir(workspace, { recursive: true });
   await mkdir(home, { recursive: true });
@@ -81,17 +85,19 @@ export async function createSandbox(userId: string, sessionId: string): Promise<
   await mkdir(userMemory, { recursive: true });
   await ensureMemoryFile(userMemory);
   await mkdir(userPiSessions, { recursive: true });
+  await mkdir(userFiles, { recursive: true });
 
   await writeFile(join(home, ".bashrc"), [
     "export HOME=/root",
     "export PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin",
     "export PYTHONUSERBASE=/root/.local",
     "export PIP_USER=1",
+    `export USER_FILES=${userFiles}`,
     "",
   ].join("\n"));
 
-  console.log(`[sandbox] session=${sessionId} user=${userId}: 沙盒创建完成 workspace=${workspace}`);
-  return { workspace, home, sessionTmp, userSkills, globalSkills, userMemory, userPiSessions };
+  console.log(`[sandbox] session=${sessionId} user=${userId}: 沙盒创建完成 workspace=${workspace} files=${userFiles}`);
+  return { workspace, home, sessionTmp, userSkills, globalSkills, userMemory, userPiSessions, userFiles };
 }
 
 /**
@@ -121,6 +127,7 @@ export async function purgeSessionData(userId: string, sessionId: string): Promi
  *   - --bind workspace/home/tmp  session 专属目录可读写
  *   - --bind userMemory    用户级记忆目录可读写（跨 session 共享）
  *   - --bind userPiSessions pi JSONL 会话目录可读写（跨 session 共享，用于恢复短期记忆）
+ *   - --bind userFiles     用户可读写文件区（管理页上传，跨 session 共享）
  *   - --ro-bind globalSkills/userSkills  Skill 目录只读（pi 渐进式披露读 SKILL.md）
  *   - --bind piConfigDir   pi config 目录可读写（bwrap 扩展需写入 bwrap.ready）
  *   - --tmpfs SOCKS_DIR    覆盖整棵 sock 树，阻止看到同机其它 session
@@ -143,6 +150,7 @@ export function buildOuterSandboxArgs(
     "--bind", paths.sessionTmp, paths.sessionTmp,
     "--bind", paths.userMemory, paths.userMemory,
     "--bind", paths.userPiSessions, paths.userPiSessions,
+    "--bind", paths.userFiles, paths.userFiles,
     "--ro-bind", paths.globalSkills, paths.globalSkills,
     "--ro-bind", paths.userSkills, paths.userSkills,
     "--bind", piConfigDir, piConfigDir,

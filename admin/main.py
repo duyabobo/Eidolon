@@ -9,6 +9,7 @@ from routes.knowledge import router as knowledge_router
 from routes.wiki import router as wiki_router
 from routes.skill_creator import router as skill_creator_router
 from routes.skills import router as skills_router
+from routes.workspace import router as workspace_router
 from services import mongo_client
 
 setup_logging("admin")
@@ -30,6 +31,7 @@ app.include_router(knowledge_router)
 app.include_router(wiki_router)
 app.include_router(skill_creator_router)
 app.include_router(skills_router)
+app.include_router(workspace_router)
 
 
 @app.on_event("startup")

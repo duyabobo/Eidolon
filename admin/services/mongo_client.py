@@ -97,6 +97,25 @@ async def save_skill_meta(meta: SkillMeta) -> SkillMeta:
     return meta
 
 
+async def list_user_session_meta(user_id: str) -> dict[str, dict[str, Any]]:
+    """
+    查询用户会话摘要，供 workspace sessions 列表展示名 enrichment。
+    返回 {session_id: {"request": str, "created_at": datetime|None}}。
+    """
+    cursor = get_db()["sessions"].find(
+        {"user_id": user_id},
+        {"_id": 1, "request": 1, "created_at": 1},
+    )
+    result: dict[str, dict[str, Any]] = {}
+    async for raw in cursor:
+        sid = str(raw["_id"])
+        result[sid] = {
+            "request": str(raw.get("request") or ""),
+            "created_at": raw.get("created_at"),
+        }
+    return result
+
+
 async def delete_skill_meta(name: str, user_id: str | None = None) -> bool:
     result = await get_db()[_SKILL_COLLECTION].delete_one(_meta_key(name, user_id))
     if result.deleted_count:

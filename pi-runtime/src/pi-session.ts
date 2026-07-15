@@ -316,6 +316,8 @@ export async function startPiSession(
     PI_SANDBOX_HOME: sandboxPaths.home,
     PI_SANDBOX_TMP: sandboxPaths.sessionTmp,
     PI_SANDBOX_USER_MEMORY: sandboxPaths.userMemory,
+    PI_SANDBOX_USER_FILES: sandboxPaths.userFiles,
+    USER_FILES: sandboxPaths.userFiles,
     PI_SANDBOX_GLOBAL_SKILLS: sandboxPaths.globalSkills,
     PI_SANDBOX_USER_SKILLS: sandboxPaths.userSkills,
     PI_CODING_AGENT_DIR: piConfigDir,

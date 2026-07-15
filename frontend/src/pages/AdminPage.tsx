@@ -4,15 +4,17 @@ import LlmConfigPanel from "../components/LlmConfigPanel";
 import McpConfigPanel from "../components/McpConfigPanel";
 import SkillsPanel from "../components/SkillsPanel";
 import KnowledgePanel from "../components/KnowledgePanel";
+import WorkspacePanel from "../components/WorkspacePanel";
 import { useChatSession } from "../context/ChatSessionContext";
 
-type Tab = "llm" | "mcp" | "skills" | "knowledge";
+type Tab = "llm" | "mcp" | "skills" | "knowledge" | "workspace";
 
 const TAB_LABELS: Record<Tab, string> = {
   llm: "LLM",
   mcp: "MCP",
   skills: "Skill",
   knowledge: "Knowledge",
+  workspace: "Workspace",
 };
 
 const TAB_IDS = Object.keys(TAB_LABELS) as Tab[];
@@ -69,6 +71,7 @@ export default function AdminPage() {
               deepLinkDocId={docId}
             />
           )}
+          {tab === "workspace" && <WorkspacePanel userId={userId} />}
         </div>
       </div>
     </div>
