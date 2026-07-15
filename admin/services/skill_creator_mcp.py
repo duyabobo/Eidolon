@@ -68,21 +68,18 @@ def _extract_explicit_mcp_servers(text: str) -> list[str]:
 
 def resolve_mcp_server_names(
     user_message: str,
-    draft: SkillDraft | None,
     history_text: str,
     configured_names: list[str],
 ) -> list[str]:
+    """从对话文本里识别用户提到的已配置 MCP Server 名（创作阶段用，定位去哪拉 tool list）。
+
+    只用于拉取 tool list，不写入最终 Skill——Skill 只记录 mcp_tools（具体工具名）。
+    历史消息里出现过的 Server 名天然保留在 history_text 里，无需额外从草稿里记忆。
+    """
     if not configured_names:
         return []
 
     resolved: set[str] = set()
-    if draft and draft.mcp_servers:
-        configured_lower = {name.lower(): name for name in configured_names}
-        for token in draft.mcp_servers:
-            key = token.strip().lower()
-            if key in configured_lower:
-                resolved.add(configured_lower[key])
-
     combined = "\n".join(part for part in [history_text, user_message] if part)
     for explicit in _extract_explicit_mcp_servers(combined):
         configured_lower = {name.lower(): name for name in configured_names}
@@ -179,7 +176,7 @@ def build_mcp_prompt_context(infos: list[McpServerToolsInfo]) -> str:
         "你必须先基于本清单编写 Skill，再描述调用方式；禁止跳过 tool list 臆造工具名。\n",
         "白名单是**工具粒度**，不是 Server 粒度：从下面清单里挑出这个 Skill 实际会用到的具体工具名"
         "（不需要每个都用，只挑相关的），写入 `mcp_tools`。运行时 pi 只能看到 `mcp_tools` 里列出的工具，"
-        "看不到 Server 名，也看不到未列出的工具。\n",
+        "看不到 Server 名，也看不到未列出的工具。Skill 不记录、也不需要记录工具来自哪个 Server。\n",
         "Skill `content` 只描述**工具名**和调用顺序/参数/降级策略，**不要出现业务 Server 名**"
         "（如下面清单标题里的名字）——运行时 Agent 根本看不到 Server 名，写了也没用，还会误导它去猜"
         "`mcp({ server: \"业务名\" })`（一定会失败）。\n",
@@ -203,8 +200,7 @@ def build_mcp_prompt_context(infos: list[McpServerToolsInfo]) -> str:
 
     lines.append(
         "\n在输出 `skill-draft` 时，请设置 `mcp_tools` 为你从上面清单里挑出的具体工具名数组"
-        "（这才是运行时真正生效的白名单）；`mcp_servers` 可以留空或填这些 Server 名仅供人类查看溯源，"
-        "不影响运行时行为。"
+        "（这才是运行时真正生效的白名单）；不要输出 `mcp_servers` 或任何业务 Server 名。"
         "`content` 只写业务步骤（何时用哪个工具名、关键参数、降级），"
         "**禁止**再写「MCP 工具使用 / MCP 工具参考」、"
         "禁止写 mcp-proxy 探测/`mcp({ server: ... })`/拉 tool list 等平台机制说明——"
@@ -220,14 +216,13 @@ def strip_redundant_mcp_sections(content: str) -> str:
 
 
 def enrich_draft_with_mcp_reference(draft: SkillDraft, infos: list[McpServerToolsInfo]) -> SkillDraft:
-    """根据拉取到的 Server 工具，补齐 mcp_servers / mcp_tools 元数据；不改业务流程正文。"""
+    """根据拉取到的 Server 工具，补齐 mcp_tools 元数据；不改业务流程正文，不记录 Server 名。"""
     content = strip_redundant_mcp_sections(draft.content)
     if not infos:
         if content == draft.content.strip():
             return draft
         return draft.model_copy(update={"content": content, "mcp_tools_reference": ""})
 
-    server_names = [info.name for info in infos]
     available_tools = sorted({tool for info in infos if info.available for tool in info.tools})
 
     # 模型已经按新规则在 draft.mcp_tools 里挑了具体工具就尊重它的选择；
@@ -237,7 +232,6 @@ def enrich_draft_with_mcp_reference(draft: SkillDraft, infos: list[McpServerTool
 
     return draft.model_copy(update={
         "content": content,
-        "mcp_servers": server_names,
         "mcp_tools": mcp_tools,
         "mcp_tools_reference": "",
     })
@@ -246,11 +240,10 @@ def enrich_draft_with_mcp_reference(draft: SkillDraft, infos: list[McpServerTool
 async def prepare_mcp_context_for_message(
     user_id: str | None,
     user_message: str,
-    draft: SkillDraft | None,
     history_text: str,
 ) -> tuple[str, list[McpServerToolsInfo]]:
     configured = await list_configured_mcp_names(user_id)
-    server_names = resolve_mcp_server_names(user_message, draft, history_text, configured)
+    server_names = resolve_mcp_server_names(user_message, history_text, configured)
     if not server_names:
         return "", []
 

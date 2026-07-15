@@ -5,9 +5,7 @@ export interface SkillDraft {
   description: string;
   content: string;
   tags?: string[];
-  /** 仅展示/溯源用（这个 Skill 的工具来自哪些 Server），不参与运行时过滤 */
-  mcp_servers?: string[];
-  /** 运行时白名单，精确到工具名，由 mcp-proxy 按此过滤可用 MCP 工具 */
+  /** 运行时白名单，精确到工具名，由 mcp-proxy 按此过滤可用 MCP 工具；不记录工具来自哪个 Server */
   mcp_tools?: string[];
 }
 
@@ -16,7 +14,7 @@ export interface SkillDraft {
  *
  * frontmatter 用 ```yaml 代码块包裹，而不是裸的 `---`：Markdown 渲染器（CommonMark）
  * 把没有空行分隔的连续行当作同一段落，单个换行会被合并成空格，导致 name/description/
- * mcp_servers 等字段挤成一行。代码块内文本按原样保留换行，可以正确逐行展示。
+ * mcp_tools 等字段挤成一行。代码块内文本按原样保留换行，可以正确逐行展示。
  * 正文 content 已是标准 Markdown（含空行分隔），仍在代码块外正常渲染。
  */
 export function buildSkillMarkdown(draft: SkillDraft): string {
@@ -24,10 +22,6 @@ export function buildSkillMarkdown(draft: SkillDraft): string {
   if ((draft.tags ?? []).length > 0) {
     meta.push("tags:");
     for (const tag of draft.tags ?? []) meta.push(`  - ${tag}`);
-  }
-  if ((draft.mcp_servers ?? []).length > 0) {
-    meta.push("mcp_servers:");
-    for (const server of draft.mcp_servers ?? []) meta.push(`  - ${server}`);
   }
   if ((draft.mcp_tools ?? []).length > 0) {
     meta.push("mcp_tools:");

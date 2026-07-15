@@ -27,15 +27,13 @@ description: 一句话说明何时使用
 mcp_tools:
   - tool-a
   - tool-b
-mcp_servers:
-  - server-a
 ---
 
 这里是 Markdown 正文（原始文本，换行与引号都不用转义）。
-不要写「MCP 工具使用 / MCP 工具参考」，不要写 mcp-proxy 探测说明。
+不要写「MCP 工具使用 / MCP 工具参考」，不要写 mcp-proxy 探测说明，不要写 mcp_servers 或任何业务 Server 名。
 
 2. name 使用小写英文与连字符；description 必须有；正文必须是完整可用内容（不含第二段 frontmatter）。
-3. mcp_tools 为运行时工具名白名单（依赖 MCP 时必填）；mcp_servers 仅溯源可选；tags 可选。
+3. mcp_tools 为运行时工具名白名单（依赖 MCP 时必填，只写具体工具名，不写 Server 名）；tags 可选。
 4. 仅当用户明显在闲聊、与 Skill 完全无关，且当前无草稿时，输出 SKIP。
 5. 用户确认定稿、修改需求、或对话里已具备足够信息生成 Skill 时，禁止 SKIP，必须输出完整 SKILL.md。
 6. 可以外层包一层 ```md ... ```，但不要输出 JSON。"""

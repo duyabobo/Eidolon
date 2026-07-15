@@ -39,15 +39,14 @@ class SkillMeta(BaseModel):
     user_id 为空表示系统 Skill；否则为用户私有 Skill。
     正文在 NFS：global/skills/{name}/ 或 users/{user_id}/skills/{name}/。
 
-    mcp_servers：仅展示/溯源用（这个 Skill 的工具来自哪些 Server），不参与运行时过滤。
     mcp_tools：运行时白名单，精确到工具名，由 mcp-proxy 按此过滤可用 MCP 工具
       （见 pi-runtime/src/skill-mcp.ts、mcp-proxy/services/mcp_cache_manager.py）。
+      Skill 只描述工具名，不记录工具来自哪个业务 MCP Server（Agent 侧看不到 Server 名，记了没用）。
     """
     name: str
     description: str
     user_id: str | None = None
     tags: list[str] = []
-    mcp_servers: list[str] = []
     mcp_tools: list[str] = []
     hidden: bool = False
     created_at: datetime = None  # type: ignore[assignment]

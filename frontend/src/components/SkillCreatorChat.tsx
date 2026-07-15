@@ -80,7 +80,6 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
         setDraft({
           ...res.draft,
           tags: [...(res.draft.tags ?? [])],
-          mcp_servers: [...(res.draft.mcp_servers ?? [])],
           mcp_tools: [...(res.draft.mcp_tools ?? [])],
         });
       }

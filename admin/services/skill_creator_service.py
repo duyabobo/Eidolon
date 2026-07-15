@@ -119,9 +119,7 @@ async def _finalize_draft_with_mcp(
         return None
 
     configured = await list_configured_mcp_names(user_id)
-    server_names = resolve_mcp_server_names(user_message, draft, history_text, configured)
-    if not server_names and draft.mcp_servers:
-        server_names = draft.mcp_servers
+    server_names = resolve_mcp_server_names(user_message, history_text, configured)
     if not server_names:
         # 无 MCP 依赖时仍剥离旧 boilerplate，避免历史草稿残留
         return enrich_draft_with_mcp_reference(draft, [])
@@ -142,7 +140,6 @@ async def send_user_message(session_id: str, content: str) -> SendMessageRespons
     mcp_context, _ = await prepare_mcp_context_for_message(
         session.user_id,
         content,
-        session.draft,
         history_text,
     )
     system_prompt = load_system_prompt() + mcp_context
@@ -185,7 +182,6 @@ def _merge_draft(session_draft: SkillDraft | None, body: PublishSkillRequest) ->
         description=(body.description or base.description).strip(),
         content=(body.content or base.content).strip(),
         tags=body.tags if body.tags is not None else base.tags,
-        mcp_servers=base.mcp_servers,
         mcp_tools=base.mcp_tools,
         mcp_tools_reference=base.mcp_tools_reference,
     )
@@ -214,7 +210,6 @@ async def publish_session(session_id: str, body: PublishSkillRequest) -> SkillMe
             draft.name,
             draft.description,
             draft.content,
-            mcp_servers=draft.mcp_servers,
             mcp_tools=draft.mcp_tools,
         )
     else:
@@ -222,7 +217,6 @@ async def publish_session(session_id: str, body: PublishSkillRequest) -> SkillMe
             draft.name,
             draft.description,
             draft.content,
-            mcp_servers=draft.mcp_servers,
             mcp_tools=draft.mcp_tools,
         )
 
@@ -231,7 +225,6 @@ async def publish_session(session_id: str, body: PublishSkillRequest) -> SkillMe
         description=draft.description,
         user_id=user_id,
         tags=draft.tags,
-        mcp_servers=draft.mcp_servers,
         mcp_tools=draft.mcp_tools,
         hidden=body.hidden if not user_id else False,
     )

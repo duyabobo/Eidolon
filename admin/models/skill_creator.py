@@ -10,9 +10,8 @@ class SkillDraft(BaseModel):
     description: str
     content: str
     tags: list[str] = Field(default_factory=list)
-    # mcp_servers：创作阶段用于定位要拉哪些 Server 的 tool list，最终仅作展示/溯源，不写入运行时白名单
-    mcp_servers: list[str] = Field(default_factory=list)
     # mcp_tools：运行时白名单，精确到工具名（如 wiki_combined_search），由平台按此过滤 MCP 工具
+    # Skill 只需描述用到的工具名，不描述工具来自哪个业务 MCP Server（Agent 侧根本看不到 Server 名）
     mcp_tools: list[str] = Field(default_factory=list)
     mcp_tools_reference: str = ""
 

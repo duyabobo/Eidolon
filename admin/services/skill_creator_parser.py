@@ -96,9 +96,6 @@ def build_skill_markdown(draft: SkillDraft) -> str:
     if draft.tags:
         lines.append("tags:")
         lines.extend(f"  - {item}" for item in draft.tags)
-    if draft.mcp_servers:
-        lines.append("mcp_servers:")
-        lines.extend(f"  - {item}" for item in draft.mcp_servers)
     if draft.mcp_tools:
         lines.append("mcp_tools:")
         lines.extend(f"  - {item}" for item in draft.mcp_tools)
@@ -107,7 +104,7 @@ def build_skill_markdown(draft: SkillDraft) -> str:
 
 
 def _looks_like_meta(data: dict[str, Any]) -> bool:
-    return "name" in data or "description" in data or "mcp_tools" in data or "mcp_servers" in data
+    return "name" in data or "description" in data or "mcp_tools" in data
 
 
 def _merge_string_list(base_list: list[str], raw_list: Any) -> list[str]:
@@ -124,7 +121,6 @@ def _normalize_draft(data: dict[str, Any], base: SkillDraft | None = None) -> Sk
         "description": "",
         "content": "",
         "tags": [],
-        "mcp_servers": [],
         "mcp_tools": [],
         "mcp_tools_reference": "",
     }
@@ -140,7 +136,6 @@ def _normalize_draft(data: dict[str, Any], base: SkillDraft | None = None) -> Sk
         description=description,
         content=content,
         tags=_merge_string_list(base_fields["tags"], data.get("tags")),
-        mcp_servers=_merge_string_list(base_fields["mcp_servers"], data.get("mcp_servers")),
         mcp_tools=_merge_string_list(base_fields["mcp_tools"], data.get("mcp_tools")),
         mcp_tools_reference=str(data.get("mcp_tools_reference", base_fields["mcp_tools_reference"])).strip(),
     )

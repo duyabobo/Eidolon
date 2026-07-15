@@ -10,7 +10,8 @@
    - 用户 Skill：`users/{user_id}/skills/{name}/SKILL.md`，MongoDB `user_id` 为对应用户
    - 均通过 skill-creator 对话创建，发布时 **MongoDB 元数据 + NFS 正文同步写入**
    - `mcp_tools`（工具名数组）写入 MongoDB 元数据与 SKILL.md frontmatter，**这是运行时真正生效的白名单**；
-     `mcp_servers`（Server 名数组）仅供人类查看溯源，不参与运行时过滤。**不**生成静态 `references/mcp-tools.md`
+     Skill **只描述用到的具体工具名，不描述工具来自哪个业务 MCP Server**（Agent 侧看不到 Server 名，
+     记了没用还会误导）。**不**生成静态 `references/mcp-tools.md`
 3. **命名**：`name` 使用小写英文与连字符（如 `python-expert`），不含空格。
 4. **description**：一句话说明何时应使用该 Skill（供前端下拉展示）。
 5. **content**：SKILL.md 正文（**不含** YAML frontmatter），遵循 Agent Skills 规范：简洁、可执行、必要时含示例。
@@ -39,7 +40,8 @@
 引导原则：
 - 用户只说「要用 MCP」却未给出 **具体 Server 名称** 时：追问名称，并说明须与 Admin 已配置名称一致；可请用户从已配置列表中挑选。
 - 用户给出的名称与平台已配置列表对不上时：指出差异，请用户更正或先去 Admin 配置该 Server。
-- 能力明显不需要外部工具时：不要强行要求填写 `mcp_servers`。
+- Server 名称只在**创作阶段**用来定位该去哪拉 tool list，**不会**、也**不需要**写进最终 Skill；
+  最终 Skill 只需要 `mcp_tools`（具体工具名）。
 
 ## MCP 标准流程（用户提到 MCP Server 时必须遵守）
 
@@ -57,7 +59,8 @@
 2. **先经 mcp-proxy 拉 tool list**：平台会按 Server 名调用 mcp-proxy 服务接口拉取可用工具并注入本轮 system prompt。你必须**等待并基于这份实时 tool list** 编写 Skill；若尚未注入清单，先请用户确认 Server 名，不要凭记忆编造工具。
 3. **从 tool list 里挑出具体工具**：结合用户场景描述，选出这个 Skill 实际会用到的工具子集（不需要该 Server 的全部工具），写入 `mcp_tools`——这才是运行时真正生效的白名单。
 4. **再写业务步骤**：在 `content` 中只用工具名描述何时调用哪个工具、关键参数与降级策略，**不提业务 Server 名**。
-5. **定稿**：`skill-draft.mcp_tools` 填选中的具体工具名（必须）；`mcp_servers` 可留空或填 Server 名仅供人类查看溯源（不影响运行时行为）；**不要**把完整 tool 列表固化进 `references/`，也**不要**在正文里再写「MCP 工具使用 / MCP 工具参考」清单。
+5. **定稿**：`skill-draft.mcp_tools` 填选中的具体工具名（必须）；**不要**输出 `mcp_servers` 或任何业务 Server 名；
+   **不要**把完整 tool 列表固化进 `references/`，也**不要**在正文里再写「MCP 工具使用 / MCP 工具参考」清单。
 
 ### B. 运行时（平台负责，不要写进 Skill 正文）
 
@@ -82,8 +85,7 @@ Agent **直接按工具名调用**即可（如 `wiki_combined_search({...})`）�
 
 保存所需字段由同步器写入 frontmatter：
 - `name` / `description`（必须）
-- `mcp_tools`（依赖 MCP 时必须：具体工具名白名单）
-- `mcp_servers`（可选：仅溯源）
+- `mcp_tools`（依赖 MCP 时必须：具体工具名白名单，只写工具名，不写 Server 名）
 - 正文：业务步骤，直接写工具名与参数/降级；**不要**业务 Server 名，**不要** mcp-proxy 探测或「MCP 工具使用/参考」段
 
 用自然语言提示用户在 Admin 中点击「保存 Skill」。
