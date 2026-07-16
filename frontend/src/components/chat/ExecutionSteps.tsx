@@ -367,9 +367,17 @@ function ToolStep({ call, result, index, now }: { call: Message; result?: Messag
   );
 }
 
+const TEXT_STEP_PREVIEW_CHARS = 200;
+
 function TextStep({ msg, index, now }: { msg: Message; index: number; now: number }) {
   const durationMs = messageDuration(msg, now);
   const live = isStepLive(msg);
+  const content = msg.content ?? "";
+  const streaming = !!msg.isStreaming;
+  const needsCollapse = !streaming && content.length > TEXT_STEP_PREVIEW_CHARS;
+  const preview = needsCollapse
+    ? `${content.slice(0, TEXT_STEP_PREVIEW_CHARS).trimEnd()}…`
+    : content;
 
   return (
     <div className="step-timeline-item">
@@ -383,11 +391,17 @@ function TextStep({ msg, index, now }: { msg: Message; index: number; now: numbe
             <DurationBadge ms={durationMs} live={live} />
           </div>
           <div className="px-3 py-2.5 text-xs text-ink-700 leading-relaxed break-words">
-            <ChatMarkdown
-              content={msg.content ?? ""}
-              streaming={msg.isStreaming}
-            />
+            <ChatMarkdown content={preview} streaming={streaming} />
           </div>
+          {needsCollapse && (
+            <div className="px-3 pb-2.5">
+              <CollapseBody title="查看完整中间输出">
+                <div className="text-xs text-ink-700 leading-relaxed break-words">
+                  <ChatMarkdown content={content} />
+                </div>
+              </CollapseBody>
+            </div>
+          )}
         </div>
       </div>
     </div>

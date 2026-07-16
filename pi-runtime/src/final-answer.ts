@@ -2,13 +2,13 @@
  * 从本轮完整 assistant 文本中提取面向用户的最终答案。
  * 典型形态：
  *   Evidence is comprehensive...
- *   Step 7: Generate Answer
+ *   ## Step 7: Generate Answer
  *   <纯净答案>
  *
- * 未匹配到 Generate Answer 步骤时返回 null（前端继续用最后一段 token 作为回复）。
+ * 匹配不到 Generate Answer 时返回 null，由调用方回退到最后一段 assistant 全文。
  */
 const GENERATE_ANSWER_RE =
-  /(?:^|\n)\s*(?:Step|步骤)\s*\d+\s*[:：]\s*(?:Generate\s+Answer|生成答案)\s*\r?\n+([\s\S]+)$/i;
+  /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*{1,2})?(?:Step|步骤)\s*\d+\s*[:：]\s*(?:Generate\s+Answer|生成答案)(?:\*{1,2})?\s*\r?\n+([\s\S]+)$/i;
 
 export function extractFinalAnswer(fullText: string): string | null {
   const trimmed = fullText.trim();
@@ -20,6 +20,26 @@ export function extractFinalAnswer(fullText: string): string | null {
   }
 
   return null;
+}
+
+/**
+ * 本轮结束时应推送给前端的最终回复：
+ * 优先 Generate Answer 段落，否则用最后一条 assistant 文本（保证一定有 final_result）。
+ */
+export function resolveFinalResultContent(
+  lastAssistantText: string,
+  turnTextBuffer: string,
+): string | null {
+  const last = lastAssistantText.trim();
+  const buffer = turnTextBuffer.trim();
+  const preferred = last || buffer;
+  if (!preferred) return null;
+
+  return (
+    extractFinalAnswer(last) ||
+    extractFinalAnswer(buffer) ||
+    preferred
+  );
 }
 
 /** 从 pi agent_end.messages 中取最后一条 assistant 文本 */

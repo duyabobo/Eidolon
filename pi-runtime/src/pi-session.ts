@@ -5,7 +5,7 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { SandboxPaths, buildOuterSandboxArgs } from "./sandbox";
 import { SessionOutputStream } from "./output-stream";
-import { extractFinalAnswer, extractLastAssistantText } from "./final-answer";
+import { extractLastAssistantText, resolveFinalResultContent } from "./final-answer";
 import { sessionLlmSockForSandbox } from "./session-llm-bridge";
 import { sessionMcpSockForSandbox } from "./session-mcp-bridge";
 import {
@@ -599,8 +599,8 @@ async function dispatchPiEvent(
         return false;
       }
 
-      const fullText = extractLastAssistantText(e.messages) || turn.textBuffer;
-      const finalAnswer = extractFinalAnswer(fullText);
+      const lastAssistant = extractLastAssistantText(e.messages);
+      const finalAnswer = resolveFinalResultContent(lastAssistant, turn.textBuffer);
       if (finalAnswer) {
         await outputStream.push({ event_type: "final_result", content: finalAnswer });
         console.log(
