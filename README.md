@@ -1,72 +1,22 @@
 # onenew
 
-基于 [Pi Coding Agent](https://pi.dev/) 构建的多租户 Agent 执行平台（对外品牌 **onenew**），支持会话管理、SSE 流式输出、bwrap 沙盒隔离、MCP 工具扩展、Skill 渐进式披露、本地知识库管理。
+多租户 Agent 执行平台（对外品牌 **onenew**），支持会话管理、SSE 流式输出、bwrap 沙盒隔离、MCP 工具扩展、Skill 渐进式披露、本地知识库管理。
 
 ---
 
 ## 整体架构
 
-### 分层架构
+### 图 1 系统总体架构
 
-```text
-    ┏━━━━━━━━━━━━━━━━━━━━━━━━┓              ┏━━━━━━━━━━━━━━━━━━━━━━━━┓
-    ┃  用户层  frontend :3000 ┃              ┃  扩展层                 ┃
-    ┗━━━━━━━━━━━━┬━━━━━━━━━━━┛              ┃  llm-proxy :9001       ┃
-                 │ HTTP / SSE               ┃  mcp-proxy :8080       ┃
-                 ▼                          ┗━━━━━━━━━━━━▲━━━━━━━━━━━┛
-    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓                 │ Unix socket
-    ┃  接口层                           ┃    ┏━━━━━━━━━━━━┷━━━━━━━━━━━┓
-    ┃  gateway     :8000  CRUD/派发·QPS 扩容┃  ┃  执行层                 ┃
-    ┃  gateway-sse :8001  SSE·连接数扩容    ┃  ┃  onenew 执行引擎：bwrap 沙盒   ┃
-    ┃  admin       :9000  配置管理          ┃  ┗━━━━━━━━━━━━┬━━━━━━━━━━━┛
-    ┗━━━━━━━━━━━━┬━━━━━━━━━━━━━━━━━━━━━━━┛                 │ read/write
-                 │ read/write                              │
-                 │                                         │
-                 └─────────────────┬───────────────────────┘
-                                   ▼
-    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-    ┃  持久化      Redis :6379  ·  MongoDB :27017  ·  NFS             ┃
-    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-```
+![系统总体架构](docs/assets/system-architecture.png)
 
-`gateway` 与 `gateway-sse` 从同一个服务拆分而来：前者是短请求（会话 CRUD、任务派发），
-按 QPS 扩容；后者是 SSE 长连接，按并发连接数扩容。二者资源特征和扩容节奏不同，绑在
-一个进程里会互相拖累，故拆分为两个独立部署、独立扩容的运行单元，详见
-[gateway/README.md](gateway/README.md) 与 [gateway-sse/README.md](gateway-sse/README.md)。
+系统分为知识构建与检索层、Agent 服务层、运行交互层。知识构建与检索层将多模态文档转化为可检索知识节点；Agent 服务层通过 MCP 调用检索工具并按 Skill 控制工具范围；运行交互层负责会话、沙盒执行和流式结果呈现。
 
-### 协作时序（发送消息 · 流式回复）
+### 图 2 Agentic RAG 协作时序
 
-```text
-  用户层           接口层（gateway）      持久化层            执行层             扩展层
-(frontend)      CRUD/派发   SSE 长连接  (Redis/Mongo/NFS)     (bwrap·pi)       (llm/mcp-proxy)
-                (gateway) (gateway-sse)
-    │                 │           │           │                 │                 │
-    │1.POST /sessions►│           │           │                 │                 │
-    │                 │           │           │                 │                 │
-    │                 │2.Write session────────►│MongoDB          │                 │
-    │                 │           │           │                 │                 │
-    │                 │─3.XADD task───────────►│Redis Stream     │                 │
-    │                 │           │           │                 │                 │
-    │                 │           │           │─4.XREADGROUP───►│                 │
-    │◄─────session────│           │           │                 │                 │
-    │                 │           │           │                 │5.start bwrap    │
-    │                 │           │ MongoDB/NFS│◄──────Read──────│                 │
-    │                 │           │           │                 │                 │
-    │─6.SSE /stream(:8001)───────►│           │                 │                 │
-    │                 │           │           │                 │                 │
-    │                 │           │─7.Read Stream───────────────►│Redis            │
-    │                 │           │           │                 │                 │
-    │                 │           │      Redis│◄─8.XADD output──│                 │
-    │◄──────token─────│           │           │                 │                 │
-    │                 │           │           │                 │─9.Unix socket──►│► 外部 LLM/MCP
-    ▼                 ▼           ▼           ▼                 ▼                 ▼
-```
+![Agentic RAG 协作时序](docs/assets/agentic-rag-sequence.png)
 
-任务派发使用 Redis Streams Consumer Group：`gateway` 以 `XADD` 写入带 `task_id` 的任务，
-pi-runtime 通过 `XREADGROUP` 认领并在任务完成后 `XACK`。超时未确认任务由
-`XAUTOCLAIM` 认领恢复；任务状态和执行租约共同抑制重复执行。取消和关闭等实时控制信号
-继续使用 Pub/Sub，不承担可靠任务投递职责。步骤 6/7 的 SSE 订阅与流读取完全由
-`gateway-sse` 独立处理，与 `gateway` 的写路径（步骤 1-3）没有进程内耦合。
+用户发送问题后，Gateway 创建会话并将任务写入 Redis Streams；pi-runtime 作为 Consumer Group 消费者认领任务，在沙盒中运行 Agent，并在任务完成后确认消费。Agent 通过 MRAG 系统的 MCP 调用组合检索或图谱检索；Token、工具调用和工具结果写入 Redis Stream，Gateway-SSE 订阅事件并以 SSE 推送至前端，支持断线续传与历史回放。
 
 ---
 
