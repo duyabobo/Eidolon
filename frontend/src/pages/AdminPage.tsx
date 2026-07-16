@@ -7,13 +7,13 @@ import KnowledgePanel from "../components/KnowledgePanel";
 import WorkspacePanel from "../components/WorkspacePanel";
 import { useChatSession } from "../context/ChatSessionContext";
 
-type Tab = "llm" | "mcp" | "skills" | "knowledge" | "workspace";
+type Tab = "skills" | "knowledge" | "mcp" | "llm" | "workspace";
 
 const TAB_LABELS: Record<Tab, string> = {
-  llm: "LLM",
-  mcp: "MCP",
   skills: "Skill",
   knowledge: "Knowledge",
+  mcp: "MCP",
+  llm: "LLM",
   workspace: "Workspace",
 };
 
@@ -28,7 +28,7 @@ export default function AdminPage() {
   const [searchParams] = useSearchParams();
   const tabFromQuery = parseTab(searchParams.get("tab"));
   const [tab, setTab] = useState<Tab>(
-    kbId ? "knowledge" : tabFromQuery ?? "llm",
+    kbId ? "knowledge" : tabFromQuery ?? "skills",
   );
   const { userId, loadSkills } = useChatSession();
 
