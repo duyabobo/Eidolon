@@ -32,20 +32,20 @@ const NAV_ITEMS = [
     ),
   },
   {
-    to: "/workspace",
-    label: "文件",
-    icon: (
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V6A2.25 2.25 0 014.5 3.75h4.379a2.25 2.25 0 011.59.659l2.122 2.122a2.25 2.25 0 001.59.659H19.5A2.25 2.25 0 0121.75 9v10.5A2.25 2.25 0 0119.5 21.75h-15a2.25 2.25 0 01-2.25-2.25z" />
-      </svg>
-    ),
-  },
-  {
     to: "/llm",
     label: "模型",
     icon: (
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z" />
+      </svg>
+    ),
+  },
+  {
+    to: "/workspace",
+    label: "文件",
+    icon: (
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V6A2.25 2.25 0 014.5 3.75h4.379a2.25 2.25 0 011.59.659l2.122 2.122a2.25 2.25 0 001.59.659H19.5A2.25 2.25 0 0121.75 9v10.5A2.25 2.25 0 0119.5 21.75h-15a2.25 2.25 0 01-2.25-2.25z" />
       </svg>
     ),
   },
