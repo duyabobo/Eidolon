@@ -24,6 +24,9 @@ RUN set -eux; \
     done; \
     rm -rf /var/lib/apt/lists/*
 
+# 国内 ECS 使用 npmmirror，避免 registry.npmjs.org 过慢/超时
+ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+
 # 全局安装 pi coding agent（锁定版本，升级前先在测试环境验证扩展兼容性）
 # 升级步骤：1.改版本号 2.本地 build 测试 3.确认 bwrap 扩展正常工作 4.部署
 ARG PI_VERSION=0.79.9

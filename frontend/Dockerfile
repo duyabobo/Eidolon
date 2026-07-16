@@ -1,6 +1,10 @@
 FROM node:20-alpine AS builder
 
 WORKDIR /app
+
+# 国内 ECS 使用 npmmirror，避免 registry.npmjs.org 过慢/超时
+ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+
 COPY package.json .
 RUN npm install
 COPY . .
