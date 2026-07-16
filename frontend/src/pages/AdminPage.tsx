@@ -7,12 +7,12 @@ import KnowledgePanel from "../components/KnowledgePanel";
 import WorkspacePanel from "../components/WorkspacePanel";
 import { useChatSession } from "../context/ChatSessionContext";
 
-type Tab = "skills" | "knowledge" | "mcp" | "llm" | "workspace";
+type Tab = "skills" | "mcp" | "knowledge" | "llm" | "workspace";
 
 const TAB_LABELS: Record<Tab, string> = {
   skills: "Skill",
-  knowledge: "Knowledge",
   mcp: "MCP",
+  knowledge: "Knowledge",
   llm: "LLM",
   workspace: "Workspace",
 };
