@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { Skill, SkillScope, toSkillRef } from "../api/skills";
 import { workspaceApi, type ChatUploadResponse } from "../api/workspace";
 import { useAutoGrowTextarea } from "../hooks/useAutoGrowTextarea";
+import { randomUUID } from "../utils/id";
 
 interface SlashContext {
   query: string;
@@ -162,7 +163,7 @@ export default function ChatInput({
     }
     setUploadErr(null);
     if (!sessionId) {
-      setPendingFiles((prev) => [...prev, { id: crypto.randomUUID(), file }]);
+      setPendingFiles((prev) => [...prev, { id: randomUUID(), file }]);
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }

@@ -8,6 +8,8 @@ import {
 } from "../api/session";
 import { skillsApi, Skill, toSkillRef } from "../api/skills";
 import { workspaceApi, type ChatUploadResponse } from "../api/workspace";
+import { randomUUID } from "../utils/id";
+import { resolveUserId } from "../constants/user";
 
 export type MessageType = "text" | "thinking" | "tool_call" | "tool_result" | "file";
 
@@ -343,7 +345,11 @@ export function useChatSession() {
 }
 
 export function ChatSessionProvider({ children }: { children: ReactNode }) {
-  const [userId, setUserIdState] = useState(() => localStorage.getItem("pi_user_id") ?? "");
+  const [userId, setUserIdState] = useState(() => {
+    const id = resolveUserId(localStorage.getItem("pi_user_id"));
+    localStorage.setItem("pi_user_id", id);
+    return id;
+  });
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -629,8 +635,9 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   }, [persistCurrentSession, attachTurnStream, syncVisibleSessionState, notifyRuntimeChange]);
 
   const setUserId = useCallback((newId: string) => {
-    setUserIdState(newId);
-    localStorage.setItem("pi_user_id", newId);
+    const id = resolveUserId(newId);
+    setUserIdState(id);
+    localStorage.setItem("pi_user_id", id);
   }, []);
 
   const setSelectedSkillRef = useCallback((ref: string) => {
@@ -697,7 +704,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     setError("");
     setIsLoading(true);
 
-    const turnId = crypto.randomUUID();
+    const turnId = randomUUID();
     const skillIds = selectedSkillRefRef.current ? [selectedSkillRefRef.current] : [];
     const trailingFiles = collectTrailingFileMessages(messagesRef.current);
 
