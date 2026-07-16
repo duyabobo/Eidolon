@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from pi_shared import AccessLogMiddleware, install_json_encoders, setup_logging
-from routes import mcp, session, skills
+from routes import mcp, session, session_upload, skills
 from services import mongo_client, redis_client
 
 setup_logging("gateway")
@@ -23,6 +23,7 @@ app.add_middleware(
 app.add_middleware(AccessLogMiddleware)
 
 app.include_router(session.router)
+app.include_router(session_upload.router)
 app.include_router(skills.router)
 app.include_router(mcp.router)
 

@@ -107,7 +107,7 @@ export const workspaceApi = {
     form.append("file", file);
     const qs = new URLSearchParams({ user_id: userId.trim() });
     const resp = await fetch(
-      `/config/workspace/sessions/${encodeURIComponent(sessionId)}/upload?${qs}`,
+      `/sessions/${encodeURIComponent(sessionId)}/upload?${qs}`,
       {
         method: "POST",
         body: form,

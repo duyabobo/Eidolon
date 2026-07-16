@@ -21,18 +21,32 @@ async def create_session(body: CreateSessionRequest) -> CreateSessionResponse:
     创建新 session（打开新 chat 窗口 + 发送第一条消息）。
     每次新对话都落一条新记录，保证历史列表立刻可见；先写 Mongo 再投递执行任务。
     session_id 由后端生成，前端需提供 turn_id（供 SSE stream 订阅）。
+
+    defer_start=True：只建会话、不投递任务（先上传附件，再由 /messages 启动首轮）。
     """
     session_id = str(uuid.uuid4())
-    logger.info("新建 session: session_id=%s user=%s turn_id=%s skill_ids=%s request='%s'",
-                session_id, body.user_id, body.turn_id, body.skill_ids,
-                body.request[:80].replace("\n", " "))
-
-    await mongo_client.create_session(session_id, body.user_id, body.request, body.skill_ids)
-    await redis_client.publish_task(
-        session_id, body.user_id, body.request, body.turn_id, body.skill_ids,
+    logger.info(
+        "新建 session: session_id=%s user=%s turn_id=%s skill_ids=%s defer=%s request='%s'",
+        session_id, body.user_id, body.turn_id, body.skill_ids, body.defer_start,
+        body.request[:80].replace("\n", " "),
     )
 
-    return CreateSessionResponse(session_id=session_id, status=SessionStatus.PENDING)
+    initial_status = SessionStatus.IDLE if body.defer_start else SessionStatus.PENDING
+    await mongo_client.create_session(
+        session_id, body.user_id, body.request, body.skill_ids,
+        status=initial_status,
+        skip_initial_user_message=body.defer_start,
+    )
+    if not body.defer_start:
+        await redis_client.publish_task(
+            session_id, body.user_id, body.request, body.turn_id, body.skill_ids,
+        )
+
+    return CreateSessionResponse(
+        session_id=session_id,
+        status=initial_status,
+        deferred=body.defer_start,
+    )
 
 
 @router.post("/{session_id}/messages", response_model=SendMessageResponse, status_code=status.HTTP_200_OK)

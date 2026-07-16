@@ -37,7 +37,8 @@ interface Props {
   onSelectSkill: (ref: string) => void;
   onClearSkill: () => void;
   isLoading: boolean;
-  onSend: (text: string) => void;
+  /** 新建会话时把挂起 File 交给 send，由 gateway 先建会话再上传再投递 */
+  onSend: (text: string, pendingFiles?: File[]) => void;
   onInterrupt: () => void;
   userId: string;
   sessionId: string | null;
@@ -56,56 +57,18 @@ export default function ChatInput({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const prevSessionIdRef = useRef<string | null>(sessionId);
-  const pendingRef = useRef(pendingFiles);
-  pendingRef.current = pendingFiles;
 
   const { textareaRef, syncHeight } = useAutoGrowTextarea(input);
   const canPickFile = Boolean(userId.trim()) && !isLoading && !uploading;
 
-  const flushPending = useCallback(async (sid: string) => {
-    const pending = pendingRef.current;
-    if (!pending.length || !userId.trim()) return;
-    setUploading(true);
-    setUploadErr(null);
-    const remain: PendingUpload[] = [];
-    for (const item of pending) {
-      try {
-        const res = await workspaceApi.uploadToSession(userId, sid, item.file);
-        onUploaded?.(res);
-      } catch (e) {
-        remain.push(item);
-        setUploadErr(e instanceof Error ? e.message : "上传失败");
-      }
-    }
-    setPendingFiles(remain);
-    setUploading(false);
-  }, [userId, onUploaded]);
-
   useEffect(() => {
     const prev = prevSessionIdRef.current;
     prevSessionIdRef.current = sessionId;
-
     if (prev === sessionId) return;
-
-    // 新建对话 / 离开会话：清空挂起
-    if (sessionId == null) {
-      setPendingFiles([]);
-      setUploadErr(null);
-      return;
-    }
-
-    // 切换到另一个已有会话：清空挂起
-    if (prev != null && prev !== sessionId) {
-      setPendingFiles([]);
-      setUploadErr(null);
-      return;
-    }
-
-    // null → 新建 session：把挂起文件写入 workspace
-    if (prev == null) {
-      void flushPending(sessionId);
-    }
-  }, [sessionId, flushPending]);
+    // 离开会话或切换会话：清空挂起（发送路径会自行上传 pending）
+    setPendingFiles([]);
+    setUploadErr(null);
+  }, [sessionId]);
 
   const slashCtx = useMemo(() => detectSlash(input, cursorPos), [input, cursorPos]);
   const menuOpen = slashCtx !== null;
@@ -144,7 +107,10 @@ export default function ChatInput({
   const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
-    onSend(trimmed);
+    const files = pendingFiles.map((p) => p.file);
+    setPendingFiles([]);
+    setUploadErr(null);
+    onSend(trimmed, files);
     setInput("");
     setMenuIndex(0);
     requestAnimationFrame(() => syncHeight());

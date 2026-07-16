@@ -7,6 +7,7 @@ import {
   SessionSummary,
 } from "../api/session";
 import { skillsApi, Skill, toSkillRef } from "../api/skills";
+import { workspaceApi, type ChatUploadResponse } from "../api/workspace";
 
 export type MessageType = "text" | "thinking" | "tool_call" | "tool_result" | "file";
 
@@ -27,6 +28,60 @@ export interface Message {
   docId?: string;
   /** user_file：所在知识库 ID */
   kbId?: string;
+}
+
+/** 收集紧邻本轮文本之前的连续 user_file（上一条/若干条附件）。 */
+export function collectTrailingFileMessages(messages: Message[]): Message[] {
+  const files: Message[] = [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    if (msg.role === "user" && msg.type === "file") {
+      files.unshift(msg);
+      continue;
+    }
+    break;
+  }
+  return files;
+}
+
+/** 把相邻附件与用户 query 拼成发给 pi 的单条 request（进入 JSONL）。 */
+export function buildPiRequestWithAttachments(
+  text: string,
+  files: Array<Pick<Message, "content" | "relativePath" | "docId" | "kbId">>,
+): string {
+  const trimmed = text.trim();
+  if (!files.length) return trimmed;
+  const lines = files.map((f) => {
+    const path = f.relativePath || f.content;
+    const meta = [
+      f.docId ? `doc_id=${f.docId}` : null,
+      f.kbId ? `kb_id=${f.kbId}` : null,
+    ].filter(Boolean).join(", ");
+    return meta
+      ? `- ${f.content} (workspace: ${path}, ${meta})`
+      : `- ${f.content} (workspace: ${path})`;
+  });
+  return [
+    "[用户上传的附件]",
+    ...lines,
+    "",
+    "[用户消息]",
+    trimmed,
+  ].join("\n");
+}
+
+function fileMessageFromUpload(file: ChatUploadResponse, now: number): Message {
+  return {
+    role: "user",
+    type: "file",
+    content: file.filename,
+    relativePath: file.relative_path,
+    size: file.size,
+    docId: file.doc_id,
+    kbId: file.kb_id,
+    startedAt: now,
+    endedAt: now,
+  };
 }
 
 interface SessionRuntime {
@@ -267,7 +322,7 @@ interface ChatSessionContextValue {
   startNewChat: () => void;
   switchToSession: (s: SessionSummary) => Promise<void>;
   interrupt: () => Promise<void>;
-  send: (text: string) => Promise<void>;
+  send: (text: string, pendingFiles?: File[]) => Promise<void>;
   /** 附件上传成功后追加到当前会话消息列表（持久化由上传 API 写入 snapshot） */
   appendUploadedFile: (file: {
     filename: string;
@@ -634,40 +689,37 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     }
   }, [isLoading, loadSessions, notifyRuntimeChange, commitSessionMessages]);
 
-  const send = useCallback(async (text: string) => {
+  const send = useCallback(async (text: string, pendingFiles: File[] = []) => {
     const trimmed = text.trim();
     if (!trimmed || isLoading) return;
     if (!userId.trim()) { setError("请先在「历史」页设置用户 ID"); return; }
 
     setError("");
     setIsLoading(true);
-    setMessages((prev) => {
-      const now = Date.now();
-      const next = [...prev, {
-        role: "user" as const,
-        type: "text" as const,
-        content: trimmed,
-        startedAt: now,
-        endedAt: now,
-      }];
-      messagesRef.current = next;
-      return next;
-    });
 
     const turnId = crypto.randomUUID();
     const skillIds = selectedSkillRefRef.current ? [selectedSkillRefRef.current] : [];
+    const trailingFiles = collectTrailingFileMessages(messagesRef.current);
 
     try {
       let sessionId = sessionIdRef.current;
+      const uploadedExtras: Message[] = [];
 
       if (!sessionId) {
-        const resp = await createSession(userId, trimmed, turnId, skillIds);
+        // 有挂起附件时先建 IDLE 会话，上传后再 /messages 启动首轮
+        const deferStart = pendingFiles.length > 0;
+        const resp = await createSession(
+          userId,
+          trimmed,
+          turnId,
+          skillIds,
+          deferStart,
+        );
         sessionId = resp.session_id;
         sessionIdRef.current = sessionId;
         setCurrentSessionId(sessionId);
         localStorage.setItem("pi_session_id", sessionId);
         sessionRuntimeRef.current.set(sessionId, emptyRuntime(messagesRef.current));
-        // 首条输入落库后立刻写入历史列表，关页后再打开也能看到
         setSessions((prev) => {
           const entry = {
             session_id: sessionId!,
@@ -679,14 +731,79 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
           return [entry, ...prev.filter((s) => s.session_id !== sessionId)];
         });
         void loadSessions();
-        // 兼容旧 gateway：复用进行中 session 时不会投递本 turn，需补发消息
-        if (resp.status !== "PENDING") {
-          await sendMessage(sessionId, trimmed, turnId, skillIds);
+
+        if (deferStart) {
+          for (const file of pendingFiles) {
+            const res = await workspaceApi.uploadToSession(userId, sessionId, file);
+            uploadedExtras.push(fileMessageFromUpload(res, Date.now()));
+          }
+          const piRequest = buildPiRequestWithAttachments(
+            trimmed,
+            [...trailingFiles, ...uploadedExtras],
+          );
+          const now = Date.now();
+          setMessages((prev) => {
+            const next = [
+              ...prev,
+              ...uploadedExtras,
+              {
+                role: "user" as const,
+                type: "text" as const,
+                content: trimmed,
+                startedAt: now,
+                endedAt: now,
+              },
+            ];
+            messagesRef.current = next;
+            return next;
+          });
+          await sendMessage(sessionId, piRequest, turnId, skillIds);
+          attachTurnStream(sessionId, turnId);
+          return;
         }
-      } else {
-        await sendMessage(sessionId, trimmed, turnId, skillIds);
+
+        const now = Date.now();
+        setMessages((prev) => {
+          const next = [...prev, {
+            role: "user" as const,
+            type: "text" as const,
+            content: trimmed,
+            startedAt: now,
+            endedAt: now,
+          }];
+          messagesRef.current = next;
+          return next;
+        });
+        attachTurnStream(sessionId, turnId);
+        return;
       }
 
+      // 已有 session：先传 pending（若有），再合并相邻附件发 pi
+      for (const file of pendingFiles) {
+        const res = await workspaceApi.uploadToSession(userId, sessionId, file);
+        uploadedExtras.push(fileMessageFromUpload(res, Date.now()));
+      }
+      const piRequest = buildPiRequestWithAttachments(
+        trimmed,
+        [...trailingFiles, ...uploadedExtras],
+      );
+      const now = Date.now();
+      setMessages((prev) => {
+        const next = [
+          ...prev,
+          ...uploadedExtras,
+          {
+            role: "user" as const,
+            type: "text" as const,
+            content: trimmed,
+            startedAt: now,
+            endedAt: now,
+          },
+        ];
+        messagesRef.current = next;
+        return next;
+      });
+      await sendMessage(sessionId, piRequest, turnId, skillIds);
       attachTurnStream(sessionId, turnId);
     } catch (e) {
       activeTurnIdRef.current = null;

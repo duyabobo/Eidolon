@@ -98,13 +98,14 @@ services:
       GATEWAY_HOST: "0.0.0.0"
       GATEWAY_PORT: "8000"
       TZ: "Asia/Shanghai"
+      SANDBOX_ROOT: "/data/sandboxes"
       MCP_PROXY_BASE_URL: "http://mcp-proxy:8080"
     ports:
       - "8000:8000"
     volumes:
       - ./logs/gateway:/app/logs
-      # 只读挂载，用于读取 Skill 文件内容（写操作由 admin 负责）
-      - sandbox_workspaces:/data/sandboxes:ro
+      # 可读 Skill；对话附件需写入 users/{uid}/sessions/{sid}/workspace
+      - sandbox_workspaces:/data/sandboxes
     networks:
       - pi_net
     depends_on:

@@ -90,19 +90,28 @@ async def create_session(
     request: str,
     skill_ids: list[str] | None = None,
     conversation_id: str | None = None,
+    status: SessionStatus = SessionStatus.PENDING,
+    skip_initial_user_message: bool = False,
 ) -> SessionDocument:
     # 第一条用户消息立即写入 events_snapshot，与后续轮次保持一致的存储格式
+    events: list[dict[str, Any]] = []
+    if not skip_initial_user_message:
+        events.append({"event_type": "user_message", "content": request, "ts": now_china_ms()})
     doc = SessionDocument(
         _id=session_id,
         user_id=user_id,
         conversation_id=conversation_id,
+        status=status,
         request=request,
         skill_ids=skill_ids or [],
-        events_snapshot=[{"event_type": "user_message", "content": request, "ts": now_china_ms()}],
+        events_snapshot=events,
     )
     db = get_db()
     await db.sessions.insert_one(doc.model_dump(by_alias=True))
-    logger.info("session 创建成功: %s user=%s conversation=%s skills=%s", session_id, user_id, conversation_id, skill_ids)
+    logger.info(
+        "session 创建成功: %s user=%s conversation=%s skills=%s status=%s",
+        session_id, user_id, conversation_id, skill_ids, status,
+    )
     return doc
 
 

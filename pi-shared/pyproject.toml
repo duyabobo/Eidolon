@@ -9,6 +9,7 @@ description = "Pi Agent Platform shared utilities (logger, middleware)"
 requires-python = ">=3.12"
 dependencies = [
     "starlette",
+    "httpx",
 ]
 
 [tool.setuptools.packages.find]

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     mcp_proxy_base_url: str = "http://mcp-proxy:8080"
 
-    # 共享文件系统根目录（只读挂载，用于读取 Skill 文件内容）
+    # 共享文件系统（对话附件写入 session workspace，需可写挂载）
     sandbox_root: str = "/data/sandboxes"
 
     class Config:

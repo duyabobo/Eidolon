@@ -1,33 +1,31 @@
 """
-对话附件入库：获取 knowledge_key → 确保「会话附件」知识库 → 调用 knowledge 上传。
+对话附件知识库入库（admin）。
 
-远程模式走 mRAG；本地模式走 admin 本地知识库存储。
+远程 mRAG：走 pi_shared.knowledge（与 gateway 同一客户端）。
+本地模式：仍用 admin knowledge_store。
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from io import BytesIO
 
 from fastapi import UploadFile
+from pi_shared.knowledge import (
+    MragError,
+    load_mrag_base_url_from_mongo,
+    upload_chat_attachment_to_mrag,
+)
+from pi_shared.workspace import KnowledgeUploadResult
 from starlette.datastructures import Headers
 
 from constants.knowledge import CHAT_UPLOAD_KB_DESCRIPTION, CHAT_UPLOAD_KB_NAME
 from models.knowledge import KnowledgeBaseCreate
-from services import knowledge_client, knowledge_config_store, mongo_client
+from services import mongo_client
 from services.knowledge_store import create_base as local_create_base
 from services.knowledge_store import list_bases as local_list_bases
 from services.knowledge_store import upload_document as local_upload_document
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class ChatKnowledgeUploadResult:
-    doc_id: str
-    kb_id: str
-    knowledge_key: str | None
-    status: str
 
 
 def _upload_file_from_bytes(filename: str, content: bytes, content_type: str | None) -> UploadFile:
@@ -36,23 +34,6 @@ def _upload_file_from_bytes(filename: str, content: bytes, content_type: str | N
         filename=filename,
         headers=Headers({"content-type": content_type or "application/octet-stream"}),
     )
-
-
-async def _ensure_remote_chat_kb(knowledge_key: str) -> str:
-    listed = await knowledge_client.list_bases(knowledge_key, page=1, page_size=100)
-    for item in listed.items:
-        if item.name == CHAT_UPLOAD_KB_NAME:
-            return item.id
-    created = await knowledge_client.create_base(
-        knowledge_key,
-        KnowledgeBaseCreate(
-            name=CHAT_UPLOAD_KB_NAME,
-            description=CHAT_UPLOAD_KB_DESCRIPTION,
-            type="document",
-        ),
-    )
-    logger.info("已创建对话附件知识库 kb_id=%s name=%s", created.id, CHAT_UPLOAD_KB_NAME)
-    return created.id
 
 
 async def _ensure_local_chat_kb() -> str:
@@ -79,33 +60,31 @@ async def upload_chat_document_to_knowledge(
     filename: str,
     content: bytes,
     content_type: str | None,
-) -> ChatKnowledgeUploadResult:
+) -> KnowledgeUploadResult:
     """将对话上传文件写入 knowledge，并返回 doc_id / kb_id。"""
+    db = mongo_client.get_db()
+    base_url = await load_mrag_base_url_from_mongo(db)
+    if base_url:
+        try:
+            return await upload_chat_attachment_to_mrag(
+                base_url=base_url,
+                scene_uid=user_id,
+                filename=filename,
+                content=content,
+                content_type=content_type,
+            )
+        except MragError as exc:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
     upload = _upload_file_from_bytes(filename, content, content_type)
-
-    if await knowledge_config_store.is_remote_mode():
-        key_resp = await knowledge_client.fetch_knowledge_key(user_id)
-        knowledge_key = key_resp.knowledge_key
-        kb_id = await _ensure_remote_chat_kb(knowledge_key)
-        doc = await knowledge_client.upload_document(knowledge_key, kb_id, upload)
-        logger.info(
-            "对话附件已上传 mRAG user=%s kb_id=%s doc_id=%s file=%s",
-            user_id, kb_id, doc.id, filename,
-        )
-        return ChatKnowledgeUploadResult(
-            doc_id=doc.id,
-            kb_id=kb_id,
-            knowledge_key=knowledge_key,
-            status=doc.status,
-        )
-
     kb_id = await _ensure_local_chat_kb()
-    doc = await local_upload_document(mongo_client.get_db(), kb_id, upload)
+    doc = await local_upload_document(db, kb_id, upload)
     logger.info(
         "对话附件已上传本地知识库 user=%s kb_id=%s doc_id=%s file=%s",
         user_id, kb_id, doc.id, filename,
     )
-    return ChatKnowledgeUploadResult(
+    return KnowledgeUploadResult(
         doc_id=doc.id,
         kb_id=kb_id,
         knowledge_key=None,

@@ -62,10 +62,17 @@ export async function createSession(
   request: string,
   turnId: string,
   skillIds: string[] = [],
-): Promise<CreateSessionResp> {
+  deferStart = false,
+): Promise<CreateSessionResp & { deferred?: boolean }> {
   const resp = await apiFetch("/sessions", {
     method: "POST",
-    body: JSON.stringify({ user_id: userId, request, turn_id: turnId, skill_ids: skillIds }),
+    body: JSON.stringify({
+      user_id: userId,
+      request,
+      turn_id: turnId,
+      skill_ids: skillIds,
+      defer_start: deferStart,
+    }),
     // 关页/刷新时尽量仍完成落库，保证历史列表能看到新会话
     keepalive: true,
   });

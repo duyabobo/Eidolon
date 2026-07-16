@@ -39,6 +39,8 @@ class CreateSessionRequest(BaseModel):
     request: str
     turn_id: str           # 第一个轮次 ID，由前端生成（UUID），用于 SSE stream key
     skill_ids: list[str] = []
+    # True：只建 Mongo 记录，不投递执行（用于先上传附件再发首条消息）
+    defer_start: bool = False
 
 
 class SendMessageRequest(BaseModel):
@@ -56,6 +58,7 @@ class SendMessageResponse(BaseModel):
 class CreateSessionResponse(BaseModel):
     session_id: str
     status: SessionStatus
+    deferred: bool = False
 
 
 class SessionSummary(BaseModel):
