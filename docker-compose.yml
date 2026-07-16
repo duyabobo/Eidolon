@@ -96,12 +96,12 @@ services:
     env_file: .env
     environment:
       GATEWAY_HOST: "0.0.0.0"
-      GATEWAY_PORT: "8000"
+      GATEWAY_PORT: "8002"
       TZ: "Asia/Shanghai"
       SANDBOX_ROOT: "/data/sandboxes"
       MCP_PROXY_BASE_URL: "http://mcp-proxy:8080"
     ports:
-      - "8000:8000"
+      - "8002:8002"
     volumes:
       - ./logs/gateway:/app/logs
       # 可读 Skill；对话附件需写入 users/{uid}/sessions/{sid}/workspace
@@ -116,7 +116,7 @@ services:
       mcp-proxy:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8002/health"]
       interval: 10s
       timeout: 5s
       retries: 5

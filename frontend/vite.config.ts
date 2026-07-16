@@ -27,10 +27,10 @@ export default defineConfig({
         },
       },
       // session CRUD / 任务派发 → gateway
-      "/sessions": "http://localhost:8000",
-      "/skills": "http://localhost:8000",
-      "/mcp": "http://localhost:8000",    // skill 列表 → gateway
-      "/health": "http://localhost:8000",
+      "/sessions": "http://localhost:8002",
+      "/skills": "http://localhost:8002",
+      "/mcp": "http://localhost:8002",    // skill 列表 → gateway
+      "/health": "http://localhost:8002",
       // skill-creator 单轮可能串行多次 LLM，需长于默认超时
       "/config": {
         target: "http://localhost:9000",

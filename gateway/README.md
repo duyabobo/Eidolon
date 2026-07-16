@@ -119,7 +119,7 @@ gateway/routes/session.py
 | `MONGO_DB` | 数据库名 | `pi_agent` |
 | `REDIS_URL` | Redis 连接串 | `redis://redis:6379` |
 | `GATEWAY_HOST` | 监听地址 | `0.0.0.0` |
-| `GATEWAY_PORT` | 监听端口 | `8000` |
+| `GATEWAY_PORT` | 监听端口 | `8002` |
 | `SANDBOX_ROOT` | 共享文件系统（Skill 正文） | `/data/sandboxes` |
 
 SSE 相关配置（`GATEWAY_SSE_PORT`、`SSE_BLOCK_MS` 等）见

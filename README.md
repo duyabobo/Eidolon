@@ -23,7 +23,7 @@
 | 服务 | 端口 | 技术栈 | 职责 |
 |------|------|--------|------|
 | **frontend** | 3000 | React + Vite + Tailwind | 对话界面、LLM / MCP / Skill 配置管理页 |
-| **gateway** | 8000 | Python FastAPI | 会话 CRUD、任务派发、Skill 元数据列表（按 QPS 扩容） |
+| **gateway** | 8002 | Python FastAPI | 会话 CRUD、任务派发、Skill 元数据列表（按 QPS 扩容） |
 | **gateway-sse** | 8001 | Python FastAPI | SSE 流式输出（按并发连接数独立扩容） |
 | **admin** | 9000 | Python FastAPI | MCP Server 配置、Skill 管理（元数据 + 文件）|
 | **llm-proxy** | 9001 | Python FastAPI | LLM 代理（OpenAI 兼容）、Provider 配置热更新 |
@@ -42,7 +42,7 @@ bash deploy.sh
 
 # 访问
 # 前端        → http://localhost:3000
-# API         → http://localhost:8000/docs
+# API         → http://localhost:8002/docs
 # Gateway-SSE → http://localhost:8001/docs
 # Admin       → http://localhost:9000/docs
 # LLM Proxy   → http://localhost:9001/docs

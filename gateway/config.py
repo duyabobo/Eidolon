@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     gateway_host: str = "0.0.0.0"
-    gateway_port: int = 8000
+    gateway_port: int = 8002
 
     mongo_uri: str = "mongodb://mongo:27017"
     mongo_db: str = "pi_agent"
