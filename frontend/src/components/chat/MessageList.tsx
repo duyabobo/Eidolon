@@ -70,28 +70,37 @@ function groupMessages(messages: Message[]): DisplayItem[] {
       }
     }
 
-    // 有 final_result：此前所有内容（含 Step7 叙述）都进中间步骤，最终回复只展示纯净答案
+    const startedAt = resolveTurnStartedAt(assistantMsgs);
+
+    // 有 final_result：此前所有生成内容（含 Step7 叙述）都进中间步骤，最终只展示纯净答案
     if (finalResultIdx >= 0) {
       items.push({
         kind: "assistant",
         turn: {
           steps: assistantMsgs.filter((_, idx) => idx !== finalResultIdx),
           finalText: assistantMsgs[finalResultIdx],
-          startedAt: resolveTurnStartedAt(assistantMsgs),
+          startedAt,
         },
       });
       continue;
     }
 
+    // 流式进行中：token 一律折叠进中间步骤，不把中间生成当最终回复
+    const streaming = assistantMsgs.some((m) => m.isStreaming);
+    if (streaming) {
+      items.push({
+        kind: "assistant",
+        turn: { steps: assistantMsgs, finalText: null, startedAt },
+      });
+      continue;
+    }
+
+    // 历史兼容：旧会话无 final_result 时，仍用最后一段 text 作为回复
     const steps = lastTextIdx >= 0 ? assistantMsgs.slice(0, lastTextIdx) : assistantMsgs;
     const finalText = lastTextIdx >= 0 ? assistantMsgs[lastTextIdx] : null;
     items.push({
       kind: "assistant",
-      turn: {
-        steps,
-        finalText,
-        startedAt: resolveTurnStartedAt(assistantMsgs),
-      },
+      turn: { steps, finalText, startedAt },
     });
   }
 
@@ -145,7 +154,7 @@ function AssistantTurnBlock({ turn }: { turn: AssistantTurn }) {
         {onlySteps && (
           <p className="text-xs text-ink-400 mt-2 pl-1 flex items-center gap-1.5">
             <span className="w-1 h-1 rounded-full bg-ink-300 animate-pulse" />
-            等待最终回复…
+            正在生成，完成后将展示最终回复…
           </p>
         )}
       </div>
