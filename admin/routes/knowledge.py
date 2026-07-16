@@ -64,9 +64,14 @@ async def api_list_bases(
     page_size: int = Query(default=20, ge=1, le=100),
     x_knowledge_key: Annotated[str | None, Header(alias=KNOWLEDGE_KEY_HEADER)] = None,
 ) -> KnowledgeBaseList:
+    # 管理页不展示「会话附件」系统库；对话上传内部 list 仍会查到
     if await knowledge_config_store.is_remote_mode():
-        return await knowledge_client.list_bases(require_knowledge_key(x_knowledge_key), page, page_size)
-    return await local_list_bases(mongo_client.get_db(), page, page_size)
+        return await knowledge_client.list_bases(
+            require_knowledge_key(x_knowledge_key), page, page_size, exclude_hidden=True,
+        )
+    return await local_list_bases(
+        mongo_client.get_db(), page, page_size, exclude_hidden=True,
+    )
 
 
 @router.post("/bases", response_model=KnowledgeBase, status_code=status.HTTP_201_CREATED)

@@ -9,6 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pi_shared import now_china
 
 from config import settings
+from constants.knowledge import CHAT_UPLOAD_KB_NAME
 from models.knowledge import (
     ChunkingConfig,
     KnowledgeBase,
@@ -73,10 +74,17 @@ async def _count_docs(db: AsyncIOMotorDatabase, kb_id: str) -> int:
     return await db[DOC_COL].count_documents({"kb_id": kb_id})
 
 
-async def list_bases(db: AsyncIOMotorDatabase, page: int, page_size: int) -> KnowledgeBaseList:
+async def list_bases(
+    db: AsyncIOMotorDatabase,
+    page: int,
+    page_size: int,
+    *,
+    exclude_hidden: bool = False,
+) -> KnowledgeBaseList:
     skip = (page - 1) * page_size
-    total = await db[KB_COL].count_documents({})
-    cursor = db[KB_COL].find({}).sort("updated_at", -1).skip(skip).limit(page_size)
+    query: dict = {"name": {"$ne": CHAT_UPLOAD_KB_NAME}} if exclude_hidden else {}
+    total = await db[KB_COL].count_documents(query)
+    cursor = db[KB_COL].find(query).sort("updated_at", -1).skip(skip).limit(page_size)
     items: list[KnowledgeBase] = []
     async for raw in cursor:
         doc_count = await _count_docs(db, str(raw["_id"]))

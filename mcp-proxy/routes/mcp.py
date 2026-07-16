@@ -11,6 +11,7 @@ from services import mongo_client
 from services.manager import manager
 from services.mcp_filter import parse_csv_names, parse_mcp_tools_header
 from services.mcp_probe import probe_mcp_servers
+from services.request_user import X_USER_ID_HEADER, request_user_context
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +33,16 @@ def _jsonrpc_error(request_id: JsonRpcId, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
+def _inbound_user_id(request: Request) -> str | None:
+    raw = request.headers.get(X_USER_ID_HEADER)
+    return raw.strip() if raw and raw.strip() else None
+
+
 # ── 路由 ─────────────────────────────────────────────────────────────────────
 
 @router.post("/mcp", tags=["mcp"])
 async def handle_mcp(request: Request) -> Response:
-    user_id = request.headers.get("X-User-Id") or None
+    user_id = _inbound_user_id(request)
     # 白名单是工具粒度（X-Mcp-Tools），不是 Server 粒度：见 mcp_cache_manager.get_tools
     allowed_tool_names = parse_mcp_tools_header(request.headers.get("X-Mcp-Tools"))
     try:
@@ -44,7 +50,8 @@ async def handle_mcp(request: Request) -> Response:
     except Exception:
         return JSONResponse(_jsonrpc_error(None, -32700, "Parse error"), status_code=400)
 
-    response = await _dispatch(body, user_id, allowed_tool_names)
+    with request_user_context(user_id):
+        response = await _dispatch(body, user_id, allowed_tool_names)
     if response is None:
         return Response(status_code=202)
     return JSONResponse(response)
@@ -79,7 +86,7 @@ async def servers_status(
     scope: str | None = Query(None, description="system 或 user，配合 name 使用"),
 ) -> dict:
     """探测 MCP Server 连通性并返回工具列表（不缓存，每次实时检测）。"""
-    user_id = request.headers.get("X-User-Id") or None
+    user_id = _inbound_user_id(request)
     parsed_names = parse_csv_names(names)
     if parsed_names:
         servers = await mongo_client.read_mcp_servers(
@@ -95,7 +102,8 @@ async def servers_status(
             name=name,
             scope=scope,
         )
-    items = await probe_mcp_servers(servers)
+    with request_user_context(user_id):
+        items = await probe_mcp_servers(servers)
 
     # probe 完成后精确失效被探测的 Server，下次 tools/list 时重建其连接。
     # 系统级 Server 缓存归属 None（全局共享），不能按发起探测的 user_id 失效，

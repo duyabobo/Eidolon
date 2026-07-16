@@ -10,6 +10,7 @@ from constants.knowledge import (
     DEFAULT_DATASET_AVATAR,
     KNOWLEDGE_BATCH_PROCESS_TYPE,
     KNOWLEDGE_SCENE_TYPE,
+    is_chat_upload_kb,
 )
 from models.knowledge import (
     KnowledgeBase,
@@ -214,7 +215,13 @@ async def _batch_process_documents(knowledge_key: str, doc_ids: list[str]) -> No
     )
 
 
-async def list_bases(knowledge_key: str, page: int, page_size: int) -> KnowledgeBaseList:
+async def list_bases(
+    knowledge_key: str,
+    page: int,
+    page_size: int,
+    *,
+    exclude_hidden: bool = False,
+) -> KnowledgeBaseList:
     root = await _resolve_base_url()
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.get(
@@ -224,12 +231,17 @@ async def list_bases(knowledge_key: str, page: int, page_size: int) -> Knowledge
         )
     data = _unwrap_data(resp) or {}
     all_items = [_map_dataset(item) for item in data.get("list", [])]
-    total = int(data.get("total") or len(all_items))
-    if total > len(all_items):
+    reported_total = int(data.get("total") or len(all_items))
+    if reported_total > len(all_items):
         logger.warning(
             "知识库列表未完全返回 total=%d fetched=%d limit=%d",
-            total, len(all_items), _DATASET_LIST_LIMIT,
+            reported_total, len(all_items), _DATASET_LIST_LIMIT,
         )
+    if exclude_hidden:
+        all_items = [item for item in all_items if not is_chat_upload_kb(item.name)]
+        total = len(all_items)
+    else:
+        total = reported_total
     start = (page - 1) * page_size
     end = start + page_size
     return KnowledgeBaseList(

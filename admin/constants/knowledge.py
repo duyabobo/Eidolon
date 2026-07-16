@@ -20,6 +20,12 @@ SCENE_UID_HEADER = "x-scene-uid"
 CHAT_UPLOAD_KB_NAME = "会话附件"
 CHAT_UPLOAD_KB_DESCRIPTION = "对话中上传的文档，供后续知识检索使用"
 
+
+def is_chat_upload_kb(name: str) -> bool:
+    """系统内部知识库：不在 Knowledge 管理页展示。"""
+    return name == CHAT_UPLOAD_KB_NAME
+
+
 KNOWLEDGE_ENVIRONMENT_LABELS = {
     "local": "本地",
     "prod": "线上",

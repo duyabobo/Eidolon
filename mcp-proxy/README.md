@@ -44,10 +44,30 @@ mcp-proxy/
 └── services/
     ├── mongo_client.py         只读 MongoDB：读取启用的 MCP Server 列表
     ├── mcp_server_cache.py     单个真实 Server 的连接、工具表、刷新状态
-    └── mcp_cache_manager.py    按 (owner, server_name) 缓存管理 + 请求侧工具视图合并
+    ├── mcp_cache_manager.py    按 (owner, server_name) 缓存管理 + 请求侧工具视图合并
+    ├── mcp_connection.py       下游连接；按请求透传 X-User-Id
+    └── request_user.py         入站用户 ContextVar（供 httpx hook 读取）
 ```
 
 **技术栈**：FastAPI + motor（异步 MongoDB）+ `mcp` Python SDK（官方 MCP 客户端）
+
+---
+
+## 租户身份约定（所有下游 MCP 必须遵守）
+
+沙盒内 Agent **不可信**。会话用户身份由 pi-runtime 的 session-mcp-bridge 强制写入入站
+`X-User-Id`，mcp-proxy 在发往**每一个**下游 MCP Server 的 HTTP 请求上透传同名头
+（`contextvars` + httpx request hook）。系统级 Server 仍按 `(__system__, name)` 共享连接；
+身份按请求注入，不会因共享连接而串用户。
+
+| 规则 | 说明 |
+|------|------|
+| 租户身份来源 | 只信请求头 `X-User-Id` |
+| 工具参数 | 不得用 Agent 可控参数（如 `scene_uid`）做鉴权或租户隔离 |
+| 无 `X-User-Id` | 表示匿名 / 探测 / 预热；Server 自行决定是否拒绝 |
+| 传输偏好 | 身份透传在 **streamable-http** 上最可靠；SSE 长连接若只认握手头，应改读后续 POST 头或改用 streamable-http |
+
+mrag 等业务 MCP 需自行改为读取 `X-User-Id`（本仓库只负责透传与约定）。
 
 ---
 
