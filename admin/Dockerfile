@@ -3,7 +3,8 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # trixie 使用 DEB822（debian.sources），改 sources.list 无效
-RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.tuna.tsinghua.edu.cn/debian|g' \
+# slim 镜像尚无 ca-certificates，必须用 http，不能用 https
+RUN sed -i 's|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/debian|g' \
       /etc/apt/sources.list.d/debian.sources \
  && apt-get update && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/*
