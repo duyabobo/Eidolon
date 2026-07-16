@@ -5,6 +5,7 @@ import { ChatSessionProvider, useChatSession } from "./context/ChatSessionContex
 import ChatPage from "./pages/ChatPage";
 import HistoryPage from "./pages/HistoryPage";
 import AdminPage from "./pages/AdminPage";
+import { APP_LOGO, APP_NAME } from "./constants/brand";
 import "./index.css";
 
 function NavItem({
@@ -48,9 +49,9 @@ function Sidebar() {
     <aside className="w-[72px] shrink-0 border-r border-ink-200/60 bg-white/80 backdrop-blur-xl flex flex-col items-center py-4 gap-1">
       <div
         className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-sm font-bold shadow-sm mb-4"
-        title="Pi Agent"
+        title={APP_NAME}
       >
-        π
+        {APP_LOGO}
       </div>
 
       <nav className="flex flex-col gap-0.5 w-full px-2">

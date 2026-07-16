@@ -21,7 +21,7 @@ from services import mongo_client, redis_client
 setup_logging("gateway-sse")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Pi Agent Gateway SSE", version="1.0.0")
+app = FastAPI(title="onenew Gateway SSE", version="1.0.0")
 app.add_middleware(AccessLogMiddleware)
 app.include_router(stream_router)
 

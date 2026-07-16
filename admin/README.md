@@ -16,7 +16,7 @@ Admin 是平台的**配置管理中枢**，专注于两类职责：
 - LLM 代理 / LLM 配置（由独立的 **llm-proxy** 服务负责）
 - session / user 管理（由 gateway 负责）
 - bwrap 沙盒（由 pi-runtime 负责）
-- 直接调用 pi agent
+- 由 pi-runtime 负责执行（不直接暴露底层 agent 品牌）
 
 ---
 

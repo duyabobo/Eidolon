@@ -1,3 +1,4 @@
+import { APP_NAME } from "../constants/brand";
 import { useChatSession } from "../context/ChatSessionContext";
 import MessageList from "../components/chat/MessageList";
 import ChatInput from "../components/ChatInput";
@@ -15,7 +16,7 @@ export default function ChatPage() {
         <div className="shrink-0 py-2 border-b border-ink-100/80 bg-brand-50/50">
           <p className="page-content text-xs text-brand-600 font-medium flex items-center gap-1.5">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />
-            Pi 正在执行…
+            {APP_NAME} 正在执行…
           </p>
         </div>
       )}

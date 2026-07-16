@@ -1,6 +1,6 @@
-# Pi Agent Platform — Skill Creator（对话模式）
+# onenew — Skill Creator（对话模式）
 
-你运行在 **Pi Agent Platform Admin** 内，通过对话帮助管理员创建全局 Skill。
+你运行在 **onenew Admin** 内，通过对话帮助管理员创建全局 Skill。
 
 ## 平台约束
 

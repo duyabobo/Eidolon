@@ -1,4 +1,5 @@
 import { useMemo, useRef, useEffect } from "react";
+import { APP_LOGO, APP_NAME } from "../../constants/brand";
 import type { Message } from "../../context/ChatSessionContext";
 import ChatMarkdown from "./ChatMarkdown";
 import ExecutionSteps from "./ExecutionSteps";
@@ -91,10 +92,10 @@ function MessageTime({ ts, align }: { ts?: number; align: "left" | "right" }) {
   );
 }
 
-function PiAvatar() {
+function OnenewAvatar() {
   return (
-    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-xs font-semibold shrink-0 mt-0.5 shadow-sm">
-      π
+    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-[10px] font-semibold shrink-0 mt-0.5 shadow-sm">
+      {APP_LOGO}
     </div>
   );
 }
@@ -106,7 +107,7 @@ function AssistantTurnBlock({ turn }: { turn: AssistantTurn }) {
 
   return (
     <div className="flex gap-3 justify-start">
-      <PiAvatar />
+      <OnenewAvatar />
       <div className="flex-1 min-w-0">
         <MessageTime ts={startedAt} align="left" />
         {hasSteps && <ExecutionSteps steps={steps} />}
@@ -198,10 +199,10 @@ export default function MessageList({ messages }: Props) {
       <div className="page-content py-6 space-y-5">
         {messages.length === 0 && (
           <div className="text-center mt-24 px-4">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-2xl font-bold shadow-soft mb-4">
-              π
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-lg font-bold shadow-soft mb-4">
+              {APP_LOGO}
             </div>
-            <p className="text-ink-700 font-medium">开始与 Pi Agent 对话</p>
+            <p className="text-ink-700 font-medium">开始与 {APP_NAME} 对话</p>
             <p className="text-sm text-ink-400 mt-2 leading-relaxed">
               输入 / 可选择 Skill，Enter 发送
             </p>

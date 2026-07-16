@@ -2,6 +2,56 @@ import { jsx as _jsx } from "react/jsx-runtime";
 import { createContext, useContext, useState, useRef, useEffect, useCallback, } from "react";
 import { createSession, sendMessage, cancelTurn, streamTurn, getRecentSessions, getSessionDetail, getActiveTurn, } from "../api/session";
 import { skillsApi, toSkillRef } from "../api/skills";
+import { workspaceApi } from "../api/workspace";
+/** 收集紧邻本轮文本之前的连续 user_file（上一条/若干条附件）。 */
+export function collectTrailingFileMessages(messages) {
+    const files = [];
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const msg = messages[i];
+        if (msg.role === "user" && msg.type === "file") {
+            files.unshift(msg);
+            continue;
+        }
+        break;
+    }
+    return files;
+}
+/** 把相邻附件与用户 query 拼成发给 pi 的单条 request（仅进 JSONL，不写 Mongo）。 */
+export function buildPiRequestWithAttachments(text, files) {
+    const trimmed = text.trim();
+    if (!files.length)
+        return trimmed;
+    const lines = files.map((f) => {
+        const path = f.relativePath || f.content;
+        const meta = [
+            f.docId ? `doc_id=${f.docId}` : null,
+            f.kbId ? `kb_id=${f.kbId}` : null,
+        ].filter(Boolean).join(", ");
+        return meta
+            ? `- ${f.content} (workspace: ${path}, ${meta})`
+            : `- ${f.content} (workspace: ${path})`;
+    });
+    return [
+        "[用户上传的附件]",
+        ...lines,
+        "",
+        "[用户消息]",
+        trimmed,
+    ].join("\n");
+}
+function fileMessageFromUpload(file, now) {
+    return {
+        role: "user",
+        type: "file",
+        content: file.filename,
+        relativePath: file.relative_path,
+        size: file.size,
+        docId: file.doc_id,
+        kbId: file.kb_id,
+        startedAt: now,
+        endedAt: now,
+    };
+}
 function emptyRuntime(messages = [], selectedSkillRef = "") {
     return { messages, activeTurnId: null, isLoading: false, closeStream: null, selectedSkillRef };
 }
@@ -17,7 +67,7 @@ function savePersistedSkillRef(sessionId, ref) {
     }
 }
 export function buildMessagesFromSnapshot(request, snapshot) {
-    const hasUserMessages = snapshot.some((e) => e.event_type === "user_message");
+    const hasUserMessages = snapshot.some((e) => e.event_type === "user_message" || e.event_type === "user_file");
     let msgs = hasUserMessages
         ? []
         : [{ role: "user", type: "text", content: request }];
@@ -49,6 +99,21 @@ export function buildMessagesFromSnapshot(request, snapshot) {
         const last = msgs[msgs.length - 1];
         if (event.event_type === "user_message") {
             msgs.push({ role: "user", type: "text", content, startedAt: ts, endedAt: ts });
+            continue;
+        }
+        if (event.event_type === "user_file") {
+            const filename = event.filename || content || "附件";
+            msgs.push({
+                role: "user",
+                type: "file",
+                content: filename,
+                relativePath: event.relative_path || filename,
+                size: typeof event.size === "number" ? event.size : undefined,
+                docId: event.doc_id || undefined,
+                kbId: event.kb_id || undefined,
+                startedAt: ts,
+                endedAt: ts,
+            });
             continue;
         }
         if (event.event_type === "token") {
@@ -480,7 +545,7 @@ export function ChatSessionProvider({ children }) {
             notifyRuntimeChange();
         }
     }, [isLoading, loadSessions, notifyRuntimeChange, commitSessionMessages]);
-    const send = useCallback(async (text) => {
+    const send = useCallback(async (text, pendingFiles = []) => {
         const trimmed = text.trim();
         if (!trimmed || isLoading)
             return;
@@ -490,30 +555,21 @@ export function ChatSessionProvider({ children }) {
         }
         setError("");
         setIsLoading(true);
-        setMessages((prev) => {
-            const now = Date.now();
-            const next = [...prev, {
-                    role: "user",
-                    type: "text",
-                    content: trimmed,
-                    startedAt: now,
-                    endedAt: now,
-                }];
-            messagesRef.current = next;
-            return next;
-        });
         const turnId = crypto.randomUUID();
         const skillIds = selectedSkillRefRef.current ? [selectedSkillRefRef.current] : [];
+        const trailingFiles = collectTrailingFileMessages(messagesRef.current);
         try {
             let sessionId = sessionIdRef.current;
+            const uploadedExtras = [];
             if (!sessionId) {
-                const resp = await createSession(userId, trimmed, turnId, skillIds);
+                // 有挂起附件时先建 IDLE 会话，上传后再 /messages 启动首轮
+                const deferStart = pendingFiles.length > 0;
+                const resp = await createSession(userId, trimmed, turnId, skillIds, deferStart);
                 sessionId = resp.session_id;
                 sessionIdRef.current = sessionId;
                 setCurrentSessionId(sessionId);
                 localStorage.setItem("pi_session_id", sessionId);
                 sessionRuntimeRef.current.set(sessionId, emptyRuntime(messagesRef.current));
-                // 首条输入落库后立刻写入历史列表，关页后再打开也能看到
                 setSessions((prev) => {
                     const entry = {
                         session_id: sessionId,
@@ -525,14 +581,70 @@ export function ChatSessionProvider({ children }) {
                     return [entry, ...prev.filter((s) => s.session_id !== sessionId)];
                 });
                 void loadSessions();
-                // 兼容旧 gateway：复用进行中 session 时不会投递本 turn，需补发消息
-                if (resp.status !== "PENDING") {
-                    await sendMessage(sessionId, trimmed, turnId, skillIds);
+                if (deferStart) {
+                    for (const file of pendingFiles) {
+                        const res = await workspaceApi.uploadToSession(userId, sessionId, file);
+                        uploadedExtras.push(fileMessageFromUpload(res, Date.now()));
+                    }
+                    const piRequest = buildPiRequestWithAttachments(trimmed, [...trailingFiles, ...uploadedExtras]);
+                    const now = Date.now();
+                    setMessages((prev) => {
+                        const next = [
+                            ...prev,
+                            ...uploadedExtras,
+                            {
+                                role: "user",
+                                type: "text",
+                                content: trimmed,
+                                startedAt: now,
+                                endedAt: now,
+                            },
+                        ];
+                        messagesRef.current = next;
+                        return next;
+                    });
+                    await sendMessage(sessionId, trimmed, turnId, skillIds, piRequest);
+                    attachTurnStream(sessionId, turnId);
+                    return;
                 }
+                const now = Date.now();
+                setMessages((prev) => {
+                    const next = [...prev, {
+                            role: "user",
+                            type: "text",
+                            content: trimmed,
+                            startedAt: now,
+                            endedAt: now,
+                        }];
+                    messagesRef.current = next;
+                    return next;
+                });
+                attachTurnStream(sessionId, turnId);
+                return;
             }
-            else {
-                await sendMessage(sessionId, trimmed, turnId, skillIds);
+            // 已有 session：先传 pending（若有），再合并相邻附件发 pi
+            for (const file of pendingFiles) {
+                const res = await workspaceApi.uploadToSession(userId, sessionId, file);
+                uploadedExtras.push(fileMessageFromUpload(res, Date.now()));
             }
+            const piRequest = buildPiRequestWithAttachments(trimmed, [...trailingFiles, ...uploadedExtras]);
+            const now = Date.now();
+            setMessages((prev) => {
+                const next = [
+                    ...prev,
+                    ...uploadedExtras,
+                    {
+                        role: "user",
+                        type: "text",
+                        content: trimmed,
+                        startedAt: now,
+                        endedAt: now,
+                    },
+                ];
+                messagesRef.current = next;
+                return next;
+            });
+            await sendMessage(sessionId, trimmed, turnId, skillIds, piRequest);
             attachTurnStream(sessionId, turnId);
         }
         catch (e) {
@@ -541,6 +653,26 @@ export function ChatSessionProvider({ children }) {
             setIsLoading(false);
         }
     }, [userId, isLoading, attachTurnStream, loadSessions]);
+    const appendUploadedFile = useCallback((file) => {
+        const sid = sessionIdRef.current;
+        if (!sid)
+            return;
+        const now = Date.now();
+        updateSessionMessages(sid, (prev) => [
+            ...prev,
+            {
+                role: "user",
+                type: "file",
+                content: file.filename,
+                relativePath: file.relative_path,
+                size: file.size,
+                docId: file.doc_id,
+                kbId: file.kb_id,
+                startedAt: now,
+                endedAt: now,
+            },
+        ]);
+    }, [updateSessionMessages]);
     const value = {
         userId,
         setUserId,
@@ -560,6 +692,7 @@ export function ChatSessionProvider({ children }) {
         switchToSession,
         interrupt,
         send,
+        appendUploadedFile,
         isSessionGenerating,
     };
     return (_jsx(ChatSessionContext.Provider, { value: value, children: children }));

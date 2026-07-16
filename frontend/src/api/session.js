@@ -19,10 +19,16 @@ async function throwIfNotOk(resp) {
 }
 // ── Session API ───────────────────────────────────────────────────────────────
 /** 创建新 session（打开新 chat 窗口 + 发送第一条消息） */
-export async function createSession(userId, request, turnId, skillIds = []) {
+export async function createSession(userId, request, turnId, skillIds = [], deferStart = false) {
     const resp = await apiFetch("/sessions", {
         method: "POST",
-        body: JSON.stringify({ user_id: userId, request, turn_id: turnId, skill_ids: skillIds }),
+        body: JSON.stringify({
+            user_id: userId,
+            request,
+            turn_id: turnId,
+            skill_ids: skillIds,
+            defer_start: deferStart,
+        }),
         // 关页/刷新时尽量仍完成落库，保证历史列表能看到新会话
         keepalive: true,
     });
@@ -30,10 +36,20 @@ export async function createSession(userId, request, turnId, skillIds = []) {
     return resp.json();
 }
 /** 向已有 session 发送新消息（多轮对话） */
-export async function sendMessage(sessionId, request, turnId, skillIds = []) {
+export async function sendMessage(sessionId, request, turnId, skillIds = [], 
+/** 发给 pi 的完整 prompt；不传则与 request 相同。Mongo 只存 request。 */
+agentRequest) {
+    const body = {
+        request,
+        turn_id: turnId,
+        skill_ids: skillIds,
+    };
+    if (agentRequest != null && agentRequest !== request) {
+        body.agent_request = agentRequest;
+    }
     const resp = await apiFetch(`/sessions/${sessionId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ request, turn_id: turnId, skill_ids: skillIds }),
+        body: JSON.stringify(body),
     });
     await throwIfNotOk(resp);
     return resp.json();

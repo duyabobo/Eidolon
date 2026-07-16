@@ -11,7 +11,7 @@ Gateway 负责平台对外的会话 CRUD 与任务派发（短请求、按 QPS �
 **不负责**：
 - SSE 流式输出：长驻连接的扩容依据（并发连接数）与本服务（QPS）不同，
   拆分为独立服务 [gateway-sse](../gateway-sse/README.md) 部署，避免两者互相拖累扩容节奏
-- 执行 pi agent（由 pi-runtime 负责）
+- 由 pi-runtime 执行引擎负责（对外品牌 onenew）
 - 调用 LLM（由 pi-runtime 通过 admin 负责）
 - 配置管理（由 admin 负责）
 - 文件系统操作（由 pi-runtime 内部处理）

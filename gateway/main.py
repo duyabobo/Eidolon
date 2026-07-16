@@ -12,7 +12,7 @@ setup_logging("gateway")
 install_json_encoders()
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Pi Agent Gateway", version="1.0.0")
+app = FastAPI(title="onenew Gateway", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,

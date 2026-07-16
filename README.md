@@ -1,6 +1,6 @@
-# Pi Agent Platform
+# onenew
 
-基于 [Pi Coding Agent](https://pi.dev/) 构建的多租户 Agent 执行平台，支持会话管理、SSE 流式输出、bwrap 沙盒隔离、MCP 工具扩展、Skill 渐进式披露、本地知识库管理。
+基于 [Pi Coding Agent](https://pi.dev/) 构建的多租户 Agent 执行平台（对外品牌 **onenew**），支持会话管理、SSE 流式输出、bwrap 沙盒隔离、MCP 工具扩展、Skill 渐进式披露、本地知识库管理。
 
 ---
 
@@ -17,7 +17,7 @@
     ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓                 │ Unix socket
     ┃  接口层                           ┃    ┏━━━━━━━━━━━━┷━━━━━━━━━━━┓
     ┃  gateway     :8000  CRUD/派发·QPS 扩容┃  ┃  执行层                 ┃
-    ┃  gateway-sse :8001  SSE·连接数扩容    ┃  ┃  pi agent：bwrap 沙盒   ┃
+    ┃  gateway-sse :8001  SSE·连接数扩容    ┃  ┃  onenew 执行引擎：bwrap 沙盒   ┃
     ┃  admin       :9000  配置管理          ┃  ┗━━━━━━━━━━━━┬━━━━━━━━━━━┛
     ┗━━━━━━━━━━━━┬━━━━━━━━━━━━━━━━━━━━━━━┛                 │ read/write
                  │ read/write                              │
@@ -78,7 +78,7 @@ pi-runtime 通过 `XREADGROUP` 认领并在任务完成后 `XACK`。超时未确
 | **admin** | 9000 | Python FastAPI | MCP Server 配置、Skill 管理（元数据 + 文件）|
 | **llm-proxy** | 9001 | Python FastAPI | LLM 代理（OpenAI 兼容）、Provider 配置热更新 |
 | **mcp-proxy** | 8080 | Python FastAPI | MCP 聚合代理：汇总所有 MCP Server 工具，统一路由调用 |
-| **pi-runtime** | — | Node.js + Pi Agent | Agent 任务执行、bwrap 沙盒隔离、Unix socket 网络白名单 |
+| **pi-runtime** | — | Node.js 执行引擎 | Agent 任务执行、bwrap 沙盒隔离、Unix socket 网络白名单 |
 | **redis** | 6379 | Redis 7 | 任务 Stream Consumer Group、增量输出 Stream、实时控制通知 |
 | **mongo** | 27017 | MongoDB 7 | 会话数据、LLM / MCP 配置、Skill 元数据 |
 
@@ -118,7 +118,7 @@ NFS_SERVER_ADDR=192.168.1.100 NFS_EXPORT_PATH=/data/pi-sandboxes \
 ## 目录结构
 
 ```
-pi-agent-platform/
+onenew-platform/
 ├── README.md              # 本文件
 ├── deploy.sh              # 一键部署脚本
 ├── docker-compose.yml     # 单节点编排
@@ -130,7 +130,7 @@ pi-agent-platform/
 ├── admin/                 # FastAPI 管理服务 - MCP/Skill 配置 
 ├── llm-proxy/             # FastAPI LLM 代理服务 
 ├── mcp-proxy/             # FastAPI MCP 聚合代理 
-└── pi-runtime/            # Node.js Pi Agent 执行引擎 
+└── pi-runtime/            # Node.js 执行引擎（沙盒内 agent 运行时） 
 ```
 
 ---

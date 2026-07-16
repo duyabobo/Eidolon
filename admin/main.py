@@ -16,7 +16,7 @@ setup_logging("admin")
 install_json_encoders()
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Pi Agent Admin", version="1.0.0")
+app = FastAPI(title="onenew Admin", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,

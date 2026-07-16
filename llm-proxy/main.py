@@ -14,7 +14,7 @@ setup_logging("llm-proxy")
 install_json_encoders()
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Pi Agent LLM Proxy", version="1.0.0")
+app = FastAPI(title="onenew LLM Proxy", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
