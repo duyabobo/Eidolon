@@ -6,7 +6,10 @@ FROM node:24-bookworm-slim
 #   python3     沙盒内 Python 环境
 #   ripgrep     pi 依赖
 # Acquire::Retries 应对 deb.debian.org 偶发 502；外层循环应对 update/install 整段失败
+# bookworm 使用 DEB822（debian.sources），国内 ECS 换清华源
 RUN set -eux; \
+    sed -i 's|http://deb.debian.org/debian|https://mirrors.tuna.tsinghua.edu.cn/debian|g' \
+      /etc/apt/sources.list.d/debian.sources; \
     apt_pkgs="bash bubblewrap ca-certificates curl git iproute2 python3 python3-pip python3-venv ripgrep"; \
     apt_opts="-o Acquire::Retries=5 -o Acquire::http::Timeout=120"; \
     for attempt in 1 2 3 4 5; do \
