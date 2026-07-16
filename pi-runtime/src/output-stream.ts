@@ -15,7 +15,15 @@ function buildStreamKey(sessionId: string, turnId?: string): string {
   return STREAM_KEY_TPL.replace("{sessionId}", sessionId);
 }
 
-export type EventType = "token" | "thinking" | "tool_call" | "tool_result" | "done" | "error" | "cancelled";
+export type EventType =
+  | "token"
+  | "thinking"
+  | "tool_call"
+  | "tool_result"
+  | "final_result"
+  | "done"
+  | "error"
+  | "cancelled";
 
 export interface OutputEvent {
   event_type: EventType;

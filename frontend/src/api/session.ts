@@ -168,6 +168,7 @@ export function streamTurn(
     thinking:    (e) => { sawEvent = true; onEvent({ event: "thinking",    data: e.data }); },
     tool_call:   (e) => { sawEvent = true; onEvent({ event: "tool_call",   data: e.data }); },
     tool_result: (e) => { sawEvent = true; onEvent({ event: "tool_result", data: e.data }); },
+    final_result:(e) => { sawEvent = true; onEvent({ event: "final_result", data: e.data }); },
     done:        ()  => { sawEvent = true; onDone(); close(); },
     cancelled:   ()  => { sawEvent = true; onDone(); close(); },
     error:       (e) => { sawEvent = true; onError(e.data || "执行出错"); close(); },

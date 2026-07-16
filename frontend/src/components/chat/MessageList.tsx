@@ -59,12 +59,28 @@ function groupMessages(messages: Message[]): DisplayItem[] {
       i += 1;
     }
 
+    let finalResultIdx = -1;
     let lastTextIdx = -1;
     for (let j = assistantMsgs.length - 1; j >= 0; j -= 1) {
-      if (assistantMsgs[j].type === "text") {
-        lastTextIdx = j;
-        break;
+      if (finalResultIdx < 0 && assistantMsgs[j].type === "final_result") {
+        finalResultIdx = j;
       }
+      if (lastTextIdx < 0 && assistantMsgs[j].type === "text") {
+        lastTextIdx = j;
+      }
+    }
+
+    // 有 final_result：此前所有内容（含 Step7 叙述）都进中间步骤，最终回复只展示纯净答案
+    if (finalResultIdx >= 0) {
+      items.push({
+        kind: "assistant",
+        turn: {
+          steps: assistantMsgs.filter((_, idx) => idx !== finalResultIdx),
+          finalText: assistantMsgs[finalResultIdx],
+          startedAt: resolveTurnStartedAt(assistantMsgs),
+        },
+      });
+      continue;
     }
 
     const steps = lastTextIdx >= 0 ? assistantMsgs.slice(0, lastTextIdx) : assistantMsgs;

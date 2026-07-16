@@ -11,7 +11,7 @@ import { workspaceApi, type ChatUploadResponse } from "../api/workspace";
 import { randomUUID } from "../utils/id";
 import { resolveUserId } from "../constants/user";
 
-export type MessageType = "text" | "thinking" | "tool_call" | "tool_result" | "file";
+export type MessageType = "text" | "thinking" | "tool_call" | "tool_result" | "file" | "final_result";
 
 export interface Message {
   role: "user" | "assistant";
@@ -193,6 +193,14 @@ export function buildMessagesFromSnapshot(
       continue;
     }
 
+    if (event.event_type === "final_result") {
+      msgs = [
+        ...closeLastAssistantAt(msgs, ts),
+        { role: "assistant", type: "final_result", content, startedAt: ts, endedAt: ts },
+      ];
+      continue;
+    }
+
     if (event.event_type === "thinking") {
       if (last?.role === "assistant" && last.type === "thinking") {
         msgs[msgs.length - 1] = { ...last, content: last.content + content, endedAt: ts };
@@ -246,7 +254,7 @@ function appendMessageEvent(prev: Message[], type: MessageType, text: string, st
   }
 
   const closed = closeLastAssistantStep(prev);
-  if (type === "text" || type === "thinking") {
+  if (type === "text" || type === "thinking" || type === "final_result") {
     return [...closed, { role: "assistant", type, content: text, isStreaming: streaming, startedAt: now }];
   }
   return [...closed, { role: "assistant", type, content: text, startedAt: now }];
@@ -512,6 +520,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
           updateSessionMessages(sid, (prev) => appendMessageEvent(prev, "tool_call", ev.data));
         } else if (ev.event === "tool_result") {
           updateSessionMessages(sid, (prev) => appendMessageEvent(prev, "tool_result", ev.data));
+        } else if (ev.event === "final_result") {
+          updateSessionMessages(sid, (prev) => appendMessageEvent(prev, "final_result", ev.data));
         }
       },
       onDone,

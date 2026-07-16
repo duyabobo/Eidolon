@@ -5,6 +5,7 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { SandboxPaths, buildOuterSandboxArgs } from "./sandbox";
 import { SessionOutputStream } from "./output-stream";
+import { extractFinalAnswer, extractLastAssistantText } from "./final-answer";
 import { sessionLlmSockForSandbox } from "./session-llm-bridge";
 import { sessionMcpSockForSandbox } from "./session-mcp-bridge";
 import {
@@ -60,6 +61,8 @@ interface PiToolExecutionEndEvent {
 
 interface PiAgentEndEvent {
   type: "agent_end";
+  messages?: unknown[];
+  willRetry?: boolean;
 }
 
 type PiEvent =
@@ -95,6 +98,8 @@ interface ActiveTurn {
   resolve: () => void;
   reject: (err: Error) => void;
   bwrapChecked: boolean;  // 首轮校验 bwrap.ready，后续轮次跳过
+  /** 本轮累计 text_delta，作为 agent_end.messages 缺失时的兜底 */
+  textBuffer: string;
 }
 
 // ── pi config 目录管理 ────────────────────────────────────────────────────────
@@ -421,7 +426,7 @@ export async function startPiSession(
       console.log(`[pi-session] session=${sessionId}: bwrap 扩展已确认就绪`);
     }
 
-    const done = await dispatchPiEvent(msg, sessionId, turnId, outputStream);
+    const done = await dispatchPiEvent(msg, sessionId, turnId, outputStream, activeTurn);
     if (done) {
       console.log(`[pi-session] session=${sessionId} turn=${turnId}: 轮次结束`);
       activeTurn = null;
@@ -504,6 +509,7 @@ export async function startPiSession(
           resolve,
           reject,
           bwrapChecked: false,
+          textBuffer: "",
         };
 
         const promptPayload: PiPromptCommand = { type: "prompt", message };
@@ -538,7 +544,8 @@ async function dispatchPiEvent(
   event: PiEvent,
   sessionId: string,
   turnId: string,
-  outputStream: SessionOutputStream
+  outputStream: SessionOutputStream,
+  turn: ActiveTurn,
 ): Promise<boolean> {
   switch (event.type) {
     case "response": {
@@ -557,6 +564,7 @@ async function dispatchPiEvent(
       const { type: evType, delta } = e.assistantMessageEvent;
       if (!delta) return false;
       if (evType === "text_delta") {
+        turn.textBuffer += delta;
         await outputStream.push({ event_type: "token", content: delta });
       } else if (evType === "thinking_delta") {
         await outputStream.push({ event_type: "thinking", content: delta });
@@ -584,6 +592,24 @@ async function dispatchPiEvent(
     }
 
     case "agent_end": {
+      const e = event as PiAgentEndEvent;
+      // 自动重试时不结束本轮，继续等后续事件
+      if (e.willRetry) {
+        console.log(`[pi-session] session=${sessionId} turn=${turnId}: agent_end willRetry=true，继续等待`);
+        return false;
+      }
+
+      const fullText = extractLastAssistantText(e.messages) || turn.textBuffer;
+      const finalAnswer = extractFinalAnswer(fullText);
+      if (finalAnswer) {
+        await outputStream.push({ event_type: "final_result", content: finalAnswer });
+        console.log(
+          `[pi-session] session=${sessionId} turn=${turnId}: final_result 已推送 length=${finalAnswer.length}`,
+        );
+      } else {
+        console.warn(`[pi-session] session=${sessionId} turn=${turnId}: 无可用最终答案，跳过 final_result`);
+      }
+
       await outputStream.pushDone();
       return true;
     }
