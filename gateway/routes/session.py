@@ -62,24 +62,31 @@ async def send_message(session_id: str, body: SendMessageRequest) -> SendMessage
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session 不存在")
 
-    logger.info("新消息: session_id=%s turn_id=%s status=%s request='%s'",
-                session_id, body.turn_id, session.status, body.request[:80].replace("\n", " "))
+    # Mongo 只存用户原文；附件元数据已由 user_file 事件单独落库
+    display_request = body.request
+    agent_request = (body.agent_request or body.request).strip() or body.request
+    logger.info(
+        "新消息: session_id=%s turn_id=%s status=%s request='%s' agent_len=%d",
+        session_id, body.turn_id, session.status,
+        display_request[:80].replace("\n", " "), len(agent_request),
+    )
 
     # 用户消息持久化到 events_snapshot，与第一条消息保持一致
     # 必须在 publish 之前写入，确保 AI 响应事件追加时用户消息已在前
     await mongo_client.append_event_snapshot(
-        session_id, {"event_type": "user_message", "content": body.request, "ts": int(time.time() * 1000)}
+        session_id,
+        {"event_type": "user_message", "content": display_request, "ts": int(time.time() * 1000)},
     )
 
     if session.status in (SessionStatus.IDLE, SessionStatus.COMPLETED, SessionStatus.FAILED):
         # 沙盒已回收或 session 已关闭：通过 publish_task 重新拉起沙盒，视觉历史由 events_snapshot 保留
         logger.info("session 沙盒不存在（status=%s），重新拉起沙盒: session_id=%s", session.status, session_id)
         await redis_client.publish_task(
-            session_id, session.user_id, body.request, body.turn_id, body.skill_ids,
+            session_id, session.user_id, agent_request, body.turn_id, body.skill_ids,
         )
     else:
         await redis_client.publish_message(
-            session_id, session.user_id, body.request, body.turn_id, body.skill_ids,
+            session_id, session.user_id, agent_request, body.turn_id, body.skill_ids,
         )
 
     return SendMessageResponse(turn_id=body.turn_id, session_id=session_id)

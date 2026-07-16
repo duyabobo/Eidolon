@@ -45,9 +45,12 @@ class CreateSessionRequest(BaseModel):
 
 class SendMessageRequest(BaseModel):
     """向已有 session 发送新消息（新轮次）"""
+    # 用户可见原文，写入 Mongo events_snapshot
     request: str
     turn_id: str           # 本轮次 ID，由前端生成，用于 SSE stream key
     skill_ids: list[str] = []
+    # 发给 pi 的完整 prompt（可含附件元数据）；缺省则与 request 相同
+    agent_request: str | None = None
 
 
 class SendMessageResponse(BaseModel):

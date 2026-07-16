@@ -44,7 +44,7 @@ export function collectTrailingFileMessages(messages: Message[]): Message[] {
   return files;
 }
 
-/** 把相邻附件与用户 query 拼成发给 pi 的单条 request（进入 JSONL）。 */
+/** 把相邻附件与用户 query 拼成发给 pi 的单条 request（仅进 JSONL，不写 Mongo）。 */
 export function buildPiRequestWithAttachments(
   text: string,
   files: Array<Pick<Message, "content" | "relativePath" | "docId" | "kbId">>,
@@ -757,7 +757,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
             messagesRef.current = next;
             return next;
           });
-          await sendMessage(sessionId, piRequest, turnId, skillIds);
+          await sendMessage(sessionId, trimmed, turnId, skillIds, piRequest);
           attachTurnStream(sessionId, turnId);
           return;
         }
@@ -803,7 +803,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
         messagesRef.current = next;
         return next;
       });
-      await sendMessage(sessionId, piRequest, turnId, skillIds);
+      await sendMessage(sessionId, trimmed, turnId, skillIds, piRequest);
       attachTurnStream(sessionId, turnId);
     } catch (e) {
       activeTurnIdRef.current = null;

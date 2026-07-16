@@ -86,10 +86,20 @@ export async function sendMessage(
   request: string,
   turnId: string,
   skillIds: string[] = [],
+  /** 发给 pi 的完整 prompt；不传则与 request 相同。Mongo 只存 request。 */
+  agentRequest?: string,
 ): Promise<SendMessageResp> {
+  const body: Record<string, unknown> = {
+    request,
+    turn_id: turnId,
+    skill_ids: skillIds,
+  };
+  if (agentRequest != null && agentRequest !== request) {
+    body.agent_request = agentRequest;
+  }
   const resp = await apiFetch(`/sessions/${sessionId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ request, turn_id: turnId, skill_ids: skillIds }),
+    body: JSON.stringify(body),
   });
   await throwIfNotOk(resp);
   return resp.json();
