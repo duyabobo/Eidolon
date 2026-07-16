@@ -42,3 +42,6 @@ logs/
 # Runtime artifacts
 /tmp/pi-sandbox/
 docs/*
+!docs/assets/
+!docs/assets/system-architecture.png
+!docs/assets/agentic-rag-sequence.png
