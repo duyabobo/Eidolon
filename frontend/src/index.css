@@ -68,6 +68,18 @@
     border-radius: 999px;
   }
 
+  .nav-tooltip {
+    @apply absolute left-[calc(100%+10px)] top-1/2 -translate-y-1/2 z-[60];
+    @apply px-2.5 py-1 rounded-lg text-xs font-medium text-white bg-ink-900 shadow-lg;
+    @apply opacity-0 invisible group-hover:opacity-100 group-hover:visible;
+    @apply transition-all duration-150 whitespace-nowrap pointer-events-none;
+  }
+
+  .nav-tooltip::before {
+    content: "";
+    @apply absolute right-full top-1/2 -translate-y-1/2 border-[5px] border-transparent border-r-ink-900;
+  }
+
   .step-timeline {
     @apply relative;
   }

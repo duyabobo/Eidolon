@@ -550,7 +550,7 @@ export function ChatSessionProvider({ children }) {
         if (!trimmed || isLoading)
             return;
         if (!userId.trim()) {
-            setError("请先在「历史」页设置用户 ID");
+            setError("请先在右上角「历史」中设置用户 ID");
             return;
         }
         setError("");

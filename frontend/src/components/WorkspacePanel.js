@@ -40,7 +40,7 @@ export default function WorkspacePanel({ userId }) {
     const load = useCallback(async (path) => {
         if (!uid) {
             setListing(null);
-            setErrMsg("请先在「历史」页设置用户 ID");
+            setErrMsg("请先在右上角「历史」中设置用户 ID");
             return;
         }
         setLoading(true);
@@ -144,7 +144,7 @@ export default function WorkspacePanel({ userId }) {
         }
     };
     if (!uid) {
-        return (_jsx(ConfigEmptyState, { message: "\u8BF7\u5148\u5728\u300C\u5386\u53F2\u300D\u9875\u8BBE\u7F6E\u7528\u6237 ID\uFF0C\u518D\u67E5\u770B\u5DE5\u4F5C\u533A\u6587\u4EF6" }));
+        return (_jsx(ConfigEmptyState, { message: "\u8BF7\u5148\u5728\u53F3\u4E0A\u89D2\u300C\u5386\u53F2\u300D\u4E2D\u8BBE\u7F6E\u7528\u6237 ID\uFF0C\u518D\u67E5\u770B\u5DE5\u4F5C\u533A\u6587\u4EF6" }));
     }
     const writable = listing?.writable ?? false;
     const entries = listing?.entries ?? [];

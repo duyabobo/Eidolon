@@ -119,12 +119,12 @@ function DocumentSection({
 
   const openWiki = useCallback((doc: KnowledgeDocument) => {
     setWikiDoc(doc);
-    navigate(`/admin/knowledge/bases/${encodeURIComponent(kb.id)}/documents/${encodeURIComponent(doc.id)}`);
+    navigate(`/knowledge/bases/${encodeURIComponent(kb.id)}/documents/${encodeURIComponent(doc.id)}`);
   }, [kb.id, navigate]);
 
   const closeWiki = useCallback(() => {
     setWikiDoc(null);
-    navigate(`/admin/knowledge/bases/${encodeURIComponent(kb.id)}`);
+    navigate(`/knowledge/bases/${encodeURIComponent(kb.id)}`);
   }, [kb.id, navigate]);
 
   const load = useCallback((silent = false, targetPage = page) => {
@@ -340,7 +340,7 @@ export default function KnowledgePanel({
       if (cfg.base_url?.trim() && !userId.trim()) {
         setBases([]);
         setTotal(0);
-        setErrMsg("请先在「历史」页设置用户 ID");
+        setErrMsg("请先在右上角「历史」中设置用户 ID");
         return;
       }
       await ensureKnowledgeKey(cfg, userId);
@@ -384,7 +384,7 @@ export default function KnowledgePanel({
         setSelectedKb(null);
         setErrMsg("知识库不存在或无法访问");
         setSelectedId(null);
-        navigate("/admin?tab=knowledge");
+        navigate("/knowledge");
       })
       .finally(() => setSelectedKbLoading(false));
   }, [selectedId, bases, navigate]);
@@ -392,7 +392,7 @@ export default function KnowledgePanel({
   const handleEnvironmentChange = async (environment: KnowledgeServiceConfig["environment"]) => {
     if (!environment || environment === serviceForm.environment) return;
     if (environment !== "local" && !userId.trim()) {
-      setErrMsg("请先在「历史」页设置用户 ID");
+      setErrMsg("请先在右上角「历史」中设置用户 ID");
       return;
     }
     setEnvSaving(true);
@@ -419,7 +419,7 @@ export default function KnowledgePanel({
       const kb = await knowledgeApi.createBase({ name, description, type: "document" });
       setBaseModal(null);
       setSelectedId(kb.id);
-      navigate(`/admin/knowledge/bases/${encodeURIComponent(kb.id)}`);
+      navigate(`/knowledge/bases/${encodeURIComponent(kb.id)}`);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "创建失败");
     }
@@ -446,12 +446,12 @@ export default function KnowledgePanel({
   const openKnowledgeBase = (kbId: string) => {
     setErrMsg(null);
     setSelectedId(kbId);
-    navigate(`/admin/knowledge/bases/${encodeURIComponent(kbId)}`);
+    navigate(`/knowledge/bases/${encodeURIComponent(kbId)}`);
   };
 
   const handleBackToBaseList = () => {
     setSelectedId(null);
-    navigate("/admin?tab=knowledge");
+    navigate("/knowledge");
     void loadBases(page);
   };
 

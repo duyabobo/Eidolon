@@ -145,7 +145,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return resp.json();
 }
 
-/** 远程模式下获取并缓存 knowledge_key；userId 来自「历史」页 */
+/** 远程模式下获取并缓存 knowledge_key；userId 在聊天页右上角「历史」中设置 */
 export async function ensureKnowledgeKey(
   cfg: KnowledgeServiceConfig,
   userId: string,
@@ -160,7 +160,7 @@ export async function ensureKnowledgeKey(
   }
   if (!uid) {
     clearCachedKnowledgeKey();
-    throw new Error("请先在「历史」页设置用户 ID");
+    throw new Error("请先在右上角「历史」中设置用户 ID");
   }
   if (!forceRefresh) {
     const cached = readCachedKnowledgeKey(cfg, uid);

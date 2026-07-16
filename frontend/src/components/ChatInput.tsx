@@ -157,7 +157,7 @@ export default function ChatInput({
 
   const handleUpload = async (file: File | undefined) => {
     if (!file || !userId.trim()) {
-      setUploadErr("请先在「历史」页设置用户 ID");
+      setUploadErr("请先在右上角「历史」中设置用户 ID");
       return;
     }
     setUploadErr(null);
@@ -266,7 +266,7 @@ export default function ChatInput({
           type="button"
           title={
             !userId.trim()
-              ? "请先在「历史」页设置用户 ID"
+              ? "请先在右上角「历史」中设置用户 ID"
               : sessionId
                 ? "上传附件到当前会话"
                 : "选择附件（发送消息创建会话后自动上传）"

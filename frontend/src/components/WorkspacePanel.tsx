@@ -48,7 +48,7 @@ export default function WorkspacePanel({ userId }: Props) {
     async (path: string) => {
       if (!uid) {
         setListing(null);
-        setErrMsg("请先在「历史」页设置用户 ID");
+        setErrMsg("请先在右上角「历史」中设置用户 ID");
         return;
       }
       setLoading(true);
@@ -147,7 +147,7 @@ export default function WorkspacePanel({ userId }: Props) {
 
   if (!uid) {
     return (
-      <ConfigEmptyState message="请先在「历史」页设置用户 ID，再查看工作区文件" />
+      <ConfigEmptyState message="请先在右上角「历史」中设置用户 ID，再查看工作区文件" />
     );
   }
 

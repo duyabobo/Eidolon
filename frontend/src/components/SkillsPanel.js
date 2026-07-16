@@ -43,7 +43,7 @@ export default function SkillsPanel({ userId, onSkillsChanged }) {
     };
     const openCreator = (skillName) => {
         if (!userId.trim()) {
-            setErrMsg("请先在「历史」页设置用户 ID");
+            setErrMsg("请先在右上角「历史」中设置用户 ID");
             return;
         }
         setEditSkillName(skillName);
