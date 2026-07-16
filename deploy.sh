@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # Pi Agent Platform 一键部署脚本
-# 用法：
+# 用法（需 bash，不要用 sh deploy.sh）：
 #   bash deploy.sh              # 单节点开发部署（构建镜像 + 启动）
 #   bash deploy.sh --no-build   # 跳过镜像构建，直接用已有镜像启动
 #   bash deploy.sh --prod       # 生产集群部署（需配置 NFS 相关环境变量）
 #   bash deploy.sh --scale 3    # 生产部署，pi-runtime 启动 3 个实例
 #   bash deploy.sh --down       # 停止并移除所有容器（保留数据卷）
 #   bash deploy.sh --clean      # 停止并移除容器 + 数据卷（谨慎：会清空用户 workspace）
+
+# 若用 sh deploy.sh 调用，dash 不支持 pipefail 等 bash 语法，自动切到 bash
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
 
 set -euo pipefail
 
