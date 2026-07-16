@@ -3,9 +3,11 @@
 
 结构：
   {SANDBOX_ROOT}/users/{user_id}/
-    skills/     只读
-    sessions/   只读（磁盘为 UUID；展示名由 Mongo enrichment）
-    files/      可读写（管理页 CRUD + 沙盒 RW bind）
+    skills/      只读
+    sessions/    只读（磁盘为 UUID；展示名由 Mongo enrichment）
+    files/       可读写（管理页 CRUD + 沙盒 RW bind）
+    memory/      只读（MEMORY.md 长期记忆）
+    pi-sessions/ 只读（pi 对话 JSONL）
 """
 from __future__ import annotations
 
