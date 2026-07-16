@@ -28,6 +28,7 @@ from mcp.types import Tool
 
 from services.mcp_connection import open_mcp_session
 from services.mongo_client import McpServerEntry
+from services.request_user import OutboundUserIdSlot, get_request_user_id
 from services.tool_args import normalize_tool_arguments
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,9 @@ class McpServerCache:
         self._invalidated: bool = False
         self._failed_at: float | None = None
         self._lock: asyncio.Lock = asyncio.Lock()
+        # SSE post_writer 跨 task：call_tool 写入，httpx hook 读取；与 _call_lock 一起防串用户
+        self._outbound_user = OutboundUserIdSlot()
+        self._call_lock: asyncio.Lock = asyncio.Lock()
 
     def needs_refresh(self) -> bool:
         if self._invalidated:
@@ -88,7 +92,12 @@ class McpServerCache:
         await self._close_stack_ignoring_cross_task_errors(old_stack)
 
         try:
-            session = await open_mcp_session(self._exit_stack, self.entry.url, self.entry.api_key)
+            session = await open_mcp_session(
+                self._exit_stack,
+                self.entry.url,
+                self.entry.api_key,
+                outbound_user=self._outbound_user,
+            )
             tools_result = await session.list_tools()
             for tool in tools_result.tools:
                 self._tools[tool.name] = _ToolRecord(tool=tool, session=session)
@@ -114,8 +123,15 @@ class McpServerCache:
         record = self._tools.get(name)
         if record is None:
             raise ValueError(f"工具未找到: {name}")
-        normalized_args = normalize_tool_arguments(name, args)
-        result = await record.session.call_tool(name, arguments=normalized_args)
+        user_id = get_request_user_id()
+        normalized_args = normalize_tool_arguments(name, args, trusted_user_id=user_id)
+        # 串行化 + 槽位：保证 SSE post_writer 读到的 X-User-Id 与本次 call 一致
+        async with self._call_lock:
+            self._outbound_user.set(user_id)
+            try:
+                result = await record.session.call_tool(name, arguments=normalized_args)
+            finally:
+                self._outbound_user.clear()
         return result.model_dump(by_alias=True, exclude_none=True)
 
     async def close(self) -> None:

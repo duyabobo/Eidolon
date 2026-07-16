@@ -66,8 +66,9 @@ mcp-proxy/
 | 工具参数 | 不得用 Agent 可控参数（如 `scene_uid`）做鉴权或租户隔离 |
 | 无 `X-User-Id` | 表示匿名 / 探测 / 预热；Server 自行决定是否拒绝 |
 | 传输偏好 | 身份透传在 **streamable-http** 上最可靠；SSE 长连接若只认握手头，应改读后续 POST 头或改用 streamable-http |
+| SSE 跨 task | MCP SDK 的 `post_writer` 在独立 task，ContextVar 不可见；mcp-proxy 用连接级 `OutboundUserIdSlot` + `call_tool` 串行写入，hook 注入 HTTP 头 |
 
-mrag 等业务 MCP 需自行改为读取 `X-User-Id`（本仓库只负责透传与约定）。
+mrag 等业务 MCP 需自行改为读取 `X-User-Id`（本仓库只负责透传与约定）。Agent 若在工具参数 `headers.x-user-id` 里伪造身份，mcp-proxy 会覆盖为入站可信值。
 
 ---
 
