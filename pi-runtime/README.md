@@ -232,7 +232,7 @@ volumes:
 | 环境变量 | 说明 | 默认值 |
 |---------|------|-------|
 | `REDIS_URL` | Redis 连接串 | `redis://redis:6379` |
-| `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27017` |
+| `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27019` |
 | `MONGO_DB` | 数据库名 | `pi_agent` |
 | `OPENAI_API_KEY` | LLM 内部 token（传给 pi） | `pi-agent-internal` |
 | `SANDBOX_ROOT` | bwrap 沙盒根目录 | `/data/sandboxes` |

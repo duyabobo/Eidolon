@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     llm_timeout: int = 120
 
     # MongoDB（持久化 LLM 配置，hot reload 无需重启）
-    mongo_uri: str = "mongodb://mongo:27017"
+    mongo_uri: str = "mongodb://mongo:27019"
     mongo_db: str = "pi_agent"
 
     class Config:

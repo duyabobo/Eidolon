@@ -136,6 +136,6 @@ skill B 用 `mrag,tavily`），都只连接、只缓存一次；不会因为白�
 | 环境变量 | 说明 | 默认值 |
 |---------|------|-------|
 | `MCP_PROXY_PORT` | 服务监听端口 | `8080` |
-| `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27017` |
+| `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27019` |
 | `MONGO_DB` | 数据库名 | `pi_agent` |
 | `TOOL_REFRESH_INTERVAL_S` | 工具列表成功缓存 TTL（秒）| `300` |

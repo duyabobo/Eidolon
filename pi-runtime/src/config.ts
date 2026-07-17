@@ -15,7 +15,7 @@ export const config = {
     taskMaxAttempts: Number(process.env.TASK_MAX_ATTEMPTS ?? 3),
   },
   mongo: {
-    uri: process.env.MONGO_URI ?? "mongodb://mongo:27017",
+    uri: process.env.MONGO_URI ?? "mongodb://mongo:27019",
     db: process.env.MONGO_DB ?? "pi_agent",
   },
   sandbox: {

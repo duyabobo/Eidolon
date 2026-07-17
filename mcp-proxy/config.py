@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     mcp_proxy_port: int = 8080
-    mongo_uri: str = "mongodb://mongo:27017"
+    mongo_uri: str = "mongodb://mongo:27019"
     mongo_db: str = "pi_agent"
 
     # 工具列表缓存 TTL（秒）

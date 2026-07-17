@@ -132,7 +132,7 @@ LLM 代理链路：
 
 | 环境变量 | 说明 | 默认值 |
 |---------|------|-------|
-| `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27017` |
+| `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27019` |
 | `MONGO_DB` | 数据库名 | `pi_agent` |
 | `LLM_BASE_URL` | LLM 接口地址（env 默认值，DB 配置优先）| `https://api.openai.com/v1` |
 | `LLM_API_KEY` | LLM API Key（env 默认值，DB 配置优先）| `""` |

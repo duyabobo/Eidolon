@@ -30,7 +30,7 @@
 | **mcp-proxy** | 8080 | Python FastAPI | MCP 聚合代理：汇总所有 MCP Server 工具，统一路由调用 |
 | **pi-runtime** | — | Node.js 执行引擎 | Agent 任务执行、bwrap 沙盒隔离、Unix socket 网络白名单 |
 | **redis** | 6379 | Redis 7 | 任务 Stream Consumer Group、增量输出 Stream、实时控制通知 |
-| **mongo** | 27017 | MongoDB 7 | 会话数据、LLM / MCP 配置、Skill 元数据 |
+| **mongo** | 27019 | MongoDB 7 | 会话数据、LLM / MCP 配置、Skill 元数据 |
 
 ---
 

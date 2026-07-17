@@ -100,7 +100,7 @@ routes/stream.py
 
 | 环境变量 | 说明 | 默认值 |
 |---------|------|-------|
-| `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27017` |
+| `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27019` |
 | `MONGO_DB` | 数据库名 | `pi_agent` |
 | `REDIS_URL` | Redis 连接串 | `redis://redis:6379` |
 | `REDIS_MAX_CONNECTIONS` | Redis 连接池大小（按并发 SSE 连接数配置） | `200` |

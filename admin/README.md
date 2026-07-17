@@ -115,7 +115,7 @@ MCP 配置读取（pi-runtime 侧）：
 
 | 环境变量 | 说明 | 默认值 |
 |---------|------|-------|
-| `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27017` |
+| `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27019` |
 | `MONGO_DB` | 数据库名 | `pi_agent` |
 | `SANDBOX_ROOT` | 共享文件系统根目录 | `/data/sandboxes` |
 | `LLM_PROXY_BASE_URL` | skill-creator 调用的 llm-proxy 地址 | `http://llm-proxy:9001` |

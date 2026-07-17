@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     gateway_host: str = "0.0.0.0"
     gateway_port: int = 8002
 
-    mongo_uri: str = "mongodb://mongo:27017"
+    mongo_uri: str = "mongodb://mongo:27019"
     mongo_db: str = "pi_agent"
 
     redis_url: str = "redis://redis:6379"
