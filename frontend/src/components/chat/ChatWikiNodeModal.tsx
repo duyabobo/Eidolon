@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { knowledgeApi, type WikiNodeItem } from "../../api/knowledge";
-import { setKnowledgeSceneUid } from "../../api/knowledgeKeyCache";
+import { ensureKnowledgeKey, knowledgeApi, type WikiNodeItem } from "../../api/knowledge";
 import { useChatSession } from "../../context/ChatSessionContext";
 import WikiMarkdown from "../knowledge/WikiMarkdown";
 import { buildWikiNodeMarkdown } from "../knowledge/wikiNodeContent";
@@ -18,10 +17,6 @@ export default function ChatWikiNodeModal({ nodeId, onClose }: ChatWikiNodeModal
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setKnowledgeSceneUid(userId);
-  }, [userId]);
-
   const loadNode = useCallback(async (target: string) => {
     const trimmed = target.trim();
     if (!trimmed) return;
@@ -31,6 +26,9 @@ export default function ChatWikiNodeModal({ nodeId, onClose }: ChatWikiNodeModal
     setError(null);
     setNode(null);
     try {
+      // 聊天页点 wiki 链接时未必进过知识库管理页，sessionStorage 可能没有 key
+      const cfg = await knowledgeApi.getServiceConfig();
+      await ensureKnowledgeKey(cfg, userId);
       const res = await knowledgeApi.getWikiNodeDetail(trimmed);
       setNode(res.node);
     } catch (e) {
@@ -38,7 +36,7 @@ export default function ChatWikiNodeModal({ nodeId, onClose }: ChatWikiNodeModal
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     void loadNode(nodeId);
