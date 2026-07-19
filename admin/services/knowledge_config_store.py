@@ -52,7 +52,11 @@ def infer_environment(base_url: str) -> KnowledgeEnvironment:
         return "test"
     if "scienceone.cn" in normalized:
         return "prod"
-    if "127.0.0.1" in normalized or "localhost" in normalized:
+    if (
+        "127.0.0.1" in normalized
+        or "localhost" in normalized
+        or "host.docker.internal" in normalized
+    ):
         return "local"
     return "prod"
 
