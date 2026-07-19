@@ -30,6 +30,7 @@ export function nodeColor(type: string): string {
   return TYPE_COLORS[type.toLowerCase()] ?? TYPE_COLORS.default;
 }
 
+/** 选中节点 + 其 Connections 出边目标（不含入边，与节点详情一致）。 */
 export function collectRelatedNodeIds(
   selectedNodeId: string | null,
   edges: WikiGraphEdge[],
@@ -38,13 +39,13 @@ export function collectRelatedNodeIds(
   const related = new Set<string>([selectedNodeId]);
   for (const edge of edges) {
     if (edge.source_id === selectedNodeId) related.add(edge.target_id);
-    if (edge.target_id === selectedNodeId) related.add(edge.source_id);
   }
   return related;
 }
 
+/** 仅出边高亮：source_id === 选中节点（与 Connections 一致）。 */
 export function isEdgeConnectedToNode(edge: WikiGraphEdge, nodeId: string): boolean {
-  return edge.source_id === nodeId || edge.target_id === nodeId;
+  return edge.source_id === nodeId;
 }
 
 export function edgeLabelPosition(

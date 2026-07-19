@@ -40,6 +40,12 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 export default function WikiNodeMeta({ node }: WikiNodeMetaProps) {
   const title = resolveNodeTitle(node);
   const type = resolveNodeType(node);
+  const source =
+    (node.source || node.source_doc_id || "").trim() ||
+    (node.metadata ? pickMetaString(node.metadata, ["source", "source_doc_id"]) : "");
+  const sourceDate =
+    (node.source_date || "").trim() ||
+    (node.metadata ? pickMetaString(node.metadata, ["source_date", "source_publication_date"]) : "");
 
   return (
     <section>
@@ -47,6 +53,8 @@ export default function WikiNodeMeta({ node }: WikiNodeMetaProps) {
       <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-2 text-sm leading-relaxed">
         <MetaRow label="名称" value={title} />
         <MetaRow label="类型" value={type} />
+        <MetaRow label="来源" value={source} />
+        <MetaRow label="日期" value={sourceDate} />
       </dl>
     </section>
   );

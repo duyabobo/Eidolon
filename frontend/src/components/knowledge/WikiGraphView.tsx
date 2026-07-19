@@ -115,7 +115,9 @@ export default function WikiGraphView({ graph, selectedNodeId, onNodeClick }: Wi
           {graph.node_count} 节点 · {graph.edge_count} 关系 · {graph.took_ms}ms
         </span>
         <span className="text-[11px] text-ink-400">
-          {hasSelection ? "蓝色为选中节点及其关联节点" : "点击节点查看详情与关联关系"}
+          {hasSelection
+            ? "蓝色为选中节点及其 Connections 出边（不含入边）"
+            : "点击节点查看详情与关联关系"}
         </span>
       </div>
       <svg width={width} height={GRAPH_HEIGHT} className="block">

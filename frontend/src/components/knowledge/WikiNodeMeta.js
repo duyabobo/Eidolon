@@ -26,7 +26,11 @@ function MetaRow({ label, value }) {
 export default function WikiNodeMeta({ node }) {
     const title = resolveNodeTitle(node);
     const type = resolveNodeType(node);
-    return (_jsxs("section", { children: [_jsx("h4", { className: "text-xs font-medium text-ink-500 mb-1.5", children: "\u5143\u6570\u636E" }), _jsxs("dl", { className: "grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-2 text-sm leading-relaxed", children: [_jsx(MetaRow, { label: "\u540D\u79F0", value: title }), _jsx(MetaRow, { label: "\u7C7B\u578B", value: type })] })] }));
+    const source = (node.source || node.source_doc_id || "").trim() ||
+        (node.metadata ? pickMetaString(node.metadata, ["source", "source_doc_id"]) : "");
+    const sourceDate = (node.source_date || "").trim() ||
+        (node.metadata ? pickMetaString(node.metadata, ["source_date", "source_publication_date"]) : "");
+    return (_jsxs("section", { children: [_jsx("h4", { className: "text-xs font-medium text-ink-500 mb-1.5", children: "\u5143\u6570\u636E" }), _jsxs("dl", { className: "grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-2 text-sm leading-relaxed", children: [_jsx(MetaRow, { label: "\u540D\u79F0", value: title }), _jsx(MetaRow, { label: "\u7C7B\u578B", value: type }), _jsx(MetaRow, { label: "\u6765\u6E90", value: source }), _jsx(MetaRow, { label: "\u65E5\u671F", value: sourceDate })] })] }));
 }
 export function isMetadataBodySection(key) {
     const lower = key.toLowerCase();

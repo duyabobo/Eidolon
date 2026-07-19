@@ -98,6 +98,7 @@ export interface WikiNodeItem {
   type: string;
   source: string;
   source_doc_id: string;
+  source_date?: string;
   knowledge_id: string;
   tree_node_id: string;
   tags: string[];
