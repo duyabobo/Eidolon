@@ -132,11 +132,14 @@
   .wiki-md a {
     @apply text-brand-600 hover:text-brand-700 hover:underline;
   }
-  .wiki-md table {
-    @apply w-full text-sm border-collapse mb-2;
+  .wiki-md-table-wrap table {
+    @apply w-full min-w-max text-sm border-collapse;
   }
   .wiki-md th, .wiki-md td {
-    @apply border border-ink-200 px-2 py-1 text-left;
+    @apply border border-ink-200 px-2 py-1.5 text-left align-top;
+  }
+  .wiki-md th {
+    @apply bg-ink-50 font-medium text-ink-700;
   }
 
   .chat-md h1, .chat-md h2, .chat-md h3, .chat-md h4 {

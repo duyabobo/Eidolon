@@ -1,9 +1,13 @@
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import type { WikiGraphNode } from "../../api/knowledge";
+import { isolateHtmlTables } from "./wikiHtmlTables";
 import {
   buildTitleNodeIndex,
   isWikiNodeHref,
@@ -12,6 +16,7 @@ import {
   wikiAwareUrlTransform,
   wikiNodeIdFromHref,
 } from "./wikiMarkdownLinks";
+import { wikiSanitizeSchema } from "./wikiMarkdownSanitize";
 import { preprocessStructuredFields } from "./wikiStructuredText";
 
 interface WikiMarkdownProps {
@@ -32,7 +37,8 @@ export default function WikiMarkdown({
 
   const titleIndex = buildTitleNodeIndex(graphNodes);
   const withStructured = preprocessStructuredFields(text);
-  const withConnections = preprocessConnectionLines(withStructured, graphNodes);
+  const withTables = isolateHtmlTables(withStructured);
+  const withConnections = preprocessConnectionLines(withTables, graphNodes);
   const processed = preprocessWikiMarkdown(withConnections, titleIndex);
 
   const components: Components = {
@@ -63,13 +69,18 @@ export default function WikiMarkdown({
         </a>
       );
     },
+    table: ({ children }) => (
+      <div className="wiki-md-table-wrap overflow-x-auto my-2">
+        <table>{children}</table>
+      </div>
+    ),
   };
 
   return (
     <div className={`wiki-md prose prose-sm max-w-none text-ink-800 ${className}`.trim()}>
       <ReactMarkdown
-        remarkPlugins={[remarkMath]}
-        rehypePlugins={[rehypeKatex]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeRaw, [rehypeSanitize, wikiSanitizeSchema], rehypeKatex]}
         components={components}
         urlTransform={wikiAwareUrlTransform}
       >

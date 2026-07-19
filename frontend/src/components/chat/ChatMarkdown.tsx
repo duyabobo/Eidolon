@@ -2,10 +2,14 @@ import { useCallback, useMemo, useState } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
+import { isolateHtmlTables } from "../knowledge/wikiHtmlTables";
 import { isWikiNodeHref, wikiAwareUrlTransform, wikiNodeIdFromHref } from "../knowledge/wikiMarkdownLinks";
+import { wikiSanitizeSchema } from "../knowledge/wikiMarkdownSanitize";
 import {
   citeRefNumberFromHref,
   isCiteRefHref,
@@ -108,7 +112,7 @@ export default function ChatMarkdown({
 
   const { markdown, refs } = useMemo(() => {
     if (!content) return { markdown: "", refs: new Map<number, CitationRef>() };
-    const base = preprocessChatMarkdown(content);
+    const base = isolateHtmlTables(preprocessChatMarkdown(content));
     return parseChatCitations(base);
   }, [content]);
 
@@ -135,7 +139,7 @@ export default function ChatMarkdown({
         {markdown ? (
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
-            rehypePlugins={[rehypeKatex]}
+            rehypePlugins={[rehypeRaw, [rehypeSanitize, wikiSanitizeSchema], rehypeKatex]}
             components={components}
             urlTransform={wikiAwareUrlTransform}
           >
