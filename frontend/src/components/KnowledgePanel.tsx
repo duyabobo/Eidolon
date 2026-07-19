@@ -391,7 +391,8 @@ export default function KnowledgePanel({
 
   const handleEnvironmentChange = async (environment: KnowledgeServiceConfig["environment"]) => {
     if (!environment || environment === serviceForm.environment) return;
-    if (environment !== "local" && !userId.trim()) {
+    const targetOpt = (envOptions.length ? envOptions : []).find((opt) => opt.id === environment);
+    if (targetOpt?.base_url?.trim() && !userId.trim()) {
       setErrMsg("请先在右上角「历史」中设置用户 ID");
       return;
     }

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # skill-creator 拉取 MCP Server 工具列表
     mcp_proxy_base_url: str = "http://mcp-proxy:8080"
 
+    knowledge_local_base_url: str = "http://127.0.0.1:9621"
     knowledge_prod_base_url: str = "http://www.scienceone.cn/mrag-knowledge"
     knowledge_test_base_url: str = "http://1.92.211.130:38026/mrag-knowledge"
 

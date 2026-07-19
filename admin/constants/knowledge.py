@@ -26,6 +26,7 @@ KNOWLEDGE_ENVIRONMENT_LABELS = {
 
 def knowledge_environment_urls() -> dict[str, str]:
     return {
+        "local": settings.knowledge_local_base_url.rstrip("/"),
         "prod": settings.knowledge_prod_base_url.rstrip("/"),
         "test": settings.knowledge_test_base_url.rstrip("/"),
     }

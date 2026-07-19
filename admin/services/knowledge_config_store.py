@@ -36,8 +36,6 @@ def normalize_base_url(url: str) -> str:
 
 
 def resolve_environment_base_url(environment: KnowledgeEnvironment) -> str:
-    if environment == "local":
-        return ""
     urls = knowledge_environment_urls()
     return normalize_base_url(urls.get(environment, ""))
 
@@ -54,13 +52,19 @@ def infer_environment(base_url: str) -> KnowledgeEnvironment:
         return "test"
     if "scienceone.cn" in normalized:
         return "prod"
+    if "127.0.0.1" in normalized or "localhost" in normalized:
+        return "local"
     return "prod"
 
 
 def list_environment_options() -> KnowledgeEnvironmentList:
     urls = knowledge_environment_urls()
     items = [
-        KnowledgeEnvironmentOption(id="local", label=KNOWLEDGE_ENVIRONMENT_LABELS["local"], base_url=""),
+        KnowledgeEnvironmentOption(
+            id="local",
+            label=KNOWLEDGE_ENVIRONMENT_LABELS["local"],
+            base_url=normalize_base_url(urls["local"]),
+        ),
         KnowledgeEnvironmentOption(
             id="prod",
             label=KNOWLEDGE_ENVIRONMENT_LABELS["prod"],
@@ -77,14 +81,17 @@ def list_environment_options() -> KnowledgeEnvironmentList:
 
 def _to_config(raw: dict | None) -> KnowledgeServiceConfig:
     if not raw:
-        return KnowledgeServiceConfig(base_url="")
+        return KnowledgeServiceConfig(
+            base_url=resolve_environment_base_url("local"),
+            environment="local",
+        )
     base_url = normalize_base_url(str(raw.get("base_url", "")))
     environment_raw = str(raw.get("environment") or "")
     if environment_raw in {"local", "prod", "test"}:
         environment = environment_raw  # type: ignore[assignment]
     else:
         environment = infer_environment(base_url)
-    if environment != "local" and not base_url:
+    if not base_url:
         base_url = resolve_environment_base_url(environment)
     return KnowledgeServiceConfig(
         base_url=base_url,
@@ -101,7 +108,7 @@ async def get_service_config() -> KnowledgeServiceConfig:
 async def save_service_config(cfg: KnowledgeServiceConfig) -> KnowledgeServiceConfig:
     now = _now()
     environment = cfg.environment if cfg.environment in {"local", "prod", "test"} else "local"
-    base_url = resolve_environment_base_url(environment) if environment != "local" else ""
+    base_url = resolve_environment_base_url(environment)
 
     doc = {
         "base_url": base_url,
@@ -112,7 +119,7 @@ async def save_service_config(cfg: KnowledgeServiceConfig) -> KnowledgeServiceCo
     logger.info(
         "知识库服务配置已新增 env=%s base_url=%s",
         environment,
-        doc["base_url"] or "(本地模式)",
+        doc["base_url"] or "(未配置地址)",
     )
     return KnowledgeServiceConfig(
         base_url=doc["base_url"],
