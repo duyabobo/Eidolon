@@ -1,4 +1,5 @@
 import type { WikiConnectionLink } from "./wikiConnections";
+import WikiInlineMarkdown from "./WikiInlineMarkdown";
 
 interface WikiConnectionListProps {
   links: WikiConnectionLink[];
@@ -19,16 +20,19 @@ export default function WikiConnectionList({ links, onNavigate }: WikiConnection
               <button
                 type="button"
                 onClick={() => onNavigate(target)}
-                className="text-brand-600 hover:text-brand-700 underline underline-offset-2 font-medium text-left"
+                className="text-brand-600 hover:text-brand-700 underline underline-offset-2 font-medium text-left inline"
               >
-                {link.label}
+                <WikiInlineMarkdown content={link.label} />
               </button>
             ) : (
-              <span className="text-ink-800">{link.label}</span>
+              <WikiInlineMarkdown content={link.label} className="text-ink-800" />
             )}
-            {link.description && (
-              <span className="text-ink-600">{` — ${link.description}`}</span>
-            )}
+            {link.description ? (
+              <>
+                <span className="text-ink-600"> — </span>
+                <WikiInlineMarkdown content={link.description} className="text-ink-600" />
+              </>
+            ) : null}
           </li>
         );
       })}

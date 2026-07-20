@@ -129,6 +129,12 @@
   .wiki-md .katex {
     @apply text-[1em];
   }
+  .wiki-md-inline {
+    @apply inline;
+  }
+  .wiki-md-inline .katex {
+    @apply text-[0.95em];
+  }
   .wiki-md a {
     @apply text-brand-600 hover:text-brand-700 hover:underline;
   }
