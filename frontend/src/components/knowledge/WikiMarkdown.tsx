@@ -70,7 +70,12 @@ export default function WikiMarkdown({
       );
     },
     table: ({ children }) => (
-      <div className="wiki-md-table-wrap overflow-x-auto my-2">
+      <div
+        className="wiki-md-table-wrap my-3"
+        role="region"
+        aria-label="数据表格，可横向滚动"
+        tabIndex={0}
+      >
         <table>{children}</table>
       </div>
     ),
