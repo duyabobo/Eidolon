@@ -44,7 +44,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      <MessageList messages={messages} />
+      <MessageList messages={messages} userId={userId} sessionId={currentSessionId} />
 
       <div className="shrink-0 border-t border-ink-200/60 bg-white/80 backdrop-blur-xl py-4">
         <div className="page-content">

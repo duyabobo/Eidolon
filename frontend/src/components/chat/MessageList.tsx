@@ -1,13 +1,21 @@
-import { useMemo, useRef, useEffect } from "react";
+import { useMemo, useRef, useEffect, useCallback, useState } from "react";
 import { APP_LOGO, APP_NAME } from "../../constants/brand";
 import type { Message } from "../../context/ChatSessionContext";
+import { workspaceApi } from "../../api/workspace";
 import ChatMarkdown from "./ChatMarkdown";
 import ExecutionSteps from "./ExecutionSteps";
 import { formatMessageTime } from "./stepTiming";
 
+interface AssistantAttachment {
+  filename: string;
+  relativePath?: string;
+  size?: number;
+}
+
 interface AssistantTurn {
   steps: Message[];
   finalText: Message | null;
+  attachments: AssistantAttachment[];
   startedAt?: number;
 }
 
@@ -28,6 +36,27 @@ function resolveTurnStartedAt(msgs: Message[]): number | undefined {
     if (msg.startedAt != null) return msg.startedAt;
   }
   return undefined;
+}
+
+/** download API 需要 users/{uid}/ 下的相对路径 */
+function resolveWorkspaceDownloadPath(
+  sessionId: string | null | undefined,
+  relativePath: string | undefined,
+  filename: string,
+): string | null {
+  const path = (relativePath || filename || "").trim();
+  if (!path) return null;
+  if (path.startsWith("sessions/")) return path;
+  if (!sessionId) return null;
+  return `sessions/${sessionId}/workspace/${path}`;
+}
+
+function toAttachment(msg: Message): AssistantAttachment {
+  return {
+    filename: msg.content,
+    relativePath: msg.relativePath,
+    size: msg.size,
+  };
 }
 
 function groupMessages(messages: Message[]): DisplayItem[] {
@@ -59,13 +88,16 @@ function groupMessages(messages: Message[]): DisplayItem[] {
       i += 1;
     }
 
+    const attachments = assistantMsgs.filter((m) => m.type === "file").map(toAttachment);
+    const nonFileMsgs = assistantMsgs.filter((m) => m.type !== "file");
+
     let finalResultIdx = -1;
     let lastTextIdx = -1;
-    for (let j = assistantMsgs.length - 1; j >= 0; j -= 1) {
-      if (finalResultIdx < 0 && assistantMsgs[j].type === "final_result") {
+    for (let j = nonFileMsgs.length - 1; j >= 0; j -= 1) {
+      if (finalResultIdx < 0 && nonFileMsgs[j].type === "final_result") {
         finalResultIdx = j;
       }
-      if (lastTextIdx < 0 && assistantMsgs[j].type === "text") {
+      if (lastTextIdx < 0 && nonFileMsgs[j].type === "text") {
         lastTextIdx = j;
       }
     }
@@ -77,8 +109,9 @@ function groupMessages(messages: Message[]): DisplayItem[] {
       items.push({
         kind: "assistant",
         turn: {
-          steps: assistantMsgs.filter((_, idx) => idx !== finalResultIdx),
-          finalText: assistantMsgs[finalResultIdx],
+          steps: nonFileMsgs.filter((_, idx) => idx !== finalResultIdx),
+          finalText: nonFileMsgs[finalResultIdx],
+          attachments,
           startedAt,
         },
       });
@@ -86,21 +119,21 @@ function groupMessages(messages: Message[]): DisplayItem[] {
     }
 
     // 流式进行中：token 一律折叠进中间步骤，不把中间生成当最终回复
-    const streaming = assistantMsgs.some((m) => m.isStreaming);
+    const streaming = nonFileMsgs.some((m) => m.isStreaming);
     if (streaming) {
       items.push({
         kind: "assistant",
-        turn: { steps: assistantMsgs, finalText: null, startedAt },
+        turn: { steps: nonFileMsgs, finalText: null, attachments, startedAt },
       });
       continue;
     }
 
     // 历史兼容：旧会话无 final_result 时，仍用最后一段 text 作为回复
-    const steps = lastTextIdx >= 0 ? assistantMsgs.slice(0, lastTextIdx) : assistantMsgs;
-    const finalText = lastTextIdx >= 0 ? assistantMsgs[lastTextIdx] : null;
+    const steps = lastTextIdx >= 0 ? nonFileMsgs.slice(0, lastTextIdx) : nonFileMsgs;
+    const finalText = lastTextIdx >= 0 ? nonFileMsgs[lastTextIdx] : null;
     items.push({
       kind: "assistant",
-      turn: { steps, finalText, startedAt },
+      turn: { steps, finalText, attachments, startedAt },
     });
   }
 
@@ -125,10 +158,90 @@ function OnenewAvatar() {
   );
 }
 
-function AssistantTurnBlock({ turn }: { turn: AssistantTurn }) {
-  const { steps, finalText, startedAt } = turn;
+function FileChip({
+  filename,
+  subtitle,
+  title,
+  onDownload,
+  downloading,
+  align,
+}: {
+  filename: string;
+  subtitle?: string;
+  title?: string;
+  onDownload?: () => void;
+  downloading?: boolean;
+  align: "left" | "right";
+}) {
+  const clickable = Boolean(onDownload) && !downloading;
+  const className = [
+    "rounded-2.5xl px-3.5 py-2.5 text-sm bg-white border border-ink-200/70 text-ink-800 shadow-soft inline-flex items-center gap-2.5 max-w-full text-left",
+    align === "right" ? "rounded-br-md" : "rounded-bl-md",
+    clickable ? "hover:border-brand-300 hover:bg-brand-50/40 cursor-pointer transition-colors" : "",
+    downloading ? "opacity-70 cursor-wait" : "",
+  ].filter(Boolean).join(" ");
+
+  const body = (
+    <>
+      <span className="w-8 h-8 rounded-lg bg-ink-100 text-ink-500 flex items-center justify-center text-[10px] font-semibold shrink-0">
+        FILE
+      </span>
+      <span className="min-w-0">
+        <span className="block font-medium truncate">
+          {downloading ? "下载中…" : filename}
+        </span>
+        {subtitle && (
+          <span className="block text-[11px] text-ink-400 mt-0.5">{subtitle}</span>
+        )}
+        {clickable && (
+          <span className="block text-[11px] text-brand-600 mt-0.5">点击下载</span>
+        )}
+      </span>
+    </>
+  );
+
+  if (clickable) {
+    return (
+      <button type="button" onClick={onDownload} className={className} title={title || filename}>
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <div className={className} title={title || filename}>
+      {body}
+    </div>
+  );
+}
+
+function AssistantTurnBlock({
+  turn,
+  userId,
+  sessionId,
+}: {
+  turn: AssistantTurn;
+  userId: string;
+  sessionId: string | null;
+}) {
+  const { steps, finalText, attachments, startedAt } = turn;
   const hasSteps = steps.length > 0;
   const onlySteps = hasSteps && !finalText;
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
+
+  const downloadAttachment = useCallback(async (file: AssistantAttachment) => {
+    const path = resolveWorkspaceDownloadPath(sessionId, file.relativePath, file.filename);
+    if (!userId.trim() || !path) return;
+    const key = path;
+    setDownloadingKey(key);
+    try {
+      await workspaceApi.download(userId, path, file.filename);
+    } catch (err) {
+      console.error("[MessageList] 附件下载失败", err);
+    } finally {
+      setDownloadingKey(null);
+    }
+  }, [userId, sessionId]);
 
   return (
     <div className="flex gap-3 justify-start">
@@ -149,6 +262,44 @@ function AssistantTurnBlock({ turn }: { turn: AssistantTurn }) {
                 streaming={finalText.isStreaming}
               />
             </div>
+            {attachments.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {attachments.map((file) => {
+                  const path = resolveWorkspaceDownloadPath(sessionId, file.relativePath, file.filename);
+                  const sizeLabel = formatFileSize(file.size);
+                  return (
+                    <FileChip
+                      key={path || file.filename}
+                      filename={file.filename}
+                      subtitle={sizeLabel || undefined}
+                      title={file.relativePath || file.filename}
+                      onDownload={path ? () => void downloadAttachment(file) : undefined}
+                      downloading={path != null && downloadingKey === path}
+                      align="left"
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+        {!finalText && attachments.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {attachments.map((file) => {
+              const path = resolveWorkspaceDownloadPath(sessionId, file.relativePath, file.filename);
+              const sizeLabel = formatFileSize(file.size);
+              return (
+                <FileChip
+                  key={path || file.filename}
+                  filename={file.filename}
+                  subtitle={sizeLabel || undefined}
+                  title={file.relativePath || file.filename}
+                  onDownload={path ? () => void downloadAttachment(file) : undefined}
+                  downloading={path != null && downloadingKey === path}
+                  align="left"
+                />
+              );
+            })}
           </div>
         )}
         {onlySteps && (
@@ -164,6 +315,8 @@ function AssistantTurnBlock({ turn }: { turn: AssistantTurn }) {
 
 interface Props {
   messages: Message[];
+  userId: string;
+  sessionId: string | null;
 }
 
 const SCROLL_PIN_THRESHOLD_PX = 80;
@@ -177,10 +330,27 @@ function scrollToBottom(container: HTMLElement, behavior: ScrollBehavior) {
   container.scrollTo({ top: container.scrollHeight, behavior });
 }
 
-export default function MessageList({ messages }: Props) {
+export default function MessageList({ messages, userId, sessionId }: Props) {
   const displayItems = useMemo(() => groupMessages(messages), [messages]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
+  const [downloadingUserFile, setDownloadingUserFile] = useState<string | null>(null);
+
+  const downloadUserFile = useCallback(async (
+    filename: string,
+    relativePath?: string,
+  ) => {
+    const path = resolveWorkspaceDownloadPath(sessionId, relativePath, filename);
+    if (!userId.trim() || !path) return;
+    setDownloadingUserFile(path);
+    try {
+      await workspaceApi.download(userId, path, filename);
+    } catch (err) {
+      console.error("[MessageList] 用户附件下载失败", err);
+    } finally {
+      setDownloadingUserFile(null);
+    }
+  }, [userId, sessionId]);
 
   useEffect(() => {
     const container = scrollRef.current;
@@ -251,33 +421,35 @@ export default function MessageList({ messages }: Props) {
             const subtitle = [sizeLabel, item.docId ? `doc:${item.docId.slice(0, 8)}…` : ""]
               .filter(Boolean)
               .join(" · ");
+            const path = resolveWorkspaceDownloadPath(sessionId, item.relativePath, item.filename);
             return (
               <div key={i} className="flex justify-end">
                 <div className="max-w-[78%]">
                   <MessageTime ts={item.startedAt} align="right" />
-                  <div
-                    className="rounded-2.5xl rounded-br-md px-3.5 py-2.5 text-sm bg-white border border-ink-200/70 text-ink-800 shadow-soft inline-flex items-center gap-2.5"
+                  <FileChip
+                    filename={item.filename}
+                    subtitle={subtitle || undefined}
                     title={
                       item.docId
                         ? `${item.relativePath || item.filename}\ndoc_id: ${item.docId}`
                         : (item.relativePath || item.filename)
                     }
-                  >
-                    <span className="w-8 h-8 rounded-lg bg-ink-100 text-ink-500 flex items-center justify-center text-[10px] font-semibold shrink-0">
-                      FILE
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block font-medium truncate">{item.filename}</span>
-                      {subtitle && (
-                        <span className="block text-[11px] text-ink-400 mt-0.5">{subtitle}</span>
-                      )}
-                    </span>
-                  </div>
+                    onDownload={path ? () => void downloadUserFile(item.filename, item.relativePath) : undefined}
+                    downloading={path != null && downloadingUserFile === path}
+                    align="right"
+                  />
                 </div>
               </div>
             );
           }
-          return <AssistantTurnBlock key={i} turn={item.turn} />;
+          return (
+            <AssistantTurnBlock
+              key={i}
+              turn={item.turn}
+              userId={userId}
+              sessionId={sessionId}
+            />
+          );
         })}
       </div>
     </div>

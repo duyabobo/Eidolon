@@ -17,6 +17,12 @@ import {
   attachPidToSessionCgroup,
   planSessionResourceLimits,
 } from "./session-cgroup";
+import {
+  artifactDownloadPath,
+  diffWorkspaceArtifacts,
+  snapshotWorkspace,
+  type WorkspaceSnapshot,
+} from "./workspace-artifacts";
 
 // ── Pi RPC 协议类型 ───────────────────────────────────────────────────────────
 
@@ -101,6 +107,8 @@ interface ActiveTurn {
   bwrapChecked: boolean;  // 首轮校验 bwrap.ready，后续轮次跳过
   /** 本轮累计 text_delta，作为 agent_end.messages 缺失时的兜底 */
   textBuffer: string;
+  /** 本轮开始时 workspace 文件 mtime 快照，用于检测产物 */
+  workspaceSnapshot: WorkspaceSnapshot;
 }
 
 // ── pi config 目录管理 ────────────────────────────────────────────────────────
@@ -428,7 +436,14 @@ export async function startPiSession(
       console.log(`[pi-session] session=${sessionId}: bwrap 扩展已确认就绪`);
     }
 
-    const done = await dispatchPiEvent(msg, sessionId, turnId, outputStream, activeTurn);
+    const done = await dispatchPiEvent(
+      msg,
+      sessionId,
+      turnId,
+      outputStream,
+      activeTurn,
+      sandboxPaths.workspace,
+    );
     if (done) {
       console.log(`[pi-session] session=${sessionId} turn=${turnId}: 轮次结束`);
       activeTurn = null;
@@ -504,6 +519,16 @@ export async function startPiSession(
         }
       }
 
+      let workspaceSnapshot: WorkspaceSnapshot = new Map();
+      try {
+        workspaceSnapshot = await snapshotWorkspace(sandboxPaths.workspace);
+      } catch (err) {
+        console.warn(
+          `[pi-session] session=${sessionId} turn=${turnId}: workspace 快照失败，本轮不推送附件`,
+          err,
+        );
+      }
+
       return new Promise<void>((resolve, reject) => {
         activeTurn = {
           turnId,
@@ -512,11 +537,15 @@ export async function startPiSession(
           reject,
           bwrapChecked: false,
           textBuffer: "",
+          workspaceSnapshot,
         };
 
         const promptPayload: PiPromptCommand = { type: "prompt", message };
         piProcess.stdin!.write(JSON.stringify(promptPayload) + "\n");
-        console.log(`[pi-session] session=${sessionId} turn=${turnId}: prompt 已写入 stdin（${message.length}字符）`);
+        console.log(
+          `[pi-session] session=${sessionId} turn=${turnId}: prompt 已写入 stdin（${message.length}字符）` +
+            ` workspaceFiles=${workspaceSnapshot.size}`,
+        );
       });
     },
 
@@ -548,6 +577,7 @@ async function dispatchPiEvent(
   turnId: string,
   outputStream: SessionOutputStream,
   turn: ActiveTurn,
+  workspaceRoot: string,
 ): Promise<boolean> {
   switch (event.type) {
     case "response": {
@@ -612,6 +642,14 @@ async function dispatchPiEvent(
         console.warn(`[pi-session] session=${sessionId} turn=${turnId}: 无可用最终答案，跳过 final_result`);
       }
 
+      await pushAssistantFileEvents(
+        sessionId,
+        turnId,
+        workspaceRoot,
+        turn.workspaceSnapshot,
+        outputStream,
+      );
+
       await outputStream.pushDone();
       return true;
     }
@@ -623,4 +661,31 @@ async function dispatchPiEvent(
       return false;
     }
   }
+}
+
+/** 本轮 workspace 新增/修改文件 → assistant_file 事件 */
+async function pushAssistantFileEvents(
+  sessionId: string,
+  turnId: string,
+  workspaceRoot: string,
+  before: WorkspaceSnapshot,
+  outputStream: SessionOutputStream,
+): Promise<void> {
+  const artifacts = await diffWorkspaceArtifacts(workspaceRoot, before);
+  if (artifacts.length === 0) return;
+
+  for (const file of artifacts) {
+    const payload = {
+      filename: file.filename,
+      relative_path: artifactDownloadPath(sessionId, file.relPath),
+      size: file.size,
+    };
+    await outputStream.push({
+      event_type: "assistant_file",
+      content: JSON.stringify(payload),
+    });
+  }
+  console.log(
+    `[pi-session] session=${sessionId} turn=${turnId}: assistant_file 已推送 count=${artifacts.length}`,
+  );
 }

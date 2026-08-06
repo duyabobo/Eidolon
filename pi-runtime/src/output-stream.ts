@@ -21,6 +21,7 @@ export type EventType =
   | "tool_call"
   | "tool_result"
   | "final_result"
+  | "assistant_file"
   | "done"
   | "error"
   | "cancelled";

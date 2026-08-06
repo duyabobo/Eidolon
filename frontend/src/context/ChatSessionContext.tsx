@@ -121,6 +121,26 @@ type SnapshotEvent = {
   ts?: number | string;
 };
 
+interface AssistantFilePayload {
+  filename: string;
+  relative_path: string;
+  size?: number;
+}
+
+function parseAssistantFilePayload(raw: string): AssistantFilePayload | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<AssistantFilePayload>;
+    if (!parsed.filename || !parsed.relative_path) return null;
+    return {
+      filename: parsed.filename,
+      relative_path: parsed.relative_path,
+      size: typeof parsed.size === "number" ? parsed.size : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function buildMessagesFromSnapshot(
   request: string,
   snapshot: SnapshotEvent[],
@@ -201,6 +221,25 @@ export function buildMessagesFromSnapshot(
       continue;
     }
 
+    if (event.event_type === "assistant_file") {
+      const file = parseAssistantFilePayload(content);
+      if (file) {
+        msgs = [
+          ...closeLastAssistantAt(msgs, ts),
+          {
+            role: "assistant",
+            type: "file",
+            content: file.filename,
+            relativePath: file.relative_path,
+            size: file.size,
+            startedAt: ts,
+            endedAt: ts,
+          },
+        ];
+      }
+      continue;
+    }
+
     if (event.event_type === "thinking") {
       if (last?.role === "assistant" && last.type === "thinking") {
         msgs[msgs.length - 1] = { ...last, content: last.content + content, endedAt: ts };
@@ -258,6 +297,25 @@ function appendMessageEvent(prev: Message[], type: MessageType, text: string, st
     return [...closed, { role: "assistant", type, content: text, isStreaming: streaming, startedAt: now }];
   }
   return [...closed, { role: "assistant", type, content: text, startedAt: now }];
+}
+
+function appendAssistantFileMessage(prev: Message[], raw: string): Message[] {
+  const file = parseAssistantFilePayload(raw);
+  if (!file) return prev;
+  const now = Date.now();
+  const closed = closeLastAssistantStep(prev);
+  return [
+    ...closed,
+    {
+      role: "assistant",
+      type: "file",
+      content: file.filename,
+      relativePath: file.relative_path,
+      size: file.size,
+      startedAt: now,
+      endedAt: now,
+    },
+  ];
 }
 
 function markAllStreamingDone(prev: Message[]): Message[] {
@@ -522,6 +580,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
           updateSessionMessages(sid, (prev) => appendMessageEvent(prev, "tool_result", ev.data));
         } else if (ev.event === "final_result") {
           updateSessionMessages(sid, (prev) => appendMessageEvent(prev, "final_result", ev.data));
+        } else if (ev.event === "assistant_file") {
+          updateSessionMessages(sid, (prev) => appendAssistantFileMessage(prev, ev.data));
         }
       },
       onDone,
