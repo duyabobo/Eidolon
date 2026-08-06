@@ -185,6 +185,8 @@ services:
       LLM_PROXY_PORT: "9001"
       MCP_PROXY_HOST: "mcp-proxy"
       MCP_PROXY_PORT: "8080"
+      # bwrap 是否允许联网：true=可联网，false=不可联网
+      SANDBOX_NETWORK_ENABLED: "${SANDBOX_NETWORK_ENABLED:-false}"
       # 每个 session 沙盒 cgroup 资源上限（cgroup v2；不可用时自动降级）
       SANDBOX_CGROUP_ENABLED: "true"
       SANDBOX_CGROUP_MEMORY_MAX: "512M"

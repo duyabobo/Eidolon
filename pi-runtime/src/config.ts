@@ -20,6 +20,11 @@ export const config = {
   },
   sandbox: {
     root: process.env.SANDBOX_ROOT ?? "/data/sandboxes",
+    /**
+     * true：bwrap 不传 --unshare-net，沙盒可访问宿主机/容器网络。
+     * false（默认）：--unshare-net，仅 Unix socket 桥可出站。
+     */
+    networkEnabled: (process.env.SANDBOX_NETWORK_ENABLED ?? "false").toLowerCase() === "true",
     cgroup: {
       enabled: (process.env.SANDBOX_CGROUP_ENABLED ?? "true").toLowerCase() !== "false",
       basePath: process.env.SANDBOX_CGROUP_BASE ?? "",

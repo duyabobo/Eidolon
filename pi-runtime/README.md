@@ -111,7 +111,7 @@ pi 进程本身运行在外层 bwrap 沙盒内，不仅 bash 命令被隔离，p
 | `--bind {piConfigDir}` | pi config 目录 | 读写 | mcp.json / models.json / bwrap.ready |
 | `--tmpfs /tmp/pi-socks` | sock 根目录 | 覆盖 | 清空整棵 sock 树，阻断跨 session 可见 |
 | `--ro-bind .../sessions/{id}` | 本 session sock | **只读** | 仅暴露本会话 llm/mcp.sock |
-| `--unshare-net` | — | — | 完全断网，唯一出口是 Unix socket |
+| `--unshare-net` | — | — | 完全断网（`SANDBOX_NETWORK_ENABLED=false`）；联网时省略 |
 | `--unshare-pid` | — | — | 独立 PID 空间 |
 
 ### 网络白名单安全性
@@ -120,7 +120,7 @@ pi 进程本身运行在外层 bwrap 沙盒内，不仅 bash 命令被隔离，p
 
 - 整棵 `/tmp/pi-socks` 先用 tmpfs 覆盖，同机其他 session 的 sock 不可见
 - 再只读挂载 `sessions/{sessionId}/`，pi 只能 **connect** 本会话出口
-- `--unshare-net` 切断所有其他网络出口
+- `--unshare-net` 切断所有其他网络出口（`SANDBOX_NETWORK_ENABLED=true` 时不启用）
 - socket 文件由 pi-runtime 在沙盒外创建；身份头（session / user）由 runtime 桥注入，沙盒不可伪造
 
 ### pi 沙盒内无法访问的内容
@@ -131,7 +131,7 @@ pi 进程本身运行在外层 bwrap 沙盒内，不仅 bash 命令被隔离，p
 | Redis | 无凭据，无网络 |
 | 其他 session 的文件 | `--tmpfs {sandboxRoot}` 覆盖 |
 | 其他 session 的 sock | `--tmpfs /tmp/pi-socks` + 仅 bind 本 session |
-| 外部网络 / 互联网 | `--unshare-net` |
+| 外部网络 / 互联网 | `--unshare-net`（`SANDBOX_NETWORK_ENABLED=false`） |
 | MCP Server（直连） | 无路由，只能经由 mcp-proxy |
 
 ### Session 资源上限（cgroup v2）
@@ -236,6 +236,7 @@ volumes:
 | `MONGO_DB` | 数据库名 | `pi_agent` |
 | `OPENAI_API_KEY` | LLM 内部 token（传给 pi） | `pi-agent-internal` |
 | `SANDBOX_ROOT` | bwrap 沙盒根目录 | `/data/sandboxes` |
+| `SANDBOX_NETWORK_ENABLED` | bwrap 是否允许联网（`true` 省略 `--unshare-net`） | `false` |
 | `LLM_PROXY_HOST` | llm-proxy 主机名 | `llm-proxy` |
 | `LLM_PROXY_PORT` | llm-proxy 端口 | `9001` |
 | `MCP_PROXY_HOST` | mcp-proxy 主机名 | `mcp-proxy` |

@@ -133,7 +133,7 @@ export async function purgeSessionData(userId: string, sessionId: string): Promi
  *   - --bind piConfigDir   pi config 目录可读写（bwrap 扩展需写入 bwrap.ready）
  *   - --tmpfs SOCKS_DIR    覆盖整棵 sock 树，阻止看到同机其它 session
  *   - --ro-bind sessionSocksDir  仅挂载本 session 的 llm/mcp.sock（可 connect，不可篡改）
- *   - --unshare-net        完全断网，唯一网络出口是挂载的 Unix socket
+ *   - --unshare-net        断网（SANDBOX_NETWORK_ENABLED=false 时）
  *   - --unshare-pid        独立 PID 空间
  *   - --die-with-parent    pi-runtime 退出时沙盒子进程自动终止
  */
@@ -143,6 +143,10 @@ export function buildOuterSandboxArgs(
   sessionId: string,
 ): string[] {
   const socksDir = sessionSocksDir(sessionId);
+  const networkArgs = config.sandbox.networkEnabled ? [] : ["--unshare-net"];
+  if (config.sandbox.networkEnabled) {
+    console.log(`[sandbox] session=${sessionId}: SANDBOX_NETWORK_ENABLED=true，bwrap 允许联网`);
+  }
   return [
     "--ro-bind", "/", "/",
     "--tmpfs", config.sandbox.root,
@@ -163,7 +167,7 @@ export function buildOuterSandboxArgs(
     "--ro-bind", socksDir, socksDir,
     "--proc", "/proc",
     "--dev", "/dev",
-    "--unshare-net",
+    ...networkArgs,
     "--unshare-pid",
     "--die-with-parent",
     "--chdir", paths.workspace,

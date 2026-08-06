@@ -34,7 +34,8 @@
  *   PI_SANDBOX_USER_FILES  → 用户可读写文件区（管理页上传，跨 session）
  *   PI_SANDBOX_GLOBAL_SKILLS → 系统 Skill 根目录（只读）
  *   PI_SANDBOX_USER_SKILLS  → 用户 Skill 根目录（只读）
- *   --unshare-net        → 禁止网络访问
+ *   PI_SANDBOX_NETWORK_ENABLED → "true" 时允许联网（不传 --unshare-net）
+ *   --unshare-net        → 禁止网络访问（PI_SANDBOX_NETWORK_ENABLED≠true 时）
  *   --unshare-pid        → 独立 PID 空间
  *   --tmpfs sandboxRoot  → 对沙盒内隐藏其他 session/user 目录
  */
@@ -62,10 +63,12 @@ const sandboxUserFiles = process.env.PI_SANDBOX_USER_FILES ?? "";
 const sandboxGlobalSkills = process.env.PI_SANDBOX_GLOBAL_SKILLS ?? "";
 const sandboxUserSkills = process.env.PI_SANDBOX_USER_SKILLS ?? "";
 const piCodingAgentDir = process.env.PI_CODING_AGENT_DIR ?? "";
+const sandboxNetworkEnabled =
+  (process.env.PI_SANDBOX_NETWORK_ENABLED ?? "false").toLowerCase() === "true";
 
 /**
  * 是否已运行在外层 bwrap 沙盒内。
- * 当 PI_OUTER_SANDBOX=1 时，pi 进程本身已被 bwrap 隔离（--unshare-net + 文件系统限制），
+ * 当 PI_OUTER_SANDBOX=1 时，pi 进程本身已被 bwrap 隔离（文件系统限制；网络由 PI_SANDBOX_NETWORK_ENABLED 控制），
  * bash 命令继承沙盒上下文，不再需要额外的内层 bwrap 封装。
  * 路径白名单（guardPath）对 read/write/edit 工具仍然生效。
  */
@@ -74,6 +77,7 @@ const isInsideOuterSandbox = process.env.PI_OUTER_SANDBOX === "1";
 // ── bwrap 参数构造 ────────────────────────────────────────────────────────────
 
 function buildBwrapArgs(cmd: string): string[] {
+  const networkArgs = sandboxNetworkEnabled ? [] : ["--unshare-net"];
   return [
     "--ro-bind", "/", "/",
     // 用空 tmpfs 覆盖整个 sandbox 根目录，对 bwrap 内隐藏其他 session/user 数据
@@ -90,7 +94,7 @@ function buildBwrapArgs(cmd: string): string[] {
     ...(sandboxUserSkills ? ["--ro-bind", sandboxUserSkills, sandboxUserSkills] : []),
     "--proc", "/proc",
     "--dev", "/dev",
-    "--unshare-net",
+    ...networkArgs,
     "--unshare-pid",
     "--die-with-parent",
     "--chdir", sandboxWorkspace,

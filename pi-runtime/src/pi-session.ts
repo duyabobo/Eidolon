@@ -4,6 +4,7 @@ import { mkdir, writeFile, rm, access as fsAccess } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import { SandboxPaths, buildOuterSandboxArgs } from "./sandbox";
+import { config } from "./config";
 import { SessionOutputStream } from "./output-stream";
 import { extractLastAssistantText, resolveFinalResultContent } from "./final-answer";
 import { sessionLlmSockForSandbox } from "./session-llm-bridge";
@@ -325,6 +326,7 @@ export async function startPiSession(
     USER_FILES: sandboxPaths.userFiles,
     PI_SANDBOX_GLOBAL_SKILLS: sandboxPaths.globalSkills,
     PI_SANDBOX_USER_SKILLS: sandboxPaths.userSkills,
+    PI_SANDBOX_NETWORK_ENABLED: config.sandbox.networkEnabled ? "true" : "false",
     PI_CODING_AGENT_DIR: piConfigDir,
     PI_OUTER_SANDBOX: "1",
     PI_SOCKS_LLM: sessionLlmSockForSandbox(sessionId),
