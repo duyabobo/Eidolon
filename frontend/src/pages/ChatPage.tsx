@@ -10,12 +10,23 @@ export default function ChatPage() {
   const {
     messages, isLoading, error, skills,
     selectedSkillRef, setSelectedSkillRef,
-    send, interrupt, userId, currentSessionId, appendUploadedFile,
+    send, interrupt, userId, currentSessionId, appendUploadedFile, startNewChat,
   } = useChatSession();
 
   return (
     <div className="flex flex-col h-full relative">
-      <header className="shrink-0 flex items-center justify-end px-4 py-2.5 border-b border-ink-100/80 bg-white/60 backdrop-blur-sm">
+      <header className="shrink-0 flex items-center justify-end gap-1 px-4 py-2.5 border-b border-ink-100/80 bg-white/60 backdrop-blur-sm">
+        <button
+          type="button"
+          onClick={() => startNewChat()}
+          className="group relative flex items-center justify-center w-10 h-10 rounded-xl text-ink-500 hover:text-brand-700 hover:bg-white hover:shadow-sm transition-all"
+          aria-label="新建对话"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          <span className="nav-tooltip">新建</span>
+        </button>
         <button
           type="button"
           onClick={() => setHistoryOpen(true)}

@@ -52,12 +52,12 @@ const NAV_ITEMS = [
 ] as const;
 
 export default function AppSidebar() {
-  const { startNewChat } = useChatSession();
+  const { resumeLastChat } = useChatSession();
   const navigate = useNavigate();
   const location = useLocation();
 
   const handleChatClick = () => {
-    startNewChat();
+    void resumeLastChat();
     if (location.pathname !== "/") navigate("/");
   };
 

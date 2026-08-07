@@ -110,6 +110,22 @@ function savePersistedSkillRef(sessionId: string, ref: string): void {
   }
 }
 
+const LAST_SESSION_STORAGE_KEY = "pi_last_session_id";
+const CURRENT_SESSION_STORAGE_KEY = "pi_session_id";
+
+function rememberLastSessionId(sessionId: string | null | undefined): void {
+  const id = (sessionId ?? "").trim();
+  if (!id) return;
+  localStorage.setItem(LAST_SESSION_STORAGE_KEY, id);
+}
+
+function readLastSessionId(): string | null {
+  const last = localStorage.getItem(LAST_SESSION_STORAGE_KEY)?.trim();
+  if (last) return last;
+  const current = localStorage.getItem(CURRENT_SESSION_STORAGE_KEY)?.trim();
+  return current || null;
+}
+
 type SnapshotEvent = {
   event_type: string;
   content?: string;
@@ -388,6 +404,8 @@ interface ChatSessionContextValue {
   loadSessions: () => void;
   loadSkills: () => void;
   startNewChat: () => void;
+  /** 回到最近一次会话（侧栏「对话」：不新建） */
+  resumeLastChat: () => Promise<void>;
   switchToSession: (s: SessionSummary) => Promise<void>;
   interrupt: () => Promise<void>;
   send: (text: string, pendingFiles?: File[]) => Promise<void>;
@@ -612,9 +630,11 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   const restoreSession = useCallback(async (savedSessionId: string) => {
     sessionIdRef.current = savedSessionId;
     setCurrentSessionId(savedSessionId);
+    localStorage.setItem(CURRENT_SESSION_STORAGE_KEY, savedSessionId);
+    rememberLastSessionId(savedSessionId);
     const detail = await getSessionDetail(savedSessionId);
     if (!detail) {
-      localStorage.removeItem("pi_session_id");
+      localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
       sessionIdRef.current = null;
       setCurrentSessionId(null);
       return;
@@ -637,20 +657,22 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (restoredRef.current) return;
     restoredRef.current = true;
-    const savedSessionId = localStorage.getItem("pi_session_id");
+    const savedSessionId = localStorage.getItem(CURRENT_SESSION_STORAGE_KEY);
     const savedUserId = localStorage.getItem("pi_user_id");
     if (!savedSessionId || !savedUserId) return;
     restoreSession(savedSessionId).catch(() => {
-      localStorage.removeItem("pi_session_id");
+      localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
       sessionIdRef.current = null;
     });
   }, [restoreSession]);
 
   const startNewChat = useCallback(() => {
+    const prev = sessionIdRef.current;
+    if (prev) rememberLastSessionId(prev);
     persistCurrentSession();
     sessionIdRef.current = null;
     setCurrentSessionId(null);
-    localStorage.removeItem("pi_session_id");
+    localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
     messagesRef.current = [];
     setMessages([]);
     syncVisibleSessionState(null);
@@ -667,7 +689,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
 
     sessionIdRef.current = s.session_id;
     setCurrentSessionId(s.session_id);
-    localStorage.setItem("pi_session_id", s.session_id);
+    localStorage.setItem(CURRENT_SESSION_STORAGE_KEY, s.session_id);
+    rememberLastSessionId(s.session_id);
 
     const cached = sessionRuntimeRef.current.get(s.session_id);
     if (cached) {
@@ -703,6 +726,27 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     sessionRuntimeRef.current.set(s.session_id, emptyRuntime(msgs));
     syncVisibleSessionState(s.session_id);
   }, [persistCurrentSession, attachTurnStream, syncVisibleSessionState, notifyRuntimeChange]);
+
+  const resumeLastChat = useCallback(async () => {
+    if (sessionIdRef.current) return;
+
+    const lastId = readLastSessionId();
+    if (lastId) {
+      try {
+        await restoreSession(lastId);
+        return;
+      } catch {
+        localStorage.removeItem(LAST_SESSION_STORAGE_KEY);
+      }
+    }
+
+    const uid = userId.trim();
+    if (!uid) return;
+    const list = await getRecentSessions(uid);
+    setSessions(list);
+    if (list.length === 0) return;
+    await switchToSession(list[0]);
+  }, [restoreSession, userId, switchToSession]);
 
   const setUserId = useCallback((newId: string) => {
     const id = resolveUserId(newId);
@@ -795,7 +839,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
         sessionId = resp.session_id;
         sessionIdRef.current = sessionId;
         setCurrentSessionId(sessionId);
-        localStorage.setItem("pi_session_id", sessionId);
+        localStorage.setItem(CURRENT_SESSION_STORAGE_KEY, sessionId);
+        rememberLastSessionId(sessionId);
         sessionRuntimeRef.current.set(sessionId, emptyRuntime(messagesRef.current));
         setSessions((prev) => {
           const entry = {
@@ -931,6 +976,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     loadSessions,
     loadSkills,
     startNewChat,
+    resumeLastChat,
     switchToSession,
     interrupt,
     send,
