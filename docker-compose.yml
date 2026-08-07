@@ -165,6 +165,10 @@ services:
         condition: service_healthy
       gateway-sse:
         condition: service_healthy
+      llm-proxy:
+        condition: service_healthy
+      admin:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000"]
       interval: 10s
