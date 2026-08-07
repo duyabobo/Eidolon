@@ -141,6 +141,8 @@ skill B 用 `mrag,tavily`），都只连接、只缓存一次；不会因为白�
 
 - admin 启动时幂等写入 Mongo `mcp_servers`（`user_id=null`；已存在则不覆盖）
 - 论文缓存卷：`arxiv_papers` → `/data/arxiv-papers`
+- 日志与其它服务一致：`pi_shared.setup_logging("arxiv-mcp")` → `./logs/arxiv-mcp/arxiv-mcp.log`（按天切割，保留 7 天）
+- `ALLOWED_HOSTS` 必须包含服务名**带端口**形式（如 `arxiv-mcp:8081`），否则 Streamable HTTP 的 DNS rebinding 保护会拒绝 mcp-proxy 的请求
 - Skill `mcp_tools` 可按工具名白名单，常用：`search_papers`、`get_abstract`、`download_paper`、`list_papers`、`read_paper`、`get_paper_latex`、`list_paper_latex_sections`、`get_paper_latex_section`、`citation_graph`、`export_citations`、`watch_topic`、`check_alerts`（未装 `[pro]`，无 `semantic_search`/`reindex`）
 
 ---

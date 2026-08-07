@@ -24,6 +24,21 @@ class McpServerProbeResult:
     skipped: bool = False
 
 
+def _format_probe_error(exc: BaseException) -> str:
+    """展开 ExceptionGroup / __cause__，避免只看到 TaskGroup 笼统信息。"""
+    if isinstance(exc, BaseExceptionGroup):
+        parts = [_format_probe_error(child) for child in exc.exceptions]
+        return "; ".join(p for p in parts if p) or str(exc)
+
+    msg = str(exc).strip() or type(exc).__name__
+    cause = exc.__cause__ or exc.__context__
+    if cause is not None and cause is not exc:
+        nested = _format_probe_error(cause)
+        if nested and nested not in msg:
+            return f"{msg} | cause: {nested}"
+    return msg
+
+
 async def probe_mcp_server(server: McpServerEntry) -> McpServerProbeResult:
     if not server.enabled:
         return McpServerProbeResult(
@@ -57,11 +72,12 @@ async def probe_mcp_server(server: McpServerEntry) -> McpServerProbeResult:
             )
     except Exception as exc:
         latency_ms = int((time.monotonic() - started) * 1000)
+        error_text = _format_probe_error(exc)
         logger.warning(
             "MCP 探测失败 name=%s url=%s err=%s",
             server.name,
             server.url,
-            exc,
+            error_text,
         )
         return McpServerProbeResult(
             name=server.name,
@@ -71,7 +87,7 @@ async def probe_mcp_server(server: McpServerEntry) -> McpServerProbeResult:
             available=False,
             tool_count=0,
             tools=[],
-            error=str(exc),
+            error=error_text,
             latency_ms=latency_ms,
         )
 

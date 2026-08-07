@@ -240,17 +240,20 @@ services:
   # 平台内置 arXiv MCP（Streamable HTTP）；经 mcp-proxy 聚合，不进沙盒
   arxiv-mcp:
     build:
-      context: ./arxiv-mcp
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: arxiv-mcp/Dockerfile
     restart: unless-stopped
     environment:
       TRANSPORT: "http"
       HOST: "0.0.0.0"
       PORT: "8081"
-      ALLOWED_HOSTS: "arxiv-mcp,localhost,127.0.0.1"
+      ALLOWED_HOSTS: "arxiv-mcp,arxiv-mcp:8081,localhost,localhost:8081,127.0.0.1,127.0.0.1:8081"
+      LOG_DIR: "/app/logs"
+      LOG_LEVEL: "INFO"
       TZ: "Asia/Shanghai"
     volumes:
       - arxiv_papers:/data/arxiv-papers
+      - ./logs/arxiv-mcp:/app/logs
     networks:
       - pi_net
 
