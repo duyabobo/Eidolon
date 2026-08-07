@@ -9,6 +9,7 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
 
+from config import settings
 from services.request_user import (
     X_USER_ID_HEADER,
     OutboundUserIdSlot,
@@ -39,6 +40,16 @@ def _build_auth_headers(api_key: str) -> dict[str, str] | None:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _downstream_http_timeout() -> httpx.Timeout:
+    """下游 MCP HTTP 超时（arxiv 等外网调用常超过 SDK 默认 30s）。"""
+    return httpx.Timeout(
+        connect=settings.mcp_downstream_connect_timeout_s,
+        read=settings.mcp_downstream_read_timeout_s,
+        write=settings.mcp_downstream_connect_timeout_s,
+        pool=settings.mcp_downstream_connect_timeout_s,
+    )
+
+
 def _resolve_outbound_user_id(slot: OutboundUserIdSlot | None) -> str | None:
     """优先读连接级槽位（SSE 跨 task），否则回退 ContextVar（streamable-http 同 task）。"""
     if slot is not None:
@@ -62,7 +73,11 @@ def _make_http_client_factory(outbound_user: OutboundUserIdSlot | None = None):
         timeout: httpx.Timeout | None = None,
         auth: httpx.Auth | None = None,
     ) -> httpx.AsyncClient:
-        client = create_mcp_http_client(headers=headers, timeout=timeout, auth=auth)
+        client = create_mcp_http_client(
+            headers=headers,
+            timeout=timeout or _downstream_http_timeout(),
+            auth=auth,
+        )
         hooks = client.event_hooks.setdefault("request", [])
         hooks.append(inject_x_user_id)
         return client

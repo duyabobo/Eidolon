@@ -13,6 +13,8 @@ import { join } from "path";
 
 const MCP_PROXY_SERVER_NAME = "mcp-proxy";
 const MCP_PROXY_LOOPBACK_URL = "http://127.0.0.1:8080/mcp";
+/** pi-mcp-adapter 调 mcp-proxy 的 tools/call 超时；默认 SDK 约 60s，arxiv 外网常不够 */
+const MCP_PROXY_REQUEST_TIMEOUT_MS = 180_000;
 const CACHE_VERSION = 1;
 
 export interface McpDirectToolsSetup {
@@ -62,13 +64,17 @@ export function computeMcpProxyConfigHash(): string {
 export function buildMcpJson(directTools?: string[]): object {
   const serverEntry: Record<string, unknown> = {
     url: MCP_PROXY_LOOPBACK_URL,
+    requestTimeoutMs: MCP_PROXY_REQUEST_TIMEOUT_MS,
   };
   if (directTools && directTools.length > 0) {
     serverEntry.directTools = [...directTools];
   }
   return {
     // 原始工具名与 Skill 正文一致（不要变成 mcp_proxy_wiki_...）
-    settings: { toolPrefix: "none" },
+    settings: {
+      toolPrefix: "none",
+      requestTimeoutMs: MCP_PROXY_REQUEST_TIMEOUT_MS,
+    },
     mcpServers: {
       [MCP_PROXY_SERVER_NAME]: serverEntry,
     },

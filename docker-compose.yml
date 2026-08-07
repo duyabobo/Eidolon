@@ -221,6 +221,9 @@ services:
     env_file: .env
     environment:
       MCP_PROXY_PORT: "8080"
+      # 下游 arxiv 等外网 MCP 读写超时（秒）；SDK 默认 30s 不够
+      MCP_DOWNSTREAM_CONNECT_TIMEOUT_S: "30"
+      MCP_DOWNSTREAM_READ_TIMEOUT_S: "180"
       TZ: "Asia/Shanghai"
     volumes:
       - ./logs/mcp-proxy:/app/logs
@@ -248,6 +251,7 @@ services:
       HOST: "0.0.0.0"
       PORT: "8081"
       ALLOWED_HOSTS: "arxiv-mcp,arxiv-mcp:8081,localhost,localhost:8081,127.0.0.1,127.0.0.1:8081"
+      REQUEST_TIMEOUT: "120"
       LOG_DIR: "/app/logs"
       LOG_LEVEL: "INFO"
       TZ: "Asia/Shanghai"

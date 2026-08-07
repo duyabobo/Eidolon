@@ -155,3 +155,5 @@ skill B 用 `mrag,tavily`），都只连接、只缓存一次；不会因为白�
 | `MONGO_URI` | MongoDB 连接串 | `mongodb://mongo:27019` |
 | `MONGO_DB` | 数据库名 | `pi_agent` |
 | `TOOL_REFRESH_INTERVAL_S` | 工具列表成功缓存 TTL（秒）| `300` |
+| `MCP_DOWNSTREAM_CONNECT_TIMEOUT_S` | 下游 MCP 连接超时（秒） | `30` |
+| `MCP_DOWNSTREAM_READ_TIMEOUT_S` | 下游 MCP 读超时（秒，arxiv 搜索需较大） | `180` |
