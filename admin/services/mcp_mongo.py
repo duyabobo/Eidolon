@@ -58,6 +58,46 @@ async def migrate_legacy_config(db: AsyncIOMotorDatabase) -> None:
         logger.info("MCP 旧配置已迁移 %d 条到 mcp_servers", migrated)
 
 
+# 平台内置系统级 MCP（仅不存在时插入，不覆盖运维改过的 URL）
+_BUILTIN_SYSTEM_SERVERS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "arxiv",
+        "url": "http://arxiv-mcp:8081/mcp",
+        "description": "平台内置 arXiv：检索、全文/PDF、LaTeX、引用图谱",
+        "enabled": True,
+        "api_key": "",
+    },
+)
+
+
+async def ensure_builtin_system_servers(db: AsyncIOMotorDatabase) -> None:
+    """幂等登记平台内置 MCP Server（user_id=null）。"""
+    inserted = 0
+    for spec in _BUILTIN_SYSTEM_SERVERS:
+        name = str(spec["name"])
+        exists = await db[_COLLECTION].find_one(_meta_key(name, None))
+        if exists:
+            continue
+        now = now_china()
+        await db[_COLLECTION].insert_one(
+            {
+                "name": name,
+                "user_id": None,
+                "url": spec["url"],
+                "description": spec.get("description", ""),
+                "enabled": bool(spec.get("enabled", True)),
+                "api_key": spec.get("api_key", ""),
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+        inserted += 1
+        logger.info("已登记内置系统 MCP name=%s url=%s", name, spec["url"])
+
+    if inserted == 0:
+        logger.debug("内置系统 MCP 均已存在，跳过登记")
+
+
 async def list_system_config(db: AsyncIOMotorDatabase) -> McpConfig:
     servers: dict[str, McpServerConfig] = {}
     cursor = db[_COLLECTION].find(_system_user_filter())

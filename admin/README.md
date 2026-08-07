@@ -30,18 +30,26 @@ Admin 是平台的**配置管理中枢**，专注于两类职责：
 
 ### `POST /config/mcp/servers/{name}` — 添加或更新单个 MCP Server
 
+只允许 **HTTP/SSE URL** 类型；禁止 `command`/`args`（stdio 本地进程）。
+
 ```json
 {
-  "command": "npx",
-  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
-  "description": "文件系统工具",
-  "enabled": true
+  "url": "http://arxiv-mcp:8081/mcp",
+  "description": "平台内置 arXiv",
+  "enabled": true,
+  "api_key": ""
 }
 ```
 
+平台内置系统级 Server（admin 启动幂等登记，已存在不覆盖）：
+
+| name | url |
+|------|-----|
+| `arxiv` | `http://arxiv-mcp:8081/mcp` |
+
 ### `DELETE /config/mcp/servers/{name}` — 删除 MCP Server
 
-MCP 配置变更后，**下一个新建 session** 的 pi-runtime 会读取最新配置，无需重启任何服务。
+MCP 配置变更后会通知 mcp-proxy 失效缓存；**下一个新建 session** 即使用最新工具列表。
 
 ---
 

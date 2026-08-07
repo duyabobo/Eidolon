@@ -229,15 +229,35 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+      arxiv-mcp:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # 平台内置 arXiv MCP（Streamable HTTP）；经 mcp-proxy 聚合，不进沙盒
+  arxiv-mcp:
+    build:
+      context: ./arxiv-mcp
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      TRANSPORT: "http"
+      HOST: "0.0.0.0"
+      PORT: "8081"
+      ALLOWED_HOSTS: "arxiv-mcp,localhost,127.0.0.1"
+      TZ: "Asia/Shanghai"
+    volumes:
+      - arxiv_papers:/data/arxiv-papers
+    networks:
+      - pi_net
+
 volumes:
   mongo_data:
   redis_data:
+  arxiv_papers:
   # 开发环境：local 驱动，数据在单机上。
   # 生产集群：用 docker-compose.prod.yml override，换为 NFS/EFS 驱动。
   sandbox_workspaces:

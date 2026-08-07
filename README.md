@@ -28,6 +28,8 @@
 | **admin** | 9000 | Python FastAPI | MCP Server 配置、Skill 管理（元数据 + 文件）|
 | **llm-proxy** | 9001 | Python FastAPI | LLM 代理（OpenAI 兼容）、Provider 配置热更新 |
 | **mcp-proxy** | 8080 | Python FastAPI | MCP 聚合代理：汇总所有 MCP Server 工具，统一路由调用 |
+| **arxiv-mcp** | 8081（内网） | arxiv-mcp-server | 平台内置 arXiv MCP（Streamable HTTP），经 mcp-proxy 暴露 |
+| **arxiv-mcp** | 8081（仅内网） | arxiv-mcp-server | 平台内置 arXiv MCP（Streamable HTTP） |
 | **pi-runtime** | — | Node.js 执行引擎 | Agent 任务执行、bwrap 沙盒隔离、Unix socket 网络白名单 |
 | **redis** | 6379 | Redis 7 | 任务 Stream Consumer Group、增量输出 Stream、实时控制通知 |
 | **mongo** | 27019 | MongoDB 7 | 会话数据、LLM / MCP 配置、Skill 元数据 |
@@ -79,7 +81,8 @@ onenew-platform/
 ├── gateway-sse/           # FastAPI SSE 服务 - 流式输出（按连接数独立扩容）
 ├── admin/                 # FastAPI 管理服务 - MCP/Skill 配置 
 ├── llm-proxy/             # FastAPI LLM 代理服务 
-├── mcp-proxy/             # FastAPI MCP 聚合代理 
+├── mcp-proxy/             # FastAPI MCP 聚合代理
+├── arxiv-mcp/             # 平台内置 arXiv MCP（HTTP sidecar）
 └── pi-runtime/            # Node.js 执行引擎（沙盒内 agent 运行时） 
 ```
 

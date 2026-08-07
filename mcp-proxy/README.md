@@ -131,6 +131,20 @@ skill B 用 `mrag,tavily`），都只连接、只缓存一次；不会因为白�
 
 ---
 
+## 平台内置 MCP
+
+平台通过独立 sidecar 提供官方 MCP，**不**在 mcp-proxy 进程内跑 stdio：
+
+| Server 名 | 服务 | URL | 说明 |
+|-----------|------|-----|------|
+| `arxiv` | `arxiv-mcp` | `http://arxiv-mcp:8081/mcp` | blazickjp/arxiv-mcp-server（Streamable HTTP + pdf extra） |
+
+- admin 启动时幂等写入 Mongo `mcp_servers`（`user_id=null`；已存在则不覆盖）
+- 论文缓存卷：`arxiv_papers` → `/data/arxiv-papers`
+- Skill `mcp_tools` 可按工具名白名单，常用：`search_papers`、`get_abstract`、`download_paper`、`list_papers`、`read_paper`、`get_paper_latex`、`list_paper_latex_sections`、`get_paper_latex_section`、`citation_graph`、`export_citations`、`watch_topic`、`check_alerts`（未装 `[pro]`，无 `semantic_search`/`reindex`）
+
+---
+
 ## 配置
 
 | 环境变量 | 说明 | 默认值 |

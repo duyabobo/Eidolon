@@ -38,6 +38,7 @@ async def connect() -> None:
 
     await mcp_mongo.ensure_indexes(db)
     await mcp_mongo.migrate_legacy_config(db)
+    await mcp_mongo.ensure_builtin_system_servers(db)
     from services import knowledge_config_store
 
     await knowledge_config_store.ensure_indexes(db)
