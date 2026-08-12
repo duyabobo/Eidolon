@@ -197,7 +197,7 @@ export default function ChatInput({
                     type="button"
                     onMouseDown={(e) => { e.preventDefault(); applySkill(s); }}
                     className={`w-full text-left px-3 py-2 flex items-center gap-2 transition-colors ${
-                      i === menuIndex ? "bg-brand-50" : "hover:bg-ink-50"
+                      i === menuIndex ? "bg-ink-100" : "hover:bg-ink-50"
                     }`}
                   >
                     <span className="text-sm font-medium text-ink-800">/{s.name}</span>

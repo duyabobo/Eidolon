@@ -1,0 +1,59 @@
+;; onenew macOS 沙盒 Seatbelt Profile 模板（SBPL，sandbox-exec -f 使用）。
+;;
+;; 由 pi-runtime/src/sandbox-macos.ts 在启动 pi 进程前渲染，将下方 {{PLACEHOLDER}}
+;; 替换为本次 session 的真实路径（已 realpath 解析，见下方"重要提醒"）与端口号。
+;;
+;; 设计对齐 Linux bwrap（见 pi-runtime/src/sandbox.ts buildOuterSandboxArgs）：
+;;   - 默认放行（allow default），仅按需追加 deny 规则，最大化保留 bash/python/pip/git/
+;;     node 等开发工具链的可用性（sandbox-exec 的"deny 默认关闭一切再逐条开放"模式
+;;     需要枚举海量系统调用/系统库路径才能跑通常规工具链，风险和维护成本过高，
+;;     与本项目"验证工具链兼容性"的目标冲突）
+;;   - 文件写入：仅 workspace/home/tmp/用户记忆/用户文件区/pi config 目录可写，其余只读
+;;   - 文件读取：sandboxRoot 下除本 session/本用户允许的目录外一律不可读（对应 bwrap 的
+;;     --tmpfs sandboxRoot 隐藏其他 session/user 数据）
+;;   - 网络：默认整体拒绝，仅放行本 session 专属的两个桥接端口（bridge.js 监听，
+;;     转发到 Unix socket → llm-proxy/mcp-proxy）与对应 Unix socket 文件本身
+;;
+;; ⚠️  重要提醒（macOS 特有坑，务必在 sandbox-macos.ts 渲染前处理）：
+;;   /tmp、/var、/etc 在 macOS 上是指向 /private/tmp、/private/var、/private/etc 的
+;;   符号链接。SBPL 的 subpath/literal 匹配基于解析后的真实路径，若模板变量传入
+;;   "/tmp/..." 这种未解析的路径，规则会静默不匹配（既不报错也不生效，等价于
+;;   完全没有限制）。必须先对所有路径调用 fs.realpath()，只传解析后的绝对路径。
+;;
+;; ⚠️  /dev 特例：默认 file-write* 拒绝规则必须显式放行 /dev（否则 bash 内建的
+;;   /dev/null 重定向、git 等大量工具的 stderr 重定向都会因 "Operation not permitted"
+;;   而失败——这是本模板开发阶段实测踩到的坑，不是理论风险）。
+
+(version 1)
+(allow default)
+
+;; ── 文件写入白名单 ──────────────────────────────────────────────────────────
+(allow file-write* (subpath "/dev"))
+
+(deny file-write*
+  (require-all
+    (require-not (subpath "{{WORKSPACE}}"))
+    (require-not (subpath "{{HOME}}"))
+    (require-not (subpath "{{SESSION_TMP}}"))
+    (require-not (subpath "{{USER_MEMORY}}"))
+    (require-not (subpath "{{USER_PI_SESSIONS}}"))
+    (require-not (subpath "{{USER_FILES}}"))
+    (require-not (subpath "{{PI_CONFIG_DIR}}"))
+    (require-not (subpath "/dev"))))
+
+;; ── 文件读取：隐藏 sandboxRoot 下其他 session/用户的数据 ──────────────────────
+(deny file-read*
+  (require-all
+    (subpath "{{SANDBOX_ROOT}}")
+    (require-not (subpath "{{WORKSPACE}}"))
+    (require-not (subpath "{{HOME}}"))
+    (require-not (subpath "{{SESSION_TMP}}"))
+    (require-not (subpath "{{USER_MEMORY}}"))
+    (require-not (subpath "{{USER_PI_SESSIONS}}"))
+    (require-not (subpath "{{USER_FILES}}"))
+    (require-not (subpath "{{GLOBAL_SKILLS}}"))
+    (require-not (subpath "{{USER_SKILLS}}"))
+    (require-not (subpath "{{PI_CONFIG_DIR}}"))))
+
+;; ── 网络：{{NETWORK_MODE_COMMENT}} ────────────────────────────────────────
+{{NETWORK_RULES}}

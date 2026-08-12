@@ -1,152 +1,37 @@
 version: "3.9"
 
 services:
-  mongo:
-    image: mongo:7
-    restart: unless-stopped
-    ports:
-      - "27019:27019"
-    volumes:
-      - mongo_data:/data/db
-    networks:
-      - pi_net
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    networks:
-      - pi_net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  llm-proxy:
+  # cm-server：合并原 gateway/gateway-sse/admin/llm-proxy/mcp-proxy 五个服务的单进程
+  # FastAPI 应用（见 cm-server/README.md）。桌面单机场景不再需要按 QPS/并发连接数/
+  # 下游调用量分别独立扩容，合并为一个进程、一个端口，减少子进程与端口管理复杂度。
+  cm-server:
     build:
       context: .
-      dockerfile: llm-proxy/Dockerfile
+      dockerfile: cm-server/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
-      HOST: "0.0.0.0"
-      PORT: "9001"
-      TZ: "Asia/Shanghai"
-    ports:
-      - "9001:9001"
-    volumes:
-      - ./logs/llm-proxy:/app/logs
-    networks:
-      - pi_net
-    depends_on:
-      mongo:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9001/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  admin:
-    build:
-      context: .
-      dockerfile: admin/Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      ADMIN_HOST: "0.0.0.0"
-      ADMIN_PORT: "9000"
+      CM_SERVER_HOST: "0.0.0.0"
+      CM_SERVER_PORT: "8000"
       TZ: "Asia/Shanghai"
       SANDBOX_ROOT: "/data/sandboxes"
-      LLM_PROXY_BASE_URL: "http://llm-proxy:9001"
-      MCP_PROXY_BASE_URL: "http://mcp-proxy:8080"
+      # pi-runtime 直连地址：任务派发（原 Redis Stream）与 cancel/close 控制信号（原 Redis Pub/Sub）
+      PI_RUNTIME_BASE_URL: "http://pi-runtime:8090"
     ports:
-      - "9000:9000"
+      - "8000:8000"
     volumes:
-      # admin 需要写 global skills 到共享文件系统
-      - sandbox_workspaces:/data/sandboxes
-      - ./logs/admin:/app/logs
-    networks:
-      - pi_net
-    depends_on:
-      mongo:
-        condition: service_healthy
-      llm-proxy:
-        condition: service_healthy
-      mcp-proxy:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  gateway:
-    build:
-      context: .
-      dockerfile: gateway/Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      GATEWAY_HOST: "0.0.0.0"
-      GATEWAY_PORT: "8002"
-      TZ: "Asia/Shanghai"
-      SANDBOX_ROOT: "/data/sandboxes"
-      MCP_PROXY_BASE_URL: "http://mcp-proxy:8080"
-    ports:
-      - "8002:8002"
-    volumes:
-      - ./logs/gateway:/app/logs
+      - ./logs/cm-server:/app/logs
       # 可读 Skill；对话附件需写入 users/{uid}/sessions/{sid}/workspace
       - sandbox_workspaces:/data/sandboxes
+      # 本地 SQLite 单文件库（gateway/gateway-sse/admin/llm-proxy/mcp-proxy 的数据全部在这一个文件里）
+      - sqlite_data:/data
     networks:
       - pi_net
     depends_on:
-      mongo:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      mcp-proxy:
+      arxiv-mcp:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8002/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # gateway-sse：SSE 长连接服务，从 gateway 拆出的独立运行单元。
-  # 长驻连接按"并发连接数"扩容，与 gateway 按"QPS"扩容的节奏不同，
-  # 拆分后二者可分别调整副本数和资源上限，互不拖累。
-  gateway-sse:
-    build:
-      context: .
-      dockerfile: gateway-sse/Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      GATEWAY_SSE_HOST: "0.0.0.0"
-      GATEWAY_SSE_PORT: "8001"
-      TZ: "Asia/Shanghai"
-    ports:
-      - "8001:8001"
-    volumes:
-      - ./logs/gateway-sse:/app/logs
-    networks:
-      - pi_net
-    depends_on:
-      mongo:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8001/health"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -161,13 +46,7 @@ services:
     networks:
       - pi_net
     depends_on:
-      gateway:
-        condition: service_healthy
-      gateway-sse:
-        condition: service_healthy
-      llm-proxy:
-        condition: service_healthy
-      admin:
+      cm-server:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000"]
@@ -185,10 +64,16 @@ services:
       OPENAI_API_KEY: "pi-agent-internal"
       TZ: "Asia/Shanghai"
       SANDBOX_ROOT: "/data/sandboxes"
-      LLM_PROXY_HOST: "llm-proxy"
-      LLM_PROXY_PORT: "9001"
-      MCP_PROXY_HOST: "mcp-proxy"
-      MCP_PROXY_PORT: "8080"
+      # llm-proxy/mcp-proxy/gateway/gateway-sse 已合并进 cm-server 单进程单端口
+      LLM_PROXY_HOST: "cm-server"
+      LLM_PROXY_PORT: "8000"
+      MCP_PROXY_HOST: "cm-server"
+      MCP_PROXY_PORT: "8000"
+      # 本机 HTTP 服务端口：接收 gateway 派发的任务与 cancel/close 控制信号（替代原 Redis Stream/Pub-Sub）
+      PI_RUNTIME_PORT: "8090"
+      # 反向调用 gateway（session 状态/events_snapshot/skill 列表）与 gateway-sse（推送增量事件）
+      GATEWAY_BASE_URL: "http://cm-server:8000"
+      GATEWAY_SSE_BASE_URL: "http://cm-server:8000"
       # bwrap 是否允许联网：true=可联网，false=不可联网
       SANDBOX_NETWORK_ENABLED: "${SANDBOX_NETWORK_ENABLED:-false}"
       # 每个 session 沙盒 cgroup 资源上限（cgroup v2；不可用时自动降级）
@@ -205,46 +90,20 @@ services:
       #   global/skills/  ← admin 写入的全局 skill
       - sandbox_workspaces:/data/sandboxes
       - ./logs/pi-runtime:/app/logs
+    ports:
+      - "8090:8090"
     networks:
       - pi_net
     depends_on:
-      mongo:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      llm-proxy:
-        condition: service_healthy
-      mcp-proxy:
-        condition: service_healthy
-
-  mcp-proxy:
-    build:
-      context: .
-      dockerfile: mcp-proxy/Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      MCP_PROXY_PORT: "8080"
-      # 下游 arxiv 等外网 MCP 读写超时（秒）；SDK 默认 30s 不够
-      MCP_DOWNSTREAM_CONNECT_TIMEOUT_S: "30"
-      MCP_DOWNSTREAM_READ_TIMEOUT_S: "180"
-      TZ: "Asia/Shanghai"
-    volumes:
-      - ./logs/mcp-proxy:/app/logs
-    networks:
-      - pi_net
-    depends_on:
-      mongo:
-        condition: service_healthy
-      arxiv-mcp:
+      cm-server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8090/health"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # 平台内置 arXiv MCP（Streamable HTTP）；经 mcp-proxy 聚合，不进沙盒
+  # 平台内置 arXiv MCP（Streamable HTTP）；经 cm-server 内的 mcp-proxy 模块聚合，不进沙盒
   arxiv-mcp:
     build:
       context: .
@@ -266,12 +125,11 @@ services:
       - pi_net
 
 volumes:
-  mongo_data:
-  redis_data:
   arxiv_papers:
-  # 开发环境：local 驱动，数据在单机上。
-  # 生产集群：用 docker-compose.prod.yml override，换为 NFS/EFS 驱动。
   sandbox_workspaces:
+  # 本地 SQLite 单文件库：cm-server 内合并的 gateway/gateway-sse/admin/llm-proxy/mcp-proxy
+  # 五个模块共享同一份文件（同一份 SCHEMA_SQL，单进程单连接，见 cm-server/README.md）
+  sqlite_data:
 
 networks:
   pi_net:

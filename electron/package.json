@@ -1,0 +1,92 @@
+{
+  "name": "onenew-desktop",
+  "version": "1.0.0",
+  "description": "Eidolon CM 桌面客户端 Electron 主进程：拉起 cm-server（PyInstaller 打包）与 pi-runtime（Electron 内置 Node 运行），并在本机做静态资源 + API 反向代理",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc && electron .",
+    "dist:mac": "tsc && electron-builder --mac --arm64"
+  },
+  "dependencies": {
+    "http-proxy": "^1.18.1"
+  },
+  "devDependencies": {
+    "@types/http-proxy": "^1.17.17",
+    "@types/node": "^22.0.0",
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.7.3"
+  },
+  "build": {
+    "appId": "com.onenew.desktop",
+    "productName": "Eidolon",
+    "directories": {
+      "output": "release",
+      "buildResources": "build-assets"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../build/cm-server",
+        "to": "cm-server",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../build/pi-runtime",
+        "to": "pi-runtime",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../build/pi-cli",
+        "to": "pi-cli",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../build/arxiv-mcp",
+        "to": "arxiv-mcp",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../build/frontend",
+        "to": "frontend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "${productName} ${version}",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    }
+  }
+}

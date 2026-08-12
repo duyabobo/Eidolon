@@ -95,8 +95,8 @@ export default function HistoryPage() {
                   key={`${s.session_id}-${runtimeTick}`}
                   type="button"
                   onClick={() => openSession(s.session_id)}
-                  className={`w-full text-left px-4 py-3.5 transition-colors hover:bg-brand-50/50 ${
-                    s.session_id === currentSessionId ? "bg-brand-50/80" : ""
+                  className={`w-full text-left px-4 py-3.5 transition-colors hover:bg-ink-100/60 ${
+                    s.session_id === currentSessionId ? "bg-ink-200/70" : ""
                   }`}
                 >
                   <p className="text-sm text-ink-800 truncate leading-snug">{s.request}</p>

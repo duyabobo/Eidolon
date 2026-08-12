@@ -1,6 +1,6 @@
-# onenew
+# Eidolon
 
-多租户 Agent 执行平台（对外品牌 **onenew**），支持会话管理、SSE 流式输出、bwrap 沙盒隔离、MCP 工具扩展、Skill 渐进式披露、本地知识库管理。
+多租户 Agent 执行平台（对外品牌 **Eidolon**），支持会话管理、SSE 流式输出、bwrap 沙盒隔离、MCP 工具扩展、Skill 渐进式披露、本地知识库管理。
 
 ---
 
@@ -16,23 +16,22 @@
 
 ![Agentic RAG 协作时序](docs/assets/agentic-rag-sequence.png)
 
-用户发送问题后，Gateway 创建会话并将任务写入 Redis Streams；pi-runtime 作为 Consumer Group 消费者认领任务，在沙盒中运行 Agent，并在任务完成后确认消费。Agent 通过 MRAG 系统的 MCP 调用组合检索或图谱检索；Token、工具调用和工具结果写入 Redis Stream，Gateway-SSE 订阅事件并以 SSE 推送至前端，支持断线续传与历史回放。
+用户发送问题后，Gateway 创建会话并以本机 HTTP 直连派发任务给 pi-runtime；pi-runtime 在沙盒中运行 Agent，任务完成后以 HTTP 回写 session 状态。Agent 通过 MRAG 系统的 MCP 调用组合检索或图谱检索；Token、工具调用和工具结果以 HTTP 实时推送给 Gateway-SSE，落本地 SQLite `turn_events` 表并以 SSE 推送至前端，支持断线续传与历史回放。
 
 ---
 
 | 服务 | 端口 | 技术栈 | 职责 |
 |------|------|--------|------|
 | **frontend** | 3000 | React + Vite + Tailwind | 对话界面、LLM / MCP / Skill 配置管理页 |
-| **gateway** | 8002 | Python FastAPI | 会话 CRUD、任务派发、Skill 元数据列表（按 QPS 扩容） |
-| **gateway-sse** | 8001 | Python FastAPI | SSE 流式输出（按并发连接数独立扩容） |
-| **admin** | 9000 | Python FastAPI | MCP Server 配置、Skill 管理（元数据 + 文件）|
-| **llm-proxy** | 9001 | Python FastAPI | LLM 代理（OpenAI 兼容）、Provider 配置热更新 |
-| **mcp-proxy** | 8080 | Python FastAPI | MCP 聚合代理：汇总所有 MCP Server 工具，统一路由调用 |
-| **arxiv-mcp** | 8081（内网） | arxiv-mcp-server | 平台内置 arXiv MCP（Streamable HTTP），经 mcp-proxy 暴露 |
-| **arxiv-mcp** | 8081（仅内网） | arxiv-mcp-server | 平台内置 arXiv MCP（Streamable HTTP） |
-| **pi-runtime** | — | Node.js 执行引擎 | Agent 任务执行、bwrap 沙盒隔离、Unix socket 网络白名单 |
-| **redis** | 6379 | Redis 7 | 任务 Stream Consumer Group、增量输出 Stream、实时控制通知 |
-| **mongo** | 27019 | MongoDB 7 | 会话数据、LLM / MCP 配置、Skill 元数据 |
+| **cm-server** | 8000 | Python FastAPI（单进程） | 合并原 gateway/gateway-sse/admin/llm-proxy/mcp-proxy：会话 CRUD、任务派发、SSE 流式输出、MCP/Skill/知识库配置、LLM 代理 |
+| **arxiv-mcp** | 8081（仅内网） | arxiv-mcp-server | 平台内置 arXiv MCP（Streamable HTTP），经 cm-server 内的 mcp-proxy 模块暴露 |
+| **pi-runtime** | 8090 | Node.js 执行引擎 | Agent 任务执行、bwrap 沙盒隔离、Unix socket 网络白名单 |
+
+CM 桌面架构下单机单用户场景不再需要按 QPS/并发连接数/下游调用量分别独立扩容，原 5 个
+Python 服务已合并为 `cm-server` 单进程（内部仍按原服务边界分模块，见
+[cm-server/README.md](cm-server/README.md)）。会话、LLM/MCP 配置、Skill 元数据统一存于
+本地 SQLite 单文件库（`data/local.db`），任务派发/增量事件通过服务间直连 HTTP 完成，
+不再依赖外部 Redis/MongoDB。
 
 ---
 
@@ -44,46 +43,49 @@ bash deploy.sh
 
 # 访问
 # 前端        → http://localhost:3000
-# API         → http://localhost:8002/docs
-# Gateway-SSE → http://localhost:8001/docs
-# Admin       → http://localhost:9000/docs
-# LLM Proxy   → http://localhost:9001/docs
+# CM Server   → http://localhost:8000/docs
 
 # 启动后在前端管理页面配置 LLM Provider（base_url / api_key / model）
 ```
 
-## 集群部署
+CM 桌面架构下 `cm-server` 与 `pi-runtime` 均基于本机内存态调度单实例 session，
+不支持多实例水平扩展，`docker-compose.yml` 仅用于 Electron 打包前的本机调试，
+不再提供生产集群 override（详见 [cm-server/README.md](cm-server/README.md)、
+[pi-runtime/README.md](pi-runtime/README.md)）。
+
+---
+
+## 打包 mac 桌面客户端
 
 ```bash
-# 生产集群：3 个 pi-runtime 实例，NFS 共享存储
-NFS_SERVER_ADDR=192.168.1.100 NFS_EXPORT_PATH=/data/pi-sandboxes \
-  bash deploy.sh --prod --scale 3
+# 一键打 mac arm64 安装包（.dmg，需 Apple Silicon Mac；不依赖 Docker）
+bash deploy.sh --package
 ```
 
-`gateway`（按 QPS 扩容）与 `gateway-sse`（按并发 SSE 连接数扩容）在
-`docker-compose.prod.yml` 中已声明独立的 `deploy.replicas`，可分别调整数值。
-注意：当前单节点 nginx 直连服务名，`replicas > 1` 前需先接入支持多后端的反向代理
-（nginx upstream 动态解析 / Traefik / k8s Service），详见该文件中的说明注释。
+产物：`electron/release/Eidolon-1.0.0-arm64.dmg`（约 200MB+，双击后拖到 Applications 安装）。
+同目录的 `.dmg.blockmap` 只是增量更新索引，不是安装包。
+
+桌面端不再用 Docker/nginx；Electron 主进程拉起 `cm-server`、`pi-runtime`，并把
+`pi` CLI + 扩展打进安装包。本地数据在 `~/Library/Application Support/onenew-desktop`。
+详见 [electron/README.md](electron/README.md)。
 
 ---
 
 ## 目录结构
 
 ```
-onenew-platform/
+eidolon-platform/
 ├── README.md              # 本文件
-├── deploy.sh              # 一键部署脚本
+├── deploy.sh              # Docker 本机调试 / --package 打 mac arm64 .dmg
 ├── docker-compose.yml     # 单节点编排
-├── docker-compose.prod.yml # 集群覆盖配置（NFS 卷）
 ├── .env.example
-├── frontend/              # React + Vite 前端 
-├── gateway/               # FastAPI 会话网关 - 会话 CRUD/任务派发（按 QPS 扩容）
-├── gateway-sse/           # FastAPI SSE 服务 - 流式输出（按连接数独立扩容）
-├── admin/                 # FastAPI 管理服务 - MCP/Skill 配置 
-├── llm-proxy/             # FastAPI LLM 代理服务 
-├── mcp-proxy/             # FastAPI MCP 聚合代理
+├── frontend/              # React + Vite 前端
+├── cm-server/             # FastAPI 单进程服务：合并原 gateway/gateway-sse/admin/llm-proxy/mcp-proxy
+├── pi-shared/             # Python 服务共享工具库（日志、中间件、SQLite 访问层）
 ├── arxiv-mcp/             # 平台内置 arXiv MCP（HTTP sidecar）
-└── pi-runtime/            # Node.js 执行引擎（沙盒内 agent 运行时） 
+├── pi-runtime/            # Node.js 执行引擎（沙盒内 agent 运行时）
+├── electron/              # Electron 主进程：拉起 cm-server/pi-runtime 子进程 + 本机静态代理
+└── scripts/               # 打包构建脚本（build-frontend/build-pi-runtime/build-cm-server/package-mac）
 ```
 
 ---

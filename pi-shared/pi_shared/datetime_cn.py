@@ -10,7 +10,7 @@ CHINA_UTC_OFFSET = "+08:00"
 
 
 def now() -> datetime:
-    """当前东八区墙钟时间（naive，写入 Mongo / 模型字段）。"""
+    """当前东八区墙钟时间（naive，写入本地 SQLite / 模型字段）。"""
     return datetime.now(CHINA_TZ).replace(tzinfo=None)
 
 

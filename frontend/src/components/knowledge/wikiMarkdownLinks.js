@@ -16,13 +16,16 @@ export function buildTitleNodeIndex(graphNodes) {
     }
     return index;
 }
-/** 将「标题 — 描述」行转为 wiki 内链 markdown */
+/** 将「标题 — 描述」行转为 wiki 内链 markdown（跳过 HTML，避免破坏 OCR table） */
 export function preprocessConnectionLines(content, graphNodes) {
     return content
         .split("\n")
         .map((line) => {
         const trimmed = line.trim();
         if (!trimmed)
+            return line;
+        // HTML 行（含 <table>）不做 connection 解析，防止把单元格内容误改成链接
+        if (/<\/?[a-z][\w:-]*\b/i.test(trimmed))
             return line;
         const parsed = parseConnectionLine(trimmed);
         if (!parsed.description)

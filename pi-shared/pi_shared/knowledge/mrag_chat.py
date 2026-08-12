@@ -43,9 +43,11 @@ def normalize_mrag_base_url(url: str) -> str:
     return trimmed.rstrip("/")
 
 
-async def load_mrag_base_url_from_mongo(db: Any) -> str:
-    """从 knowledge_service_configs 读取当前 mRAG 地址；空表示本地模式。"""
-    raw = await db["knowledge_service_configs"].find_one({}, sort=[("created_at", -1)])
+async def load_mrag_base_url(db: Any) -> str:
+    """从本地 SQLite 的 knowledge_service_configs 表读取当前 mRAG 地址；空表示本地模式。"""
+    raw = await db.fetch_one(
+        "SELECT base_url FROM knowledge_service_configs ORDER BY created_at DESC LIMIT 1"
+    )
     if not raw:
         return ""
     return normalize_mrag_base_url(str(raw.get("base_url") or ""))

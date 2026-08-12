@@ -2,10 +2,14 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { useCallback, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
+import { isolateHtmlTables } from "../knowledge/wikiHtmlTables";
 import { isWikiNodeHref, wikiAwareUrlTransform, wikiNodeIdFromHref } from "../knowledge/wikiMarkdownLinks";
+import { wikiSanitizeSchema } from "../knowledge/wikiMarkdownSanitize";
 import { citeRefNumberFromHref, isCiteRefHref, parseChatCitations, } from "./chatCitationParse";
 import { preprocessChatMarkdown } from "./chatMarkdownPreprocess";
 import ChatWikiNodeModal from "./ChatWikiNodeModal";
@@ -42,7 +46,7 @@ export default function ChatMarkdown({ content, className = "", streaming = fals
     const { markdown, refs } = useMemo(() => {
         if (!content)
             return { markdown: "", refs: new Map() };
-        const base = preprocessChatMarkdown(content);
+        const base = isolateHtmlTables(preprocessChatMarkdown(content));
         return parseChatCitations(base);
     }, [content]);
     const handleCitationClick = useCallback((href) => {
@@ -57,5 +61,5 @@ export default function ChatMarkdown({ content, className = "", streaming = fals
     const components = useMemo(() => buildMarkdownComponents(linkMode, refs, handleCitationClick), [linkMode, refs, handleCitationClick]);
     if (!content && !streaming)
         return null;
-    return (_jsxs(_Fragment, { children: [_jsxs("div", { className: `chat-md prose prose-sm max-w-none text-ink-900 ${className}`.trim(), children: [markdown ? (_jsx(ReactMarkdown, { remarkPlugins: [remarkGfm, remarkMath], rehypePlugins: [rehypeKatex], components: components, urlTransform: wikiAwareUrlTransform, children: markdown })) : null, streaming && (_jsx("span", { className: "inline-block w-0.5 h-4 bg-brand-400 animate-pulse ml-0.5 align-middle rounded-full" }))] }), wikiNodeId && linkMode === "modal" && (_jsx(ChatWikiNodeModal, { nodeId: wikiNodeId, onClose: () => setWikiNodeId(null) }))] }));
+    return (_jsxs(_Fragment, { children: [_jsxs("div", { className: `chat-md prose prose-sm max-w-none text-ink-900 ${className}`.trim(), children: [markdown ? (_jsx(ReactMarkdown, { remarkPlugins: [remarkGfm, remarkMath], rehypePlugins: [rehypeRaw, [rehypeSanitize, wikiSanitizeSchema], rehypeKatex], components: components, urlTransform: wikiAwareUrlTransform, children: markdown })) : null, streaming && (_jsx("span", { className: "inline-block w-0.5 h-4 bg-brand-400 animate-pulse ml-0.5 align-middle rounded-full" }))] }), wikiNodeId && linkMode === "modal" && (_jsx(ChatWikiNodeModal, { nodeId: wikiNodeId, onClose: () => setWikiNodeId(null) }))] }));
 }

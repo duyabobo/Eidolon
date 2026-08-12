@@ -4,7 +4,7 @@
 结构：
   {sandbox_root}/users/{user_id}/
     skills/      只读
-    sessions/    只读（磁盘为 UUID；展示名由 Mongo enrichment）
+    sessions/    只读（磁盘为 UUID；展示名由本地 SQLite enrichment）
     files/       可读写
     memory/      只读（MEMORY.md）
     pi-sessions/ 只读（pi 对话 JSONL）

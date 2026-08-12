@@ -150,7 +150,7 @@ function MessageTime({ ts, align }: { ts?: number; align: "left" | "right" }) {
   );
 }
 
-function OnenewAvatar() {
+function EidolonAvatar() {
   return (
     <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-[10px] font-semibold shrink-0 mt-0.5 shadow-sm">
       {APP_LOGO}
@@ -245,7 +245,7 @@ function AssistantTurnBlock({
 
   return (
     <div className="flex gap-3 justify-start">
-      <OnenewAvatar />
+      <EidolonAvatar />
       <div className="flex-1 min-w-0">
         <MessageTime ts={startedAt} align="left" />
         {hasSteps && <ExecutionSteps steps={steps} />}

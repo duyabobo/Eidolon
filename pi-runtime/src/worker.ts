@@ -1,32 +1,29 @@
 /**
- * pi-runtime 主入口：订阅 Redis Pub/Sub 任务频道，
+ * pi-runtime 主入口：接收 gateway 直连 HTTP 派发的任务，
  * 管理长生命周期 session（一个 chat 窗口 = 一个 session = 一个 pi 进程）。
  *
- * Session 生命周期：
- *   sessions:new / sessions:{instanceId}:new  → 创建新 session，启动 pi 进程
- *   sessions:{sessionId}:message              → 向已有 session 发送新消息（新轮次）
- *   sessions:{sessionId}:close               → 关闭 session，销毁 pi 进程和沙盒
+ * Session 生命周期（均由 http-server.ts 路由到下列函数）：
+ *   POST /tasks（task_type=start）                 → 创建新 session，启动 pi 进程
+ *   POST /tasks（task_type=message）                → 向已有 session 发送新消息（新轮次）
+ *   POST /sessions/:id/turns/:id/cancel             → 中断当前轮次
+ *   POST /sessions/:id/close                        → 关闭 session，销毁 pi 进程和沙盒
+ *
+ * 单机单用户只有一个 pi-runtime 实例，因此去掉了原基于 Redis Stream Consumer Group 的
+ * 多消费者竞争消费、执行租约续期、user→instance 亲和绑定、实例心跳等分布式路由代码，
+ * gateway 与本进程之间改为直接的本机 HTTP 调用。
  *
  * Sticky Session 机制：
  *   pi 进程持续运行期间，workspace 文件保留，pi 维护完整对话历史，
  *   无需外部传 context 字段。
  */
-import Redis from "ioredis";
-import os from "os";
 import { join } from "path";
 import { setupFileLogging } from "./file-logger";
 import { config } from "./config";
 
 setupFileLogging();
-import {
-  claimTaskExecution,
-  completeTask,
-  connect as connectMongo,
-  disconnect as disconnectMongo,
-  recordTaskFailure,
-  updateSessionStatus,
-} from "./mongo-client";
-import { connectRedis, disconnectRedis, getRedis, SessionOutputStream } from "./output-stream";
+import { updateSessionStatus } from "./gateway-client";
+import { SessionOutputStream } from "./output-stream";
+import { HttpServerHandlers, TaskPayload, startHttpServer } from "./http-server";
 import { createSandbox, destroySandbox } from "./sandbox";
 import { startPiSession, PiSessionHandle } from "./pi-session";
 import { startSocketBridge } from "./socket-bridge";
@@ -41,7 +38,6 @@ import {
 } from "./session-mcp-bridge";
 import { resolveMcpToolsForSkills } from "./skill-mcp";
 import { computeSkillContentFingerprint } from "./skill-reload";
-import { AgentTask, ReliableTaskQueue, TaskProcessResult } from "./task-queue";
 
 // ── 消息类型定义 ──────────────────────────────────────────────────────────────
 
@@ -57,7 +53,7 @@ interface NewMessagePayload {
   session_id: string;
   user_id: string;
   request: string;
-  turn_id: string;      // 本轮次 ID（gateway 生成，用于 Redis Stream key）
+  turn_id: string;      // 本轮次 ID（gateway 生成，用于 SSE stream key）
   skill_ids: string[];
 }
 
@@ -70,20 +66,15 @@ interface RunningSession {
   skillIds: string[];
   /** 当前 skill 文件内容指纹，用于检测同 skill 的内容热更新 */
   skillContentFingerprint: string;
-  closeSubscriber: Redis;       // 订阅 sessions:{sessionId}:close
-  cancelSubscriber: Redis;      // 订阅 sessions:{sessionId}:cancel
   inactivityTimer: NodeJS.Timeout;
   startedAt: number;
   activeTurnId?: string;
-  activeTurnStream?: SessionOutputStream;
   /** 串行化同一 session 的轮次，避免 recovery 与业务消息并发抢 activeTurn */
   turnChain: Promise<void>;
 }
 
 // session 闲置超时（30 分钟无新消息自动关闭）
 const SESSION_INACTIVITY_MS = 30 * 60_000;
-const ACTIVE_TURN_TTL_SECONDS = 3600;
-const TASK_LOCK_KEY_TPL = "agent:task:{taskId}:lock";
 
 function skillIdsEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -116,26 +107,6 @@ const runningSessions = new Map<string, RunningSession>();
 /** 防止同一 session 并发 startAndRegisterSession 拉起多个 pi 进程 */
 const sessionStartGates = new Map<string, Promise<RunningSession>>();
 
-// ── 实例心跳 ─────────────────────────────────────────────────────────────────
-
-const INSTANCE_ID = os.hostname();
-const USER_INSTANCE_KEY_TPL = "user:{userId}:instance";
-const USER_INSTANCE_TTL = 86400;
-const INSTANCE_ALIVE_KEY_TPL = "pi:instance:{instanceId}:alive";
-const INSTANCE_ALIVE_TTL = 60;
-const HEARTBEAT_INTERVAL_MS = 30_000;
-
-async function registerInstanceAlive(): Promise<void> {
-  const key = INSTANCE_ALIVE_KEY_TPL.replace("{instanceId}", INSTANCE_ID);
-  await getRedis().setex(key, INSTANCE_ALIVE_TTL, "1");
-}
-
-async function bindUserToInstance(userId: string): Promise<void> {
-  const key = USER_INSTANCE_KEY_TPL.replace("{userId}", userId);
-  await getRedis().setex(key, USER_INSTANCE_TTL, INSTANCE_ID);
-  console.log(`[worker] user 实例绑定: user=${userId} → instance=${INSTANCE_ID}`);
-}
-
 // ── Session 管理 ──────────────────────────────────────────────────────────────
 
 function resetInactivityTimer(running: RunningSession): void {
@@ -148,7 +119,7 @@ function resetInactivityTimer(running: RunningSession): void {
   }, SESSION_INACTIVITY_MS);
 }
 
-async function closeSession(sessionId: string, reason: string): Promise<void> {
+async function closeSession(sessionId: string, reason: "user_close" | "timeout" | "shutdown"): Promise<void> {
   const running = runningSessions.get(sessionId);
   if (!running) return;
 
@@ -162,20 +133,13 @@ async function closeSession(sessionId: string, reason: string): Promise<void> {
   );
   unregisterSessionLlmBridge(sessionId);
   unregisterSessionMcpBridge(sessionId);
-  await running.closeSubscriber.quit().catch(() => {});
-  await running.cancelSubscriber.quit().catch(() => {});
   await destroySandbox(running.userId, sessionId).catch((err) =>
     console.error(`[worker] 释放沙盒失败: session=${sessionId}`, err)
   );
 
-  // 运行中任务在正常停机后保留为 PENDING，等待其 Stream 消息被其他消费者认领。
-  const finalStatus = reason === "timeout"
-    ? "IDLE"
-    : reason === "shutdown" && running.activeTurnId
-      ? "PENDING"
-      : reason === "shutdown"
-        ? "IDLE"
-        : "COMPLETED";
+  // 单机单实例：不存在“留给其他消费者认领”的场景，闲置超时/停机后统一记为可重启的 IDLE，
+  // 用户重新发消息时会自动重建沙盒（见 handleNewMessage）。
+  const finalStatus = reason === "user_close" ? "COMPLETED" : "IDLE";
   await updateSessionStatus(sessionId, finalStatus).catch(() => {});
   console.log(`[worker] session=${sessionId}: 已完全关闭，最终状态=${finalStatus}`);
 }
@@ -189,15 +153,15 @@ async function registerSessionMcpBridgeForSkills(
   registerSessionMcpBridge(
     sessionId,
     userId,
-    process.env.MCP_PROXY_HOST ?? "mcp-proxy",
-    Number(process.env.MCP_PROXY_PORT ?? 8080),
+    config.mcpProxy.host,
+    config.mcpProxy.port,
     mcpToolNames,
   );
   return mcpToolNames;
 }
 
 /**
- * 启动 pi 进程、创建沙盒、订阅 Redis 频道并注册到 runningSessions。
+ * 启动 pi 进程、创建沙盒并注册到 runningSessions。
  * openSession（首次创建）和 handleNewMessage（自动重建）共用此函数。
  */
 async function startAndRegisterSession(
@@ -205,7 +169,6 @@ async function startAndRegisterSession(
   userId: string,
   skillIds: string[]
 ): Promise<RunningSession> {
-  await bindUserToInstance(userId);
   await updateSessionStatus(sessionId, "RUNNING");
 
   const sandboxPaths = await createSandbox(userId, sessionId);
@@ -213,8 +176,8 @@ async function startAndRegisterSession(
 
   registerSessionLlmBridge(
     sessionId,
-    process.env.LLM_PROXY_HOST ?? "llm-proxy",
-    Number(process.env.LLM_PROXY_PORT ?? 9001),
+    config.llmProxy.host,
+    config.llmProxy.port,
   );
   // X-Mcp-Tools：mcp-proxy 侧过滤；同时把白名单交给 startPiSession 写成
   // pi-mcp-adapter 的 directTools，否则模型工具列表里只有 mcp 网关，看不到具体工具。
@@ -228,17 +191,12 @@ async function startAndRegisterSession(
       ? {
           userId,
           toolNames: mcpToolNames,
-          mcpProxyHost: process.env.MCP_PROXY_HOST ?? "mcp-proxy",
-          mcpProxyPort: Number(process.env.MCP_PROXY_PORT ?? 8080),
+          mcpProxyHost: config.mcpProxy.host,
+          mcpProxyPort: config.mcpProxy.port,
         }
       : undefined,
   );
   console.log(`[worker] session=${sessionId}: pi 进程已启动`);
-
-  const closeSubscriber = new Redis(config.redis.url);
-  const cancelSubscriber = new Redis(config.redis.url);
-  const closeChannel = `sessions:${sessionId}:close`;
-  const cancelChannel = `sessions:${sessionId}:cancel`;
 
   const running: RunningSession = {
     sessionId,
@@ -246,8 +204,6 @@ async function startAndRegisterSession(
     piHandle,
     skillIds: [...skillIds],
     skillContentFingerprint: "",
-    closeSubscriber,
-    cancelSubscriber,
     inactivityTimer: setTimeout(() => {}, 0), // 占位，立即被 resetInactivityTimer 覆盖
     startedAt: Date.now(),
     turnChain: Promise.resolve(),
@@ -256,29 +212,10 @@ async function startAndRegisterSession(
   await refreshSkillContentFingerprint(running);
   resetInactivityTimer(running);
 
-  closeSubscriber.on("message", () => {
-    closeSession(sessionId, "user_close").catch((err) =>
-      console.error(`[worker] 处理关闭失败: session=${sessionId}`, err)
-    );
-  });
-
-  cancelSubscriber.on("message", (_channel, msg) => {
-    let payload: { turn_id: string };
-    try { payload = JSON.parse(msg) as { turn_id: string }; }
-    catch { console.error(`[worker] 无法解析 cancel 消息: ${msg}`); return; }
-    handleCancelTurn(sessionId, payload.turn_id).catch((err) =>
-      console.error(`[worker] 处理中断失败: session=${sessionId} turn=${payload.turn_id}`, err)
-    );
-  });
-
-  await closeSubscriber.subscribe(closeChannel);
-  await cancelSubscriber.subscribe(cancelChannel);
-  console.log(`[worker] session=${sessionId}: 已订阅关闭频道 [${closeChannel}]、中断频道 [${cancelChannel}]`);
-
   return running;
 }
 
-/** pi 进程重建（进程退出或 skill 变更时调用，保留沙盒 workspace 与 Redis 订阅） */
+/** pi 进程重建（进程退出或 skill 变更时调用，保留沙盒 workspace） */
 async function restartPiForSession(
   running: RunningSession,
   skillIds: string[],
@@ -298,8 +235,8 @@ async function restartPiForSession(
 
   registerSessionLlmBridge(
     sessionId,
-    process.env.LLM_PROXY_HOST ?? "llm-proxy",
-    Number(process.env.LLM_PROXY_PORT ?? 9001),
+    config.llmProxy.host,
+    config.llmProxy.port,
   );
   const mcpToolNames = await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
 
@@ -312,8 +249,8 @@ async function restartPiForSession(
       ? {
           userId,
           toolNames: mcpToolNames,
-          mcpProxyHost: process.env.MCP_PROXY_HOST ?? "mcp-proxy",
-          mcpProxyPort: Number(process.env.MCP_PROXY_PORT ?? 8080),
+          mcpProxyHost: config.mcpProxy.host,
+          mcpProxyPort: config.mcpProxy.port,
         }
       : undefined,
   );
@@ -383,9 +320,7 @@ async function handleNewMessage(payload: NewMessagePayload): Promise<void> {
 /** 返回 true 表示中断已升级为强制终止 pi 进程（调用方需在继续发送前重建） */
 async function clearActiveTurnState(running: RunningSession): Promise<boolean> {
   const hardKilled = await running.piHandle.cancelTurn();
-  await running.activeTurnStream?.expire(ACTIVE_TURN_TTL_SECONDS).catch(() => {});
   running.activeTurnId = undefined;
-  running.activeTurnStream = undefined;
   return hardKilled;
 }
 
@@ -405,19 +340,16 @@ async function sendTurnToSession(running: RunningSession, turnId: string, reques
     }
 
     setSessionQuestionId(sessionId, turnId);
-    const turnStream = new SessionOutputStream(getRedis(), sessionId, turnId);
+    const turnStream = new SessionOutputStream(sessionId, turnId);
     const startAt = Date.now();
 
     running.activeTurnId = turnId;
-    running.activeTurnStream = turnStream;
-    await getRedis().setex(`session:${sessionId}:active_turn`, ACTIVE_TURN_TTL_SECONDS, turnId);
 
     console.log(`[worker] session=${sessionId} turn=${turnId}: 开始执行，request='${request.slice(0, 80).replace(/\n/g, " ")}'`);
 
     try {
       await running.piHandle.sendTurn(turnId, request, turnStream);
       const elapsed = Date.now() - startAt;
-      await turnStream.expire(ACTIVE_TURN_TTL_SECONDS);
       console.log(`[worker] session=${sessionId} turn=${turnId}: 执行完成，耗时 ${elapsed}ms`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -427,7 +359,6 @@ async function sendTurnToSession(running: RunningSession, turnId: string, reques
     } finally {
       if (running.activeTurnId === turnId) {
         running.activeTurnId = undefined;
-        running.activeTurnStream = undefined;
       }
     }
   };
@@ -460,151 +391,76 @@ async function handleCancelTurn(sessionId: string, turnId: string): Promise<void
     // 无需在此立即重建：handleNewMessage 已基于 isAlive() 在下一条消息到达时自动重建
     console.warn(`[worker] session=${sessionId} turn=${turnId}: 中断已强制终止 pi 进程，下一条消息将自动重建`);
   }
-  await getRedis().del(`session:${sessionId}:active_turn`).catch(() => {});
 }
 
-// ── Redis Streams 可靠任务队列 ────────────────────────────────────────────────
+// ── 任务派发（gateway 直连 HTTP，替代原 Redis Streams 可靠任务队列）──────────
 
-function taskLockKey(taskId: string): string {
-  return TASK_LOCK_KEY_TPL.replace("{taskId}", taskId);
-}
-
-async function renewTaskLock(lockKey: string): Promise<void> {
-  const renewScript = `
-    if redis.call('GET', KEYS[1]) == ARGV[1] then
-      return redis.call('PEXPIRE', KEYS[1], ARGV[2])
-    end
-    return 0
-  `;
-  await getRedis().eval(
-    renewScript,
-    1,
-    lockKey,
-    INSTANCE_ID,
-    String(config.redis.taskLeaseMs),
-  );
-}
-
-async function releaseTaskLock(lockKey: string): Promise<void> {
-  const releaseScript = `
-    if redis.call('GET', KEYS[1]) == ARGV[1] then
-      return redis.call('DEL', KEYS[1])
-    end
-    return 0
-  `;
-  await getRedis().eval(releaseScript, 1, lockKey, INSTANCE_ID);
-}
-
-async function processQueueTask(task: AgentTask): Promise<TaskProcessResult> {
-  const lockKey = taskLockKey(task.taskId);
-  const acquired = await getRedis().set(
-    lockKey,
-    INSTANCE_ID,
-    "PX",
-    config.redis.taskLeaseMs,
-    "NX",
-  );
-  if (acquired !== "OK") {
-    console.warn(`[worker] task=${task.taskId}: 执行租约被其他消费者持有，等待后续认领`);
-    return { action: "retry" };
-  }
-
-  const lockRenewTimer = setInterval(() => {
-    renewTaskLock(lockKey).catch((error) => {
-      console.error(`[worker] task=${task.taskId}: 续租失败`, error);
-    });
-  }, config.redis.taskLeaseRenewMs);
-
-  try {
-    const claimResult = await claimTaskExecution(task, INSTANCE_ID);
-    if (claimResult === "completed") {
-      console.log(`[worker] task=${task.taskId}: 已完成任务重复投递，直接确认`);
-      return { action: "ack" };
+/**
+ * 处理 gateway 派发的任务：fire-and-forget，异常在内部兜底为 SSE error/done 事件 +
+ * session 状态置为 FAILED（单机单实例场景下不再有排队重试/死信队列，失败即向用户报错）。
+ */
+function handleIncomingTask(task: TaskPayload): void {
+  const run = async (): Promise<void> => {
+    try {
+      if (task.taskType === "start") {
+        await openSession({
+          session_id: task.sessionId,
+          user_id: task.userId,
+          request: task.request,
+          turn_id: task.turnId,
+          skill_ids: task.skillIds,
+        });
+      } else {
+        await handleNewMessage({
+          session_id: task.sessionId,
+          user_id: task.userId,
+          request: task.request,
+          turn_id: task.turnId,
+          skill_ids: task.skillIds,
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[worker] task=${task.taskId}: 执行失败:`, message);
+      // sendTurnToSession 内部已覆盖大多数失败路径；这里兜底 session 启动阶段（沙盒创建等）的异常，
+      // 保证前端已建立的 SSE 连接始终能收到终止事件，不会无限挂起等待。
+      const fallbackStream = new SessionOutputStream(task.sessionId, task.turnId);
+      await fallbackStream.pushError(message).catch(() => {});
+      await fallbackStream.pushDone().catch(() => {});
+      await updateSessionStatus(task.sessionId, "FAILED").catch(() => {});
     }
+  };
+  void run();
+}
 
-    if (task.taskType === "start") {
-      await openSession({
-        session_id: task.sessionId,
-        user_id: task.userId,
-        request: task.request,
-        turn_id: task.turnId,
-        skill_ids: task.skillIds,
-      });
-    } else {
-      await handleNewMessage({
-        session_id: task.sessionId,
-        user_id: task.userId,
-        request: task.request,
-        turn_id: task.turnId,
-        skill_ids: task.skillIds,
-      });
-    }
-
-    await completeTask(task.taskId);
-    return { action: "ack" };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const retryCount = await recordTaskFailure(task.taskId, message);
-    console.error(`[worker] task=${task.taskId}: 执行失败 retry=${retryCount}`, error);
-    if (retryCount >= config.redis.taskMaxAttempts) {
-      return { action: "dead_letter", error: message };
-    }
-    return { action: "retry", error: message };
-  } finally {
-    clearInterval(lockRenewTimer);
-    await releaseTaskLock(lockKey).catch((error) => {
-      console.error(`[worker] task=${task.taskId}: 释放租约失败`, error);
-    });
-  }
+function getActiveTurn(sessionId: string): string | null {
+  return runningSessions.get(sessionId)?.activeTurnId ?? null;
 }
 
 // ── 主函数 ────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  console.log(`[worker] pi-runtime 启动中... instance=${INSTANCE_ID}`);
-
-  await connectMongo();
-  await connectRedis();
+  console.log("[worker] pi-runtime 启动中...");
 
   // 启动 Unix socket 桥：为沙盒提供 llm-proxy 和 mcp-proxy 两个网络白名单出口
   startSocketBridge();
-  console.log(`[worker] socket 目录已就绪（LLM/MCP 按 session 注册）`);
+  console.log("[worker] socket 目录已就绪（LLM/MCP 按 session 注册）");
 
-  const taskQueue = new ReliableTaskQueue({
-    redisUrl: config.redis.url,
-    stream: config.redis.taskStream,
-    group: config.redis.taskGroup,
-    consumer: INSTANCE_ID,
-    deadLetterStream: config.redis.taskDlqStream,
-    blockMs: config.redis.taskBlockMs,
-    claimIdleMs: config.redis.taskClaimIdleMs,
-    claimIntervalMs: config.redis.taskClaimIntervalMs,
-    readCount: config.redis.taskReadCount,
-    claimCount: config.redis.taskClaimCount,
-    handleTask: processQueueTask,
-  });
-  await taskQueue.start();
+  const handlers: HttpServerHandlers = {
+    handleTask: handleIncomingTask,
+    handleCancel: handleCancelTurn,
+    handleClose: (sessionId) => closeSession(sessionId, "user_close"),
+    getActiveTurn,
+  };
+  const httpServer = startHttpServer(handlers);
 
-  await registerInstanceAlive();
-  console.log(`[worker] 实例心跳已注册: pi:instance:${INSTANCE_ID}:alive (TTL=${INSTANCE_ALIVE_TTL}s)`);
-
-  const heartbeatTimer = setInterval(() => {
-    registerInstanceAlive().catch((err) =>
-      console.error("[worker] 心跳刷新失败:", err)
-    );
-  }, HEARTBEAT_INTERVAL_MS);
-
-  console.log("[worker] pi-runtime 就绪（Redis Streams Consumer Group 已启用）");
+  console.log("[worker] pi-runtime 就绪（本机 HTTP 已启用，无需 Redis/MongoDB）");
 
   const shutdown = async () => {
     console.log("[worker] pi-runtime 正在关闭...");
-    clearInterval(heartbeatTimer);
-    await taskQueue.stop();
+    httpServer.close();
     // 关闭所有活跃 session
     await Promise.all([...runningSessions.keys()].map((id) => closeSession(id, "shutdown")));
-    await getRedis().del(INSTANCE_ALIVE_KEY_TPL.replace("{instanceId}", INSTANCE_ID)).catch(() => {});
-    await disconnectRedis();
-    await disconnectMongo();
     process.exit(0);
   };
   process.once("SIGTERM", shutdown);

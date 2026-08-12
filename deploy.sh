@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# Pi Agent Platform 一键部署脚本
+# CM 桌面架构 · 本机部署 / 打包脚本
 # 用法（需 bash，不要用 sh deploy.sh）：
-#   bash deploy.sh              # 单节点开发部署（构建镜像 + 启动）
-#   bash deploy.sh --no-build   # 跳过镜像构建，直接用已有镜像启动
-#   bash deploy.sh --prod       # 生产集群部署（需配置 NFS 相关环境变量）
-#   bash deploy.sh --scale 3    # 生产部署，pi-runtime 启动 3 个实例
+#   bash deploy.sh              # Docker：构建镜像 + 启动（打包前本机调试）
+#   bash deploy.sh --no-build   # Docker：跳过镜像构建，直接用已有镜像启动
+#   bash deploy.sh --package    # 打 mac arm64 桌面安装包（.dmg，无需 Docker）
 #   bash deploy.sh --down       # 停止并移除所有容器（保留数据卷）
 #   bash deploy.sh --clean      # 停止并移除容器 + 数据卷（谨慎：会清空用户 workspace）
+#
+# 注：CM 架构改造后 gateway/gateway-sse/admin/llm-proxy/mcp-proxy 已合并为单进程
+# cm-server（见 cm-server/README.md），pi-runtime 基于本机内存态调度单实例 session，
+# 均不支持多实例水平扩展，--prod/--scale 相关参数已移除。
 
 # 若用 sh deploy.sh 调用，dash 不支持 pipefail 等 bash 语法，自动切到 bash
 if [ -z "${BASH_VERSION:-}" ]; then
@@ -29,18 +32,16 @@ error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
 # ── 解析参数 ─────────────────────────────────────────────────────────────────────
 MODE="dev"
-PI_RUNTIME_REPLICAS=1
 COMPOSE_FILES="-f docker-compose.yml"
 NO_BUILD=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --prod)     MODE="prod"; COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"; shift ;;
-    --scale)    PI_RUNTIME_REPLICAS="${2:?--scale 需要指定实例数}"; shift 2 ;;
     --no-build) NO_BUILD=true; shift ;;
+    --package)  MODE="package"; shift ;;
     --down)     MODE="down"; shift ;;
     --clean)    MODE="clean"; shift ;;
-    *) error "未知参数: $1" ;;
+    *) error "未知参数: $1（支持 --package / --no-build / --down / --clean）" ;;
   esac
 done
 
@@ -72,11 +73,6 @@ setup_env() {
   # shellcheck source=/dev/null
   source .env
 
-  if [[ "$MODE" == "prod" ]]; then
-    [[ -z "${NFS_SERVER_ADDR:-}" ]] && error "生产模式需要设置 NFS_SERVER_ADDR"
-    [[ -z "${NFS_EXPORT_PATH:-}" ]] && error "生产模式需要设置 NFS_EXPORT_PATH"
-  fi
-
   success "环境变量检查通过"
 }
 
@@ -106,17 +102,24 @@ do_build() {
 
 # ── 启动 ────────────────────────────────────────────────────────────────────────
 do_start() {
-  info "启动所有服务（pi-runtime x${PI_RUNTIME_REPLICAS}）..."
+  info "启动所有服务..."
   # shellcheck disable=SC2086
-  docker compose $COMPOSE_FILES up -d \
-    --scale pi-runtime="$PI_RUNTIME_REPLICAS" \
-    --remove-orphans
+  docker compose $COMPOSE_FILES up -d --remove-orphans
   success "容器已启动"
+}
+
+# ── mac arm64 桌面安装包 ─────────────────────────────────────────────────────────
+do_package() {
+  # 不依赖 Docker：直接复用 scripts/package-mac.sh（frontend/pi-runtime/pi-cli/cm-server + dmg）
+  [[ -f "$SCRIPT_DIR/scripts/package-mac.sh" ]] || \
+    error "缺少 scripts/package-mac.sh，无法打包"
+  info "开始打 mac arm64 桌面安装包（.dmg）..."
+  bash "$SCRIPT_DIR/scripts/package-mac.sh"
 }
 
 # ── 等待健康检查 ─────────────────────────────────────────────────────────────────
 wait_healthy() {
-  local services=("mongo" "redis" "llm-proxy" "admin" "gateway" "gateway-sse" "frontend")
+  local services=("arxiv-mcp" "cm-server" "pi-runtime" "frontend")
   local timeout=120
   local interval=5
 
@@ -147,31 +150,28 @@ wait_healthy() {
 print_summary() {
   echo ""
   echo "═══════════════════════════════════════════"
-  echo "  Pi Agent Platform 部署完成"
+  echo "  Pi Agent Platform 部署完成（CM 单机架构）"
   echo "═══════════════════════════════════════════"
-  echo ""
-  echo "  模式：$([ "$MODE" == "prod" ] && echo "生产集群" || echo "单节点开发")"
-  echo "  pi-runtime 实例数：${PI_RUNTIME_REPLICAS}"
   echo ""
   echo "  服务地址："
   echo "    前端        →  http://localhost:3000"
-  echo "    Gateway     →  http://localhost:8002  （会话 CRUD / 任务派发，按 QPS 扩容）"
-  echo "    Gateway-SSE →  http://localhost:8001  （SSE 长连接，按并发连接数独立扩容）"
-  echo "    Admin       →  http://localhost:9000"
+  echo "    CM Server   →  http://localhost:8000  （合并自 gateway/gateway-sse/admin/llm-proxy/mcp-proxy）"
   echo ""
   echo "  API 示例："
-  echo "    # 创建会话"
-  echo "    curl -X POST http://localhost:8002/sessions \\"
+  echo "    # 创建会话（turn_id 由前端生成，用于 SSE 订阅）"
+  echo "    curl -X POST http://localhost:8000/sessions \\"
   echo "      -H 'Content-Type: application/json' \\"
-  echo "      -d '{\"user_id\": \"alice\", \"request\": \"帮我写一个 hello world\"}'"
+  echo "      -d '{\"user_id\": \"alice\", \"request\": \"帮我写一个 hello world\", \"turn_id\": \"turn-1\"}'"
   echo ""
-  echo "    # 拉取 SSE 流（替换 SESSION_ID，注意端口是 gateway-sse 的 8001）"
-  echo "    curl -N http://localhost:8001/sessions/SESSION_ID/stream"
+  echo "    # 拉取 SSE 流（替换 SESSION_ID/TURN_ID）"
+  echo "    curl -N http://localhost:8000/sessions/SESSION_ID/turns/TURN_ID/stream"
   echo ""
   echo "  查看日志："
-  echo "    docker compose logs -f gateway"
-  echo "    docker compose logs -f gateway-sse"
+  echo "    docker compose logs -f cm-server"
   echo "    docker compose logs -f pi-runtime"
+  echo ""
+  echo "  打桌面安装包："
+  echo "    bash deploy.sh --package"
   echo ""
 }
 
@@ -182,8 +182,9 @@ main() {
   echo ""
 
   case "$MODE" in
-    down)  check_prerequisites; do_down; exit 0 ;;
-    clean) check_prerequisites; do_clean; exit 0 ;;
+    down)    check_prerequisites; do_down; exit 0 ;;
+    clean)   check_prerequisites; do_clean; exit 0 ;;
+    package) do_package; exit 0 ;;
   esac
 
   check_prerequisites

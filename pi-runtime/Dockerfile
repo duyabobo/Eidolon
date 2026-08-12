@@ -35,9 +35,17 @@ RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PI_VERSION
 # 安装 pi-mcp-adapter 插件（pi 调用 MCP 服务的唯一社区适配器）
 # 等效于交互式环境下执行 `pi install npm:pi-mcp-adapter`
 # 原理：npm pack 下载 tarball → 解压到 pi extensions 目录 → 安装依赖（含 @modelcontextprotocol/ext-apps）
+#
+# 锁定版本，不能装最新版：pi-mcp-adapter>=2.21.1 的 sampling-handler.ts 改成从
+# `@earendil-works/pi-ai/compat` 这个子路径导入，要求 peerDependency pi-ai@^0.84.1；
+# 而 PI_VERSION=0.79.9 绑定的 @earendil-works/pi-ai 是 0.79.9（没有 /compat 导出）。
+# 装了不兼容版本会导致 pi-mcp-adapter 扩展加载时 MODULE_NOT_FOUND，pi 进程直接崩溃退出，
+# 所有依赖 MCP 工具调用的会话都会失败。2.21.0 是兼容 pi-ai@0.79.9 的最后一个版本；
+# 升级 PI_VERSION 到 >=0.84.1 时，两个版本号要一起放开重新验证。
+ARG PI_MCP_ADAPTER_VERSION=2.21.0
 RUN mkdir -p /root/.pi/agent/extensions && \
     cd /tmp && \
-    npm pack pi-mcp-adapter && \
+    npm pack pi-mcp-adapter@${PI_MCP_ADAPTER_VERSION} && \
     mkdir -p /root/.pi/agent/extensions/pi-mcp-adapter && \
     tar -xzf pi-mcp-adapter-*.tgz \
         -C /root/.pi/agent/extensions/pi-mcp-adapter \

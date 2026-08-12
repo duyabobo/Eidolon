@@ -1,7 +1,7 @@
 {
   "name": "pi-runtime",
   "version": "1.0.0",
-  "description": "Pi Agent runtime worker with bwrap sandbox and Redis streaming",
+  "description": "Pi Agent runtime worker with bwrap sandbox, driven by direct HTTP calls from gateway/gateway-sse",
   "main": "dist/worker.js",
   "scripts": {
     "build": "tsc",
@@ -9,9 +9,7 @@
     "dev": "ts-node src/worker.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "latest",
-    "ioredis": "^5.4.2",
-    "mongodb": "^6.14.0"
+    "@earendil-works/pi-coding-agent": "latest"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

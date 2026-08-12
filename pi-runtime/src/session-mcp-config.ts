@@ -12,10 +12,21 @@ import http from "http";
 import { join } from "path";
 
 const MCP_PROXY_SERVER_NAME = "mcp-proxy";
-const MCP_PROXY_LOOPBACK_URL = "http://127.0.0.1:8080/mcp";
+/** 沙盒内 bridge.js 桥接端口默认值，与 extensions/sandbox-init/bridge.js 保持一致 */
+const DEFAULT_MCP_BRIDGE_PORT = 8080;
 /** pi-mcp-adapter 调 mcp-proxy 的 tools/call 超时；默认 SDK 约 60s，arxiv 外网常不够 */
 const MCP_PROXY_REQUEST_TIMEOUT_MS = 180_000;
 const CACHE_VERSION = 1;
+
+/**
+ * 沙盒内 mcp.json 指向的 loopback 地址。
+ * Linux 下固定 8080（bwrap 每 session 独立网络命名空间，不会冲突）；
+ * macOS 下由 sandbox-ports.ts 按 session 动态分配，避免与真实 mcp-proxy/其他并发
+ * session 冲突（见 pi-runtime/src/sandbox-macos.ts 顶部说明）。
+ */
+function mcpProxyLoopbackUrl(bridgePort: number = DEFAULT_MCP_BRIDGE_PORT): string {
+  return `http://127.0.0.1:${bridgePort}/mcp`;
+}
 
 export interface McpDirectToolsSetup {
   userId: string;
@@ -44,13 +55,13 @@ function stableStringify(value: unknown): string {
 }
 
 /** 与 pi-mcp-adapter computeServerHash 对齐（url-only 的 mcp-proxy 条目）。 */
-export function computeMcpProxyConfigHash(): string {
+export function computeMcpProxyConfigHash(bridgePort?: number): string {
   const identity = {
     command: undefined,
     args: undefined,
     env: undefined,
     cwd: undefined,
-    url: MCP_PROXY_LOOPBACK_URL,
+    url: mcpProxyLoopbackUrl(bridgePort),
     headers: undefined,
     auth: undefined,
     bearerToken: undefined,
@@ -61,9 +72,9 @@ export function computeMcpProxyConfigHash(): string {
   return createHash("sha256").update(stableStringify(identity)).digest("hex");
 }
 
-export function buildMcpJson(directTools?: string[]): object {
+export function buildMcpJson(directTools?: string[], bridgePort?: number): object {
   const serverEntry: Record<string, unknown> = {
-    url: MCP_PROXY_LOOPBACK_URL,
+    url: mcpProxyLoopbackUrl(bridgePort),
     requestTimeoutMs: MCP_PROXY_REQUEST_TIMEOUT_MS,
   };
   if (directTools && directTools.length > 0) {
@@ -137,13 +148,18 @@ async function fetchToolsList(
 
 /**
  * 写入 mcp.json；若有白名单则预热 mcp-cache.json，使 directTools 首轮即可注册。
+ *
+ * @param bridgePort 沙盒内 mcp.json 指向的 loopback 端口（沙盒内地址，与 setup 里
+ *   mcpProxyHost/mcpProxyPort 指代的真实 mcp-proxy 地址是两个不同的概念——后者仅用于
+ *   本函数向真实 mcp-proxy 预热 tools/list 缓存）。缺省为 Linux 固定端口 8080。
  */
 export async function writeSessionMcpAdapterConfig(
   piConfigDir: string,
   setup?: McpDirectToolsSetup,
+  bridgePort?: number,
 ): Promise<void> {
   const directTools = setup?.toolNames?.length ? setup.toolNames : undefined;
-  await writeFile(join(piConfigDir, "mcp.json"), JSON.stringify(buildMcpJson(directTools), null, 2));
+  await writeFile(join(piConfigDir, "mcp.json"), JSON.stringify(buildMcpJson(directTools, bridgePort), null, 2));
 
   if (!setup || !directTools) {
     return;
@@ -160,7 +176,7 @@ export async function writeSessionMcpAdapterConfig(
       version: CACHE_VERSION,
       servers: {
         [MCP_PROXY_SERVER_NAME]: {
-          configHash: computeMcpProxyConfigHash(),
+          configHash: computeMcpProxyConfigHash(bridgePort),
           tools,
           resources: [] as unknown[],
           cachedAt: Date.now(),

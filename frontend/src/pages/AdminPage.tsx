@@ -51,7 +51,7 @@ export default function AdminPage() {
               onClick={() => setTab(t)}
               className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
                 tab === t
-                  ? "bg-white text-brand-700 shadow-sm"
+                  ? "bg-ink-200/70 text-ink-900 shadow-sm"
                   : "text-ink-500 hover:text-ink-700"
               }`}
             >

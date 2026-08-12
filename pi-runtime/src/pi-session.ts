@@ -3,7 +3,10 @@ import { createInterface } from "readline";
 import { mkdir, writeFile, rm, access as fsAccess } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
 import { SandboxPaths, buildOuterSandboxArgs } from "./sandbox";
+import { buildMacosSandboxArgs } from "./sandbox-macos";
+import { allocateSessionBridgePorts, SessionBridgePorts } from "./sandbox-ports";
 import { config } from "./config";
 import { SessionOutputStream } from "./output-stream";
 import { extractLastAssistantText, resolveFinalResultContent } from "./final-answer";
@@ -124,28 +127,36 @@ interface ActiveTurn {
  * models.json（指向沙盒内 llm-proxy 桥），软链接扩展和 skills。
  *
  * 网络策略变更说明：
- *   - mcp.json 只配置一个条目，URL 指向沙盒内 loopback:8080（→ Unix socket → mcp-proxy）
- *   - models.json baseUrl 指向沙盒内 loopback:9001（→ Unix socket → llm-proxy）
- *   - 真实的 MCP Server 列表由 mcp-proxy 服务从 MongoDB 读取并管理
+ *   - mcp.json 只配置一个条目，URL 指向沙盒内 loopback:{bridgePorts.mcpPort}
+ *     （→ Unix socket → mcp-proxy）
+ *   - models.json baseUrl 指向沙盒内 loopback:{bridgePorts.llmPort}
+ *     （→ Unix socket → llm-proxy）
+ *   - 真实的 MCP Server 列表由 mcp-proxy 服务从本地 SQLite 读取并管理
  *   - Skill.mcp_tools → directTools：让白名单工具以原始名出现在模型 tool list
  *     （仅靠 X-Mcp-Tools 过滤不够——adapter 默认只有 mcp 网关）
+ *
+ * bridgePorts 在 Linux 上固定为 9001/8080（bwrap 每 session 独立网络命名空间，
+ * 不会冲突）；macOS 上由 allocateSessionBridgePorts 按 session 动态分配
+ * （见 sandbox-ports.ts 顶部说明——没有网络命名空间，固定端口会跟真实服务/其他并发
+ * session 冲突）。
  */
 async function setupPiConfigDir(
   sessionId: string,
   globalSkillsRoot: string,
   userSkillsRoot: string,
+  bridgePorts: SessionBridgePorts,
   mcpDirectTools?: McpDirectToolsSetup,
 ): Promise<string> {
   const piConfigDir = `/tmp/pi-config/${sessionId}`;
   await mkdir(piConfigDir, { recursive: true });
 
-  await writeSessionMcpAdapterConfig(piConfigDir, mcpDirectTools);
+  await writeSessionMcpAdapterConfig(piConfigDir, mcpDirectTools, bridgePorts.mcpPort);
 
-  // LLM provider 配置：指向沙盒内的 llm-proxy 桥（127.0.0.1:9001）
+  // LLM provider 配置：指向沙盒内的 llm-proxy 桥
   const piModelsJson = {
     providers: {
       "llm-proxy": {
-        baseUrl: "http://127.0.0.1:9001/v1",
+        baseUrl: `http://127.0.0.1:${bridgePorts.llmPort}/v1`,
         api: "openai-completions",
         apiKey: process.env.OPENAI_API_KEY ?? "pi-agent-internal",
         compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
@@ -171,7 +182,13 @@ async function setupPiConfigDir(
 
   // 扩展软链接（PI_CODING_AGENT_DIR 覆盖默认路径，必须显式链接）
   // bwrap 扩展是安全关键，链接失败直接抛错（fail-closed）
-  const defaultExtensionsDir = "/root/.pi/agent/extensions";
+  //
+  // 扩展目录解析优先级：
+  //   1. PI_EXTENSIONS_DIR（Electron 打包后指向 Resources/pi-cli/extensions）
+  //   2. $HOME/.pi/agent/extensions（本机全局安装 / 容器以 root 跑时即 /root/.pi/...）
+  // 不能硬编码 "/root/.pi/agent/extensions"：那是 Docker 容器以 root 运行时的巧合路径。
+  const defaultExtensionsDir =
+    process.env.PI_EXTENSIONS_DIR || join(homedir(), ".pi", "agent", "extensions");
   const piExtensionsDir = join(piConfigDir, "extensions");
   await mkdir(piExtensionsDir, { recursive: true });
   const extensionEntries = await readdir(defaultExtensionsDir, { withFileTypes: true }).catch(() => []);
@@ -322,10 +339,12 @@ export async function startPiSession(
   skillIds: string[] = [],
   mcpDirectTools?: McpDirectToolsSetup,
 ): Promise<PiSessionHandle> {
+  const bridgePorts = await allocateSessionBridgePorts();
   const piConfigDir = await setupPiConfigDir(
     sessionId,
     sandboxPaths.globalSkills,
     sandboxPaths.userSkills,
+    bridgePorts,
     mcpDirectTools,
   );
 
@@ -347,7 +366,18 @@ export async function startPiSession(
     PI_OUTER_SANDBOX: "1",
     PI_SOCKS_LLM: sessionLlmSockForSandbox(sessionId),
     PI_SOCKS_MCP: sessionMcpSockForSandbox(sessionId),
+    // bridge.js 监听端口：Linux 固定 9001/8080，macOS 按 session 动态分配（见 sandbox-ports.ts）
+    PI_BRIDGE_LLM_PORT: String(bridgePorts.llmPort),
+    PI_BRIDGE_MCP_PORT: String(bridgePorts.mcpPort),
   };
+  // Electron 桌面场景：用安装包内的 Electron 二进制当 Node 跑 bridge.js / pi CLI
+  // （用户机器上不一定装了 node）。容器不设这些变量，sandbox-init.sh 退回 PATH 的 node。
+  if (process.env.NODE_BIN) {
+    piEnv.NODE_BIN = process.env.NODE_BIN;
+  }
+  if (process.env.ELECTRON_RUN_AS_NODE) {
+    piEnv.ELECTRON_RUN_AS_NODE = process.env.ELECTRON_RUN_AS_NODE;
+  }
 
   const skillArgs = buildSkillArgs(skillIds, sandboxPaths.globalSkills, sandboxPaths.userSkills);
   const selectedSkillPromptArgs = buildSelectedSkillPromptArgs(
@@ -367,12 +397,13 @@ export async function startPiSession(
     ...memoryArgs,
   ];
 
-  // 外层 bwrap 参数：将 pi 进程整体置于网络隔离沙盒内
-  const outerBwrapArgs = buildOuterSandboxArgs(sandboxPaths, piConfigDir, sessionId);
-
-  // 完整命令：bwrap <沙盒参数> <启动脚本> pi <pi参数>
-  // sandbox-init.sh 负责：启用 loopback、启动 TCP↔Unix socket 桥、exec pi
-  const sandboxInitScript = "/app/extensions/sandbox-init/sandbox-init.sh";
+  // sandbox-init.sh 负责：启用 loopback（Linux）、启动 TCP↔Unix socket 桥、exec pi
+  // __dirname 相对定位：dist/pi-session.js 的上一级即 pi-runtime 包根目录，
+  // Docker（/app/dist → /app/extensions）与本地/Electron 打包布局（同级目录）均适用。
+  const sandboxInitScript = join(__dirname, "..", "extensions", "sandbox-init", "sandbox-init.sh");
+  // Electron 打包后指向 Resources/pi-cli/bin/pi；容器未设置时退回 PATH 里的全局 pi
+  const piCommand = process.env.PI_BIN || "pi";
+  const isMacos = process.platform === "darwin";
 
   const { cgroup: sessionCgroup, prlimitArgs } = await planSessionResourceLimits(sessionId);
   let cgroupDestroyed = false;
@@ -383,14 +414,29 @@ export async function startPiSession(
     console.log(`[pi-session] session=${sessionId}: cgroup 已释放`);
   };
 
-  const bwrapCommandArgs = [...outerBwrapArgs, sandboxInitScript, "pi", ...piArgs];
-  const spawnCommand = prlimitArgs.length > 0 ? "prlimit" : "bwrap";
-  const spawnArgs = prlimitArgs.length > 0 ? [...prlimitArgs, "bwrap", ...bwrapCommandArgs] : bwrapCommandArgs;
+  let spawnCommand: string;
+  let spawnArgs: string[];
+  if (isMacos) {
+    // macOS：sandbox-exec -f <渲染后的 Seatbelt profile> <启动脚本> <pi> <pi参数>
+    // 无 PID 命名空间可用，进程树清理改用 detached 进程组（见下方 hardKillProcess）
+    const outerMacosArgs = await buildMacosSandboxArgs(sandboxPaths, piConfigDir, sessionId, bridgePorts);
+    spawnCommand = "sandbox-exec";
+    spawnArgs = [...outerMacosArgs, sandboxInitScript, piCommand, ...piArgs];
+  } else {
+    // Linux：bwrap <沙盒参数> <启动脚本> <pi> <pi参数>，cgroup 不可用时 prlimit 兜底内存限制
+    const outerBwrapArgs = buildOuterSandboxArgs(sandboxPaths, piConfigDir, sessionId);
+    const bwrapCommandArgs = [...outerBwrapArgs, sandboxInitScript, piCommand, ...piArgs];
+    spawnCommand = prlimitArgs.length > 0 ? "prlimit" : "bwrap";
+    spawnArgs = prlimitArgs.length > 0 ? [...prlimitArgs, "bwrap", ...bwrapCommandArgs] : bwrapCommandArgs;
+  }
 
   const piProcess: ChildProcess = spawn(spawnCommand, spawnArgs, {
     stdio: ["pipe", "pipe", "pipe"],
     env: piEnv,
     cwd: sandboxPaths.workspace,
+    // macOS 下没有 --unshare-pid 可用，detached 让 sandbox-exec 成为独立进程组 leader，
+    // hardKillProcess 通过负 PID 一次性杀掉整棵子进程树（bash 工具等）
+    detached: isMacos,
   });
 
   if (sessionCgroup && piProcess.pid) {
@@ -493,18 +539,32 @@ export async function startPiSession(
   // ── 返回句柄 ─────────────────────────────────────────────────────────────
 
   /**
-   * 通过操作系统信号强制终止 pi 进程。
+   * 通过操作系统信号强制终止 pi 进程（及其派生的子进程树，如 bash 工具）。
    *
-   * 依赖 sandbox.ts 中 bwrap 的 --unshare-pid + --die-with-parent：pi 及其在沙盒内
-   * 派生的所有子进程（bash 工具等）共享同一个独立 PID 命名空间，杀掉命名空间内
-   * PID 1（即此处的 piProcess）会被内核连带清空整棵子进程树，不会有遗留僵尸进程
-   * 继续占用 CPU/网络。这是协议层 abort（协作式，pi 可能因未接入取消钩子的工具
-   * 调用/网络请求而无法及时响应）之外唯一能 100% 保证"真正停止"的手段。
+   * Linux：依赖 sandbox.ts 中 bwrap 的 --unshare-pid + --die-with-parent，pi 及其
+   * 沙盒内子进程共享同一个独立 PID 命名空间，杀掉命名空间内 PID 1（即此处的
+   * piProcess）会被内核连带清空整棵子进程树，不会有遗留僵尸进程继续占用 CPU/网络。
+   *
+   * macOS：sandbox-exec 没有 PID 命名空间，改用 detached 进程组：spawn 时设置
+   * detached=true 使 piProcess 成为独立进程组 leader，其 pid 同时是 pgid；
+   * kill(-pid) 向整个进程组发信号，杀掉 sandbox-exec 自身及其派生的所有子进程。
+   *
+   * 这是协议层 abort（协作式，pi 可能因未接入取消钩子的工具调用/网络请求而无法
+   * 及时响应）之外唯一能 100% 保证"真正停止"的手段。
    */
   async function hardKillProcess(): Promise<void> {
     if (piProcess.exitCode !== null || piProcess.signalCode !== null) return;
     console.warn(`[pi-session] session=${sessionId}: SIGKILL 强制终止 pi 进程 pid=${piProcess.pid}`);
-    piProcess.kill("SIGKILL");
+    if (isMacos && piProcess.pid) {
+      try {
+        process.kill(-piProcess.pid, "SIGKILL");
+      } catch (err) {
+        console.warn(`[pi-session] session=${sessionId}: 进程组 SIGKILL 失败，回退单进程终止`, err);
+        piProcess.kill("SIGKILL");
+      }
+    } else {
+      piProcess.kill("SIGKILL");
+    }
     await piExitPromise;
   }
 

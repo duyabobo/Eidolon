@@ -3,6 +3,8 @@ import { createContext, useContext, useState, useRef, useEffect, useCallback, } 
 import { createSession, sendMessage, cancelTurn, streamTurn, getRecentSessions, getSessionDetail, getActiveTurn, } from "../api/session";
 import { skillsApi, toSkillRef } from "../api/skills";
 import { workspaceApi } from "../api/workspace";
+import { randomUUID } from "../utils/id";
+import { resolveUserId } from "../constants/user";
 /** 收集紧邻本轮文本之前的连续 user_file（上一条/若干条附件）。 */
 export function collectTrailingFileMessages(messages) {
     const files = [];
@@ -64,6 +66,36 @@ function savePersistedSkillRef(sessionId, ref) {
     }
     else {
         localStorage.removeItem(`pi_skill_ref_${sessionId}`);
+    }
+}
+const LAST_SESSION_STORAGE_KEY = "pi_last_session_id";
+const CURRENT_SESSION_STORAGE_KEY = "pi_session_id";
+function rememberLastSessionId(sessionId) {
+    const id = (sessionId ?? "").trim();
+    if (!id)
+        return;
+    localStorage.setItem(LAST_SESSION_STORAGE_KEY, id);
+}
+function readLastSessionId() {
+    const last = localStorage.getItem(LAST_SESSION_STORAGE_KEY)?.trim();
+    if (last)
+        return last;
+    const current = localStorage.getItem(CURRENT_SESSION_STORAGE_KEY)?.trim();
+    return current || null;
+}
+function parseAssistantFilePayload(raw) {
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed.filename || !parsed.relative_path)
+            return null;
+        return {
+            filename: parsed.filename,
+            relative_path: parsed.relative_path,
+            size: typeof parsed.size === "number" ? parsed.size : undefined,
+        };
+    }
+    catch {
+        return null;
     }
 }
 export function buildMessagesFromSnapshot(request, snapshot) {
@@ -128,6 +160,31 @@ export function buildMessagesFromSnapshot(request, snapshot) {
             }
             continue;
         }
+        if (event.event_type === "final_result") {
+            msgs = [
+                ...closeLastAssistantAt(msgs, ts),
+                { role: "assistant", type: "final_result", content, startedAt: ts, endedAt: ts },
+            ];
+            continue;
+        }
+        if (event.event_type === "assistant_file") {
+            const file = parseAssistantFilePayload(content);
+            if (file) {
+                msgs = [
+                    ...closeLastAssistantAt(msgs, ts),
+                    {
+                        role: "assistant",
+                        type: "file",
+                        content: file.filename,
+                        relativePath: file.relative_path,
+                        size: file.size,
+                        startedAt: ts,
+                        endedAt: ts,
+                    },
+                ];
+            }
+            continue;
+        }
         if (event.event_type === "thinking") {
             if (last?.role === "assistant" && last.type === "thinking") {
                 msgs[msgs.length - 1] = { ...last, content: last.content + content, endedAt: ts };
@@ -178,10 +235,29 @@ function appendMessageEvent(prev, type, text, streaming = false) {
             }];
     }
     const closed = closeLastAssistantStep(prev);
-    if (type === "text" || type === "thinking") {
+    if (type === "text" || type === "thinking" || type === "final_result") {
         return [...closed, { role: "assistant", type, content: text, isStreaming: streaming, startedAt: now }];
     }
     return [...closed, { role: "assistant", type, content: text, startedAt: now }];
+}
+function appendAssistantFileMessage(prev, raw) {
+    const file = parseAssistantFilePayload(raw);
+    if (!file)
+        return prev;
+    const now = Date.now();
+    const closed = closeLastAssistantStep(prev);
+    return [
+        ...closed,
+        {
+            role: "assistant",
+            type: "file",
+            content: file.filename,
+            relativePath: file.relative_path,
+            size: file.size,
+            startedAt: now,
+            endedAt: now,
+        },
+    ];
 }
 function markAllStreamingDone(prev) {
     const now = Date.now();
@@ -242,7 +318,11 @@ export function useChatSession() {
     return ctx;
 }
 export function ChatSessionProvider({ children }) {
-    const [userId, setUserIdState] = useState(() => localStorage.getItem("pi_user_id") ?? "");
+    const [userId, setUserIdState] = useState(() => {
+        const id = resolveUserId(localStorage.getItem("pi_user_id"));
+        localStorage.setItem("pi_user_id", id);
+        return id;
+    });
     const [messages, setMessages] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState("");
@@ -385,6 +465,12 @@ export function ChatSessionProvider({ children }) {
             else if (ev.event === "tool_result") {
                 updateSessionMessages(sid, (prev) => appendMessageEvent(prev, "tool_result", ev.data));
             }
+            else if (ev.event === "final_result") {
+                updateSessionMessages(sid, (prev) => appendMessageEvent(prev, "final_result", ev.data));
+            }
+            else if (ev.event === "assistant_file") {
+                updateSessionMessages(sid, (prev) => appendAssistantFileMessage(prev, ev.data));
+            }
         }, onDone, onError, lastSeq);
         const runtime = sessionRuntimeRef.current.get(sid) ?? emptyRuntime(messagesRef.current);
         sessionRuntimeRef.current.set(sid, {
@@ -406,9 +492,11 @@ export function ChatSessionProvider({ children }) {
     const restoreSession = useCallback(async (savedSessionId) => {
         sessionIdRef.current = savedSessionId;
         setCurrentSessionId(savedSessionId);
+        localStorage.setItem(CURRENT_SESSION_STORAGE_KEY, savedSessionId);
+        rememberLastSessionId(savedSessionId);
         const detail = await getSessionDetail(savedSessionId);
         if (!detail) {
-            localStorage.removeItem("pi_session_id");
+            localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
             sessionIdRef.current = null;
             setCurrentSessionId(null);
             return;
@@ -429,20 +517,23 @@ export function ChatSessionProvider({ children }) {
         if (restoredRef.current)
             return;
         restoredRef.current = true;
-        const savedSessionId = localStorage.getItem("pi_session_id");
+        const savedSessionId = localStorage.getItem(CURRENT_SESSION_STORAGE_KEY);
         const savedUserId = localStorage.getItem("pi_user_id");
         if (!savedSessionId || !savedUserId)
             return;
         restoreSession(savedSessionId).catch(() => {
-            localStorage.removeItem("pi_session_id");
+            localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
             sessionIdRef.current = null;
         });
     }, [restoreSession]);
     const startNewChat = useCallback(() => {
+        const prev = sessionIdRef.current;
+        if (prev)
+            rememberLastSessionId(prev);
         persistCurrentSession();
         sessionIdRef.current = null;
         setCurrentSessionId(null);
-        localStorage.removeItem("pi_session_id");
+        localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
         messagesRef.current = [];
         setMessages([]);
         syncVisibleSessionState(null);
@@ -457,7 +548,8 @@ export function ChatSessionProvider({ children }) {
         setError("");
         sessionIdRef.current = s.session_id;
         setCurrentSessionId(s.session_id);
-        localStorage.setItem("pi_session_id", s.session_id);
+        localStorage.setItem(CURRENT_SESSION_STORAGE_KEY, s.session_id);
+        rememberLastSessionId(s.session_id);
         const cached = sessionRuntimeRef.current.get(s.session_id);
         if (cached) {
             messagesRef.current = cached.messages;
@@ -488,9 +580,32 @@ export function ChatSessionProvider({ children }) {
         sessionRuntimeRef.current.set(s.session_id, emptyRuntime(msgs));
         syncVisibleSessionState(s.session_id);
     }, [persistCurrentSession, attachTurnStream, syncVisibleSessionState, notifyRuntimeChange]);
+    const resumeLastChat = useCallback(async () => {
+        if (sessionIdRef.current)
+            return;
+        const lastId = readLastSessionId();
+        if (lastId) {
+            try {
+                await restoreSession(lastId);
+                return;
+            }
+            catch {
+                localStorage.removeItem(LAST_SESSION_STORAGE_KEY);
+            }
+        }
+        const uid = userId.trim();
+        if (!uid)
+            return;
+        const list = await getRecentSessions(uid);
+        setSessions(list);
+        if (list.length === 0)
+            return;
+        await switchToSession(list[0]);
+    }, [restoreSession, userId, switchToSession]);
     const setUserId = useCallback((newId) => {
-        setUserIdState(newId);
-        localStorage.setItem("pi_user_id", newId);
+        const id = resolveUserId(newId);
+        setUserIdState(id);
+        localStorage.setItem("pi_user_id", id);
     }, []);
     const setSelectedSkillRef = useCallback((ref) => {
         setSelectedSkillRefState(ref);
@@ -555,7 +670,7 @@ export function ChatSessionProvider({ children }) {
         }
         setError("");
         setIsLoading(true);
-        const turnId = crypto.randomUUID();
+        const turnId = randomUUID();
         const skillIds = selectedSkillRefRef.current ? [selectedSkillRefRef.current] : [];
         const trailingFiles = collectTrailingFileMessages(messagesRef.current);
         try {
@@ -568,7 +683,8 @@ export function ChatSessionProvider({ children }) {
                 sessionId = resp.session_id;
                 sessionIdRef.current = sessionId;
                 setCurrentSessionId(sessionId);
-                localStorage.setItem("pi_session_id", sessionId);
+                localStorage.setItem(CURRENT_SESSION_STORAGE_KEY, sessionId);
+                rememberLastSessionId(sessionId);
                 sessionRuntimeRef.current.set(sessionId, emptyRuntime(messagesRef.current));
                 setSessions((prev) => {
                     const entry = {
@@ -689,6 +805,7 @@ export function ChatSessionProvider({ children }) {
         loadSessions,
         loadSkills,
         startNewChat,
+        resumeLastChat,
         switchToSession,
         interrupt,
         send,

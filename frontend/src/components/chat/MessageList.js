@@ -1,6 +1,7 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useMemo, useRef, useEffect } from "react";
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+import { useMemo, useRef, useEffect, useCallback, useState } from "react";
 import { APP_LOGO, APP_NAME } from "../../constants/brand";
+import { workspaceApi } from "../../api/workspace";
 import ChatMarkdown from "./ChatMarkdown";
 import ExecutionSteps from "./ExecutionSteps";
 import { formatMessageTime } from "./stepTiming";
@@ -19,6 +20,24 @@ function resolveTurnStartedAt(msgs) {
             return msg.startedAt;
     }
     return undefined;
+}
+/** download API 需要 users/{uid}/ 下的相对路径 */
+function resolveWorkspaceDownloadPath(sessionId, relativePath, filename) {
+    const path = (relativePath || filename || "").trim();
+    if (!path)
+        return null;
+    if (path.startsWith("sessions/"))
+        return path;
+    if (!sessionId)
+        return null;
+    return `sessions/${sessionId}/workspace/${path}`;
+}
+function toAttachment(msg) {
+    return {
+        filename: msg.content,
+        relativePath: msg.relativePath,
+        size: msg.size,
+    };
 }
 function groupMessages(messages) {
     const items = [];
@@ -47,22 +66,47 @@ function groupMessages(messages) {
             assistantMsgs.push(messages[i]);
             i += 1;
         }
+        const attachments = assistantMsgs.filter((m) => m.type === "file").map(toAttachment);
+        const nonFileMsgs = assistantMsgs.filter((m) => m.type !== "file");
+        let finalResultIdx = -1;
         let lastTextIdx = -1;
-        for (let j = assistantMsgs.length - 1; j >= 0; j -= 1) {
-            if (assistantMsgs[j].type === "text") {
+        for (let j = nonFileMsgs.length - 1; j >= 0; j -= 1) {
+            if (finalResultIdx < 0 && nonFileMsgs[j].type === "final_result") {
+                finalResultIdx = j;
+            }
+            if (lastTextIdx < 0 && nonFileMsgs[j].type === "text") {
                 lastTextIdx = j;
-                break;
             }
         }
-        const steps = lastTextIdx >= 0 ? assistantMsgs.slice(0, lastTextIdx) : assistantMsgs;
-        const finalText = lastTextIdx >= 0 ? assistantMsgs[lastTextIdx] : null;
+        const startedAt = resolveTurnStartedAt(assistantMsgs);
+        // 有 final_result：此前所有生成内容（含 Step7 叙述）都进中间步骤，最终只展示纯净答案
+        if (finalResultIdx >= 0) {
+            items.push({
+                kind: "assistant",
+                turn: {
+                    steps: nonFileMsgs.filter((_, idx) => idx !== finalResultIdx),
+                    finalText: nonFileMsgs[finalResultIdx],
+                    attachments,
+                    startedAt,
+                },
+            });
+            continue;
+        }
+        // 流式进行中：token 一律折叠进中间步骤，不把中间生成当最终回复
+        const streaming = nonFileMsgs.some((m) => m.isStreaming);
+        if (streaming) {
+            items.push({
+                kind: "assistant",
+                turn: { steps: nonFileMsgs, finalText: null, attachments, startedAt },
+            });
+            continue;
+        }
+        // 历史兼容：旧会话无 final_result 时，仍用最后一段 text 作为回复
+        const steps = lastTextIdx >= 0 ? nonFileMsgs.slice(0, lastTextIdx) : nonFileMsgs;
+        const finalText = lastTextIdx >= 0 ? nonFileMsgs[lastTextIdx] : null;
         items.push({
             kind: "assistant",
-            turn: {
-                steps,
-                finalText,
-                startedAt: resolveTurnStartedAt(assistantMsgs),
-            },
+            turn: { steps, finalText, attachments, startedAt },
         });
     }
     return items;
@@ -73,14 +117,53 @@ function MessageTime({ ts, align }) {
         return null;
     return (_jsx("p", { className: `text-[10px] text-ink-400 mt-1 tabular-nums ${align === "right" ? "text-right" : "text-left"}`, children: label }));
 }
-function OnenewAvatar() {
+function EidolonAvatar() {
     return (_jsx("div", { className: "w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-[10px] font-semibold shrink-0 mt-0.5 shadow-sm", children: APP_LOGO }));
 }
-function AssistantTurnBlock({ turn }) {
-    const { steps, finalText, startedAt } = turn;
+function FileChip({ filename, subtitle, title, onDownload, downloading, align, }) {
+    const clickable = Boolean(onDownload) && !downloading;
+    const className = [
+        "rounded-2.5xl px-3.5 py-2.5 text-sm bg-white border border-ink-200/70 text-ink-800 shadow-soft inline-flex items-center gap-2.5 max-w-full text-left",
+        align === "right" ? "rounded-br-md" : "rounded-bl-md",
+        clickable ? "hover:border-brand-300 hover:bg-brand-50/40 cursor-pointer transition-colors" : "",
+        downloading ? "opacity-70 cursor-wait" : "",
+    ].filter(Boolean).join(" ");
+    const body = (_jsxs(_Fragment, { children: [_jsx("span", { className: "w-8 h-8 rounded-lg bg-ink-100 text-ink-500 flex items-center justify-center text-[10px] font-semibold shrink-0", children: "FILE" }), _jsxs("span", { className: "min-w-0", children: [_jsx("span", { className: "block font-medium truncate", children: downloading ? "下载中…" : filename }), subtitle && (_jsx("span", { className: "block text-[11px] text-ink-400 mt-0.5", children: subtitle })), clickable && (_jsx("span", { className: "block text-[11px] text-brand-600 mt-0.5", children: "\u70B9\u51FB\u4E0B\u8F7D" }))] })] }));
+    if (clickable) {
+        return (_jsx("button", { type: "button", onClick: onDownload, className: className, title: title || filename, children: body }));
+    }
+    return (_jsx("div", { className: className, title: title || filename, children: body }));
+}
+function AssistantTurnBlock({ turn, userId, sessionId, }) {
+    const { steps, finalText, attachments, startedAt } = turn;
     const hasSteps = steps.length > 0;
     const onlySteps = hasSteps && !finalText;
-    return (_jsxs("div", { className: "flex gap-3 justify-start", children: [_jsx(OnenewAvatar, {}), _jsxs("div", { className: "flex-1 min-w-0", children: [_jsx(MessageTime, { ts: startedAt, align: "left" }), hasSteps && _jsx(ExecutionSteps, { steps: steps }), finalText && (_jsxs("div", { className: "max-w-[92%]", children: [hasSteps && (_jsx("p", { className: "text-[10px] font-semibold uppercase tracking-wider text-ink-400 mb-1.5 pl-0.5", children: "\u56DE\u590D" })), _jsx("div", { className: "rounded-2.5xl rounded-bl-md px-4 py-3 text-sm leading-relaxed break-words bg-white border border-ink-200/60 text-ink-900 shadow-soft", children: _jsx(ChatMarkdown, { content: finalText.content, streaming: finalText.isStreaming }) })] })), onlySteps && (_jsxs("p", { className: "text-xs text-ink-400 mt-2 pl-1 flex items-center gap-1.5", children: [_jsx("span", { className: "w-1 h-1 rounded-full bg-ink-300 animate-pulse" }), "\u7B49\u5F85\u6700\u7EC8\u56DE\u590D\u2026"] }))] })] }));
+    const [downloadingKey, setDownloadingKey] = useState(null);
+    const downloadAttachment = useCallback(async (file) => {
+        const path = resolveWorkspaceDownloadPath(sessionId, file.relativePath, file.filename);
+        if (!userId.trim() || !path)
+            return;
+        const key = path;
+        setDownloadingKey(key);
+        try {
+            await workspaceApi.download(userId, path, file.filename);
+        }
+        catch (err) {
+            console.error("[MessageList] 附件下载失败", err);
+        }
+        finally {
+            setDownloadingKey(null);
+        }
+    }, [userId, sessionId]);
+    return (_jsxs("div", { className: "flex gap-3 justify-start", children: [_jsx(EidolonAvatar, {}), _jsxs("div", { className: "flex-1 min-w-0", children: [_jsx(MessageTime, { ts: startedAt, align: "left" }), hasSteps && _jsx(ExecutionSteps, { steps: steps }), finalText && (_jsxs("div", { className: "max-w-[92%]", children: [hasSteps && (_jsx("p", { className: "text-[10px] font-semibold uppercase tracking-wider text-ink-400 mb-1.5 pl-0.5", children: "\u56DE\u590D" })), _jsx("div", { className: "rounded-2.5xl rounded-bl-md px-4 py-3 text-sm leading-relaxed break-words bg-white border border-ink-200/60 text-ink-900 shadow-soft", children: _jsx(ChatMarkdown, { content: finalText.content, streaming: finalText.isStreaming }) }), attachments.length > 0 && (_jsx("div", { className: "mt-2 flex flex-wrap gap-2", children: attachments.map((file) => {
+                                    const path = resolveWorkspaceDownloadPath(sessionId, file.relativePath, file.filename);
+                                    const sizeLabel = formatFileSize(file.size);
+                                    return (_jsx(FileChip, { filename: file.filename, subtitle: sizeLabel || undefined, title: file.relativePath || file.filename, onDownload: path ? () => void downloadAttachment(file) : undefined, downloading: path != null && downloadingKey === path, align: "left" }, path || file.filename));
+                                }) }))] })), !finalText && attachments.length > 0 && (_jsx("div", { className: "mt-2 flex flex-wrap gap-2", children: attachments.map((file) => {
+                            const path = resolveWorkspaceDownloadPath(sessionId, file.relativePath, file.filename);
+                            const sizeLabel = formatFileSize(file.size);
+                            return (_jsx(FileChip, { filename: file.filename, subtitle: sizeLabel || undefined, title: file.relativePath || file.filename, onDownload: path ? () => void downloadAttachment(file) : undefined, downloading: path != null && downloadingKey === path, align: "left" }, path || file.filename));
+                        }) })), onlySteps && (_jsxs("p", { className: "text-xs text-ink-400 mt-2 pl-1 flex items-center gap-1.5", children: [_jsx("span", { className: "w-1 h-1 rounded-full bg-ink-300 animate-pulse" }), "\u6B63\u5728\u751F\u6210\uFF0C\u5B8C\u6210\u540E\u5C06\u5C55\u793A\u6700\u7EC8\u56DE\u590D\u2026"] }))] })] }));
 }
 const SCROLL_PIN_THRESHOLD_PX = 80;
 function isPinnedToBottom(container) {
@@ -90,10 +173,26 @@ function isPinnedToBottom(container) {
 function scrollToBottom(container, behavior) {
     container.scrollTo({ top: container.scrollHeight, behavior });
 }
-export default function MessageList({ messages }) {
+export default function MessageList({ messages, userId, sessionId }) {
     const displayItems = useMemo(() => groupMessages(messages), [messages]);
     const scrollRef = useRef(null);
     const pinnedToBottomRef = useRef(true);
+    const [downloadingUserFile, setDownloadingUserFile] = useState(null);
+    const downloadUserFile = useCallback(async (filename, relativePath) => {
+        const path = resolveWorkspaceDownloadPath(sessionId, relativePath, filename);
+        if (!userId.trim() || !path)
+            return;
+        setDownloadingUserFile(path);
+        try {
+            await workspaceApi.download(userId, path, filename);
+        }
+        catch (err) {
+            console.error("[MessageList] 用户附件下载失败", err);
+        }
+        finally {
+            setDownloadingUserFile(null);
+        }
+    }, [userId, sessionId]);
     useEffect(() => {
         const container = scrollRef.current;
         if (!container)
@@ -135,10 +234,11 @@ export default function MessageList({ messages }) {
                         const subtitle = [sizeLabel, item.docId ? `doc:${item.docId.slice(0, 8)}…` : ""]
                             .filter(Boolean)
                             .join(" · ");
-                        return (_jsx("div", { className: "flex justify-end", children: _jsxs("div", { className: "max-w-[78%]", children: [_jsx(MessageTime, { ts: item.startedAt, align: "right" }), _jsxs("div", { className: "rounded-2.5xl rounded-br-md px-3.5 py-2.5 text-sm bg-white border border-ink-200/70 text-ink-800 shadow-soft inline-flex items-center gap-2.5", title: item.docId
+                        const path = resolveWorkspaceDownloadPath(sessionId, item.relativePath, item.filename);
+                        return (_jsx("div", { className: "flex justify-end", children: _jsxs("div", { className: "max-w-[78%]", children: [_jsx(MessageTime, { ts: item.startedAt, align: "right" }), _jsx(FileChip, { filename: item.filename, subtitle: subtitle || undefined, title: item.docId
                                             ? `${item.relativePath || item.filename}\ndoc_id: ${item.docId}`
-                                            : (item.relativePath || item.filename), children: [_jsx("span", { className: "w-8 h-8 rounded-lg bg-ink-100 text-ink-500 flex items-center justify-center text-[10px] font-semibold shrink-0", children: "FILE" }), _jsxs("span", { className: "min-w-0", children: [_jsx("span", { className: "block font-medium truncate", children: item.filename }), subtitle && (_jsx("span", { className: "block text-[11px] text-ink-400 mt-0.5", children: subtitle }))] })] })] }) }, i));
+                                            : (item.relativePath || item.filename), onDownload: path ? () => void downloadUserFile(item.filename, item.relativePath) : undefined, downloading: path != null && downloadingUserFile === path, align: "right" })] }) }, i));
                     }
-                    return _jsx(AssistantTurnBlock, { turn: item.turn }, i);
+                    return (_jsx(AssistantTurnBlock, { turn: item.turn, userId: userId, sessionId: sessionId }, i));
                 })] }) }));
 }

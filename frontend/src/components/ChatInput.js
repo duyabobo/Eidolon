@@ -3,6 +3,7 @@ import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { toSkillRef } from "../api/skills";
 import { workspaceApi } from "../api/workspace";
 import { useAutoGrowTextarea } from "../hooks/useAutoGrowTextarea";
+import { randomUUID } from "../utils/id";
 function detectSlash(input, cursorPos) {
     const before = input.slice(0, cursorPos);
     const match = before.match(/(?:^|\s)\/([^\s/]*)$/);
@@ -120,7 +121,7 @@ export default function ChatInput({ skills, selectedSkillRef, onSelectSkill, onC
         }
         setUploadErr(null);
         if (!sessionId) {
-            setPendingFiles((prev) => [...prev, { id: crypto.randomUUID(), file }]);
+            setPendingFiles((prev) => [...prev, { id: randomUUID(), file }]);
             if (fileInputRef.current)
                 fileInputRef.current.value = "";
             return;
@@ -144,7 +145,7 @@ export default function ChatInput({ skills, selectedSkillRef, onSelectSkill, onC
     };
     return (_jsxs("div", { className: "relative", children: [menuOpen && filteredSkills.length > 0 && (_jsxs("div", { className: "absolute bottom-full left-0 right-0 mb-2 bg-white rounded-xl border border-ink-200/80 shadow-panel overflow-hidden z-10", children: [_jsx("p", { className: "text-[11px] text-ink-400 px-3 py-2 border-b border-ink-100", children: "\u9009\u62E9 Skill" }), _jsx("ul", { className: "max-h-48 overflow-y-auto scrollbar-thin py-1", children: filteredSkills.map((s, i) => {
                             const scope = s.scope ?? "system";
-                            return (_jsx("li", { children: _jsxs("button", { type: "button", onMouseDown: (e) => { e.preventDefault(); applySkill(s); }, className: `w-full text-left px-3 py-2 flex items-center gap-2 transition-colors ${i === menuIndex ? "bg-brand-50" : "hover:bg-ink-50"}`, children: [_jsxs("span", { className: "text-sm font-medium text-ink-800", children: ["/", s.name] }), _jsx(SkillScopeBadge, { scope: scope }), s.description && (_jsx("span", { className: "text-xs text-ink-400 truncate flex-1", children: s.description }))] }) }, toSkillRef(scope, s.name)));
+                            return (_jsx("li", { children: _jsxs("button", { type: "button", onMouseDown: (e) => { e.preventDefault(); applySkill(s); }, className: `w-full text-left px-3 py-2 flex items-center gap-2 transition-colors ${i === menuIndex ? "bg-ink-100" : "hover:bg-ink-50"}`, children: [_jsxs("span", { className: "text-sm font-medium text-ink-800", children: ["/", s.name] }), _jsx(SkillScopeBadge, { scope: scope }), s.description && (_jsx("span", { className: "text-xs text-ink-400 truncate flex-1", children: s.description }))] }) }, toSkillRef(scope, s.name)));
                         }) })] })), selectedSkill && (_jsx("div", { className: "flex items-center gap-2 mb-2", children: _jsxs("span", { className: "inline-flex items-center gap-1.5 text-xs bg-brand-50 text-brand-700 border border-brand-200/60 rounded-full px-2.5 py-1", children: [_jsx(SkillScopeBadge, { scope: selectedSkill.scope ?? "system" }), _jsxs("span", { className: "font-medium", children: ["/", selectedSkill.name] }), _jsx("button", { type: "button", onClick: onClearSkill, className: "text-brand-400 hover:text-brand-700 ml-0.5", "aria-label": "\u6E05\u9664 Skill", children: "\u00D7" })] }) })), pendingFiles.length > 0 && (_jsx("div", { className: "flex flex-wrap gap-1.5 mb-2", children: pendingFiles.map((p) => (_jsxs("span", { className: "inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200/70", title: "\u53D1\u9001\u6D88\u606F\u521B\u5EFA\u4F1A\u8BDD\u540E\u81EA\u52A8\u4E0A\u4F20", children: [p.file.name, _jsx("span", { className: "text-[10px] opacity-70", children: "\u5F85\u4E0A\u4F20" }), _jsx("button", { type: "button", className: "text-amber-500 hover:text-amber-800", onClick: () => removePending(p.id), "aria-label": "\u79FB\u9664", children: "\u00D7" })] }, p.id))) })), uploadErr && (_jsx("p", { className: "text-xs text-rose-600 mb-2", children: uploadErr })), _jsxs("div", { className: "flex gap-3 items-end rounded-2xl border border-ink-200/80 bg-white/90 p-2 shadow-soft focus-within:ring-2 focus-within:ring-brand-500/20 focus-within:border-brand-300 transition-all duration-200", children: [_jsx("input", { ref: fileInputRef, type: "file", className: "hidden", onChange: (e) => void handleUpload(e.target.files?.[0]) }), _jsx("button", { type: "button", title: !userId.trim()
                             ? "请先在右上角「历史」中设置用户 ID"
                             : sessionId

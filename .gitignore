@@ -5,11 +5,18 @@ __pycache__/
 *.pyd
 .Python
 .venv/
+.venv_test/
 venv/
 *.egg-info/
 dist/
 build/
 .eggs/
+
+# 本地 SQLite（CM 架构下各服务共享的本地数据文件，含 WAL 边车文件）
+data/
+*.db
+*.db-wal
+*.db-shm
 
 # Node.js
 node_modules/
@@ -45,3 +52,15 @@ docs/*
 !docs/assets/
 !docs/assets/system-architecture.png
 !docs/assets/agentic-rag-sequence.png
+
+# Electron 打包产物（electron/src、package.json、tsconfig.json 等源码仍需追踪）
+electron/release/
+electron/build-assets/
+
+# PyInstaller 构建 cm-server 时的临时虚拟环境与生成的 spec 文件
+# （scripts/build-*.sh 汇总产物目录 /build/ 与 cm-server/{build,dist}/ 已被顶部通用的
+# build/、dist/ 规则忽略，无需重复声明）
+cm-server/.pyinstaller-venv/
+cm-server/*.spec
+arxiv-mcp/.pyinstaller-venv/
+arxiv-mcp/*.spec

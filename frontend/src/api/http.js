@@ -1,6 +1,7 @@
+import { randomUUID } from "../utils/id";
 export const TRACE_HEADER = "X-Trace-Id";
 export function createTraceId() {
-    return crypto.randomUUID().replace(/-/g, "");
+    return randomUUID().replace(/-/g, "");
 }
 export function mergeTraceHeaders(headers, options) {
     const merged = new Headers(headers);
