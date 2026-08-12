@@ -31,10 +31,16 @@ export interface OutputEvent {
   content: string;
 }
 
+// snapshot 批量落库阈值：达到条数或超过等待时长即触发一次 flush，
+// 在“逐 token 写库”（拖垮 Mongo）与“只在轮次结束写库”（进程意外死亡时整轮丢失）之间取平衡。
+const SNAPSHOT_FLUSH_BATCH_SIZE = 20;
+const SNAPSHOT_FLUSH_INTERVAL_MS = 2000;
+
 export class SessionOutputStream {
   private readonly streamKey: string;
   private pushCount = 0;
   private readonly pendingSnapshot: Array<Record<string, string>> = [];
+  private flushTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly redis: Redis,
@@ -65,10 +71,12 @@ export class SessionOutputStream {
         content: event.content,
         ts: String(Date.now()),
       });
+      this._scheduleSnapshotFlush();
     }
   }
 
   async pushDone(): Promise<void> {
+    this._cancelScheduledFlush();
     await this._flushSnapshot();
     await this.push({ event_type: "done", content: "" });
     console.log(`[stream] session ${this.sessionId}: done 事件已推送，累计 ${this.pushCount} 条`);
@@ -76,6 +84,7 @@ export class SessionOutputStream {
   }
 
   async pushError(message: string): Promise<void> {
+    this._cancelScheduledFlush();
     await this._flushSnapshot();
     await this.push({ event_type: "error", content: message });
     console.error(`[stream] session ${this.sessionId}: error 事件已推送: ${message}`);
@@ -84,6 +93,7 @@ export class SessionOutputStream {
 
   /** 用户中断：立即将已生成内容写入 MongoDB，并通知前端结束 */
   async pushCancelled(): Promise<void> {
+    this._cancelScheduledFlush();
     await this._flushSnapshot();
     await this.redis.xadd(this.streamKey, "*", "event_type", "cancelled", "content", "");
     await this.redis.xadd(this.streamKey, "*", "event_type", "done", "content", "");
@@ -93,14 +103,42 @@ export class SessionOutputStream {
   }
 
   /**
-   * 将内存中积累的事件一次性批量写入 MongoDB。
-   * 使用 $push + $each 一条 updateOne，避免 N 次 DB 写入。
+   * 达到批量阈值时立即 flush，否则安排一个定时 flush，
+   * 保证进程意外退出（如 pi-runtime 自身被 OOM/崩溃）时最多丢失一个批次窗口内的内容。
+   */
+  private _scheduleSnapshotFlush(): void {
+    if (this.pendingSnapshot.length >= SNAPSHOT_FLUSH_BATCH_SIZE) {
+      this._cancelScheduledFlush();
+      this._flushSnapshot().catch((err) => {
+        console.error(`[stream] session ${this.sessionId}: 批量 flush 失败:`, err);
+      });
+      return;
+    }
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this._flushSnapshot().catch((err) => {
+        console.error(`[stream] session ${this.sessionId}: 定时 flush 失败:`, err);
+      });
+    }, SNAPSHOT_FLUSH_INTERVAL_MS);
+  }
+
+  private _cancelScheduledFlush(): void {
+    if (!this.flushTimer) return;
+    clearTimeout(this.flushTimer);
+    this.flushTimer = null;
+  }
+
+  /**
+   * 将内存中积累的事件批量写入 MongoDB。
+   * 使用 $push + $each 一条 updateOne，避免 N 次 DB 写入；
+   * 用 splice 先取出待写批次，避免与写入期间新到达的事件产生竞态。
    */
   private async _flushSnapshot(): Promise<void> {
     if (this.pendingSnapshot.length === 0) return;
-    await appendEventSnapshot(this.sessionId, this.pendingSnapshot);
-    console.log(`[stream] session ${this.sessionId}: snapshot 已写入 MongoDB，共 ${this.pendingSnapshot.length} 条事件`);
-    this.pendingSnapshot.length = 0;
+    const batch = this.pendingSnapshot.splice(0, this.pendingSnapshot.length);
+    await appendEventSnapshot(this.sessionId, batch);
+    console.log(`[stream] session ${this.sessionId}: snapshot 已写入 MongoDB，共 ${batch.length} 条事件`);
   }
 
   // 设置 Stream 自动过期（任务完成后 1 小时清理）
