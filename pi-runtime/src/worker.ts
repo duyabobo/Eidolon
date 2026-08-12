@@ -380,11 +380,13 @@ async function handleNewMessage(payload: NewMessagePayload): Promise<void> {
   await sendTurnToSession(running, turn_id, request);
 }
 
-async function clearActiveTurnState(running: RunningSession): Promise<void> {
-  await running.piHandle.cancelTurn();
+/** 返回 true 表示中断已升级为强制终止 pi 进程（调用方需在继续发送前重建） */
+async function clearActiveTurnState(running: RunningSession): Promise<boolean> {
+  const hardKilled = await running.piHandle.cancelTurn();
   await running.activeTurnStream?.expire(ACTIVE_TURN_TTL_SECONDS).catch(() => {});
   running.activeTurnId = undefined;
   running.activeTurnStream = undefined;
+  return hardKilled;
 }
 
 async function sendTurnToSession(running: RunningSession, turnId: string, request: string): Promise<void> {
@@ -395,7 +397,11 @@ async function sendTurnToSession(running: RunningSession, turnId: string, reques
       console.warn(
         `[worker] session=${sessionId}: 上一轮 turn=${running.activeTurnId} 未结束，先中断再发送 turn=${turnId}`,
       );
-      await clearActiveTurnState(running);
+      const hardKilled = await clearActiveTurnState(running);
+      if (hardKilled) {
+        console.warn(`[worker] session=${sessionId}: 中断已强制终止 pi 进程，重建后再发送 turn=${turnId}`);
+        await restartPiForSession(running, running.skillIds, "pi_dead");
+      }
     }
 
     setSessionQuestionId(sessionId, turnId);
@@ -449,7 +455,11 @@ async function handleCancelTurn(sessionId: string, turnId: string): Promise<void
     console.log(`[worker] session=${sessionId} turn=${turnId}: 用户中断，取消 pi 任务`);
   }
 
-  await clearActiveTurnState(running);
+  const hardKilled = await clearActiveTurnState(running);
+  if (hardKilled) {
+    // 无需在此立即重建：handleNewMessage 已基于 isAlive() 在下一条消息到达时自动重建
+    console.warn(`[worker] session=${sessionId} turn=${turnId}: 中断已强制终止 pi 进程，下一条消息将自动重建`);
+  }
   await getRedis().del(`session:${sessionId}:active_turn`).catch(() => {});
 }
 

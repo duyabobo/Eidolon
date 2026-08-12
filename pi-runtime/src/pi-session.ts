@@ -93,8 +93,14 @@ export interface PiSessionHandle {
   close(): Promise<void>;
   /** pi 子进程是否仍在运行 */
   isAlive(): boolean;
-  /** 中断当前轮次（发送 pi RPC abort，超时后强制结束并保存 partial snapshot） */
-  cancelTurn(): Promise<void>;
+  /**
+   * 中断当前轮次：先发送 pi RPC abort（协作式，代价小，进程存活），
+   * 限时未确认（pi 可能卡在无法响应中断的工具调用/网络请求上）则 SIGKILL 强制终止整个
+   * pi 进程（含沙盒子进程树），确保生成真正停止。
+   * 返回 true 表示走到了强制终止：调用方应视 isAlive() 为 false，
+   * 下一次 sendTurn 前需要重建 pi 进程（worker 侧已有基于 isAlive() 的自动重建逻辑）。
+   */
+  cancelTurn(): Promise<boolean>;
 }
 
 // ── 内部：当前轮次状态 ────────────────────────────────────────────────────────
@@ -297,10 +303,10 @@ function buildSessionArgs(userPiSessionsDir: string, sessionId: string): string[
   return ["--session-dir", userPiSessionsDir, "--session-id", sessionId];
 }
 
-// 等待 pi abort 响应的最长时间，超时后本地放弃该轮（但 pi 进程本身未必已停止）
+// 等待 pi 确认 abort（agent_end）的最长时间，超时视为协议层中断失败，转为强制终止进程
 const CANCEL_ABORT_WAIT_MS = 3000;
-// 本地放弃轮次后，下一次 sendTurn 若发现 pi 仍未确认结束，二次等待的最长时间
-const SETTLE_AFTER_ABANDON_WAIT_MS = 5000;
+// close() 正常关闭（stdin 结束）后，等待 pi 自行退出的最长时间，超时后 SIGKILL 兜底
+const CLOSE_GRACEFUL_WAIT_MS = 5000;
 
 /**
  * 启动 pi 进程，等待扩展加载完成，返回 PiSessionHandle。
@@ -399,25 +405,6 @@ export async function startPiSession(
   // 当前活跃轮次（同一时刻最多一轮）
   let activeTurn: ActiveTurn | null = null;
 
-  /**
-   * 本地放弃但 pi 进程未必已真正停止的轮次 id。
-   * 产生场景：cancelActiveTurn 等待 abort 响应超时，只能先本地结束（推 cancelled 给前端），
-   * 但 pi 后台可能仍在跑完当前 turn。此时不能假装 pi 已空闲，否则下一次 sendTurn
-   * 会撞上 pi 的 "Agent is already processing" 错误。真正的空闲需要等到该轮的
-   * agent_end 事件（在下方 rl.on("line") 里即使 activeTurn 为空也继续监听确认）。
-   */
-  let abandonedTurnId: string | null = null;
-  let settleWaiters: Array<() => void> = [];
-
-  function markPiSettled(): void {
-    if (!abandonedTurnId) return;
-    console.log(`[pi-session] session=${sessionId}: 已确认放弃的 turn=${abandonedTurnId} 真正结束，pi 恢复空闲`);
-    abandonedTurnId = null;
-    const waiters = settleWaiters;
-    settleWaiters = [];
-    waiters.forEach((wake) => wake());
-  }
-
   // pi 进程退出时的 Promise，供 close() 等待
   let piExitResolve: () => void;
   const piExitPromise = new Promise<void>((res) => { piExitResolve = res; });
@@ -435,14 +422,7 @@ export async function startPiSession(
       return;
     }
 
-    if (!activeTurn) {
-      // 无活跃轮次：若有本地已放弃但 pi 未必真正停止的轮次，继续监听其 agent_end 作为
-      // "pi 真正恢复空闲" 的确认；其余情况按原逻辑忽略。
-      if (abandonedTurnId && msg.type === "agent_end" && !(msg as PiAgentEndEvent).willRetry) {
-        markPiSettled();
-      }
-      return;
-    }
+    if (!activeTurn) return; // 没有活跃轮次，忽略（理论上不会发生）
 
     const { turnId, outputStream, resolve, reject } = activeTurn;
 
@@ -494,8 +474,6 @@ export async function startPiSession(
       activeTurn.reject(new Error(`pi 进程意外退出，code=${code}`));
       activeTurn = null;
     }
-    // 进程已退出，不会再有事件确认放弃的轮次，直接释放等待者，避免 sendTurn 卡死到超时
-    markPiSettled();
     await cleanupPiConfigDir(sessionId).catch(() => {});
     await destroySessionCgroup();
     piExitResolve();
@@ -507,7 +485,6 @@ export async function startPiSession(
       activeTurn.reject(err);
       activeTurn = null;
     }
-    markPiSettled();
     await cleanupPiConfigDir(sessionId).catch(() => {});
     await destroySessionCgroup();
     piExitResolve();
@@ -515,10 +492,27 @@ export async function startPiSession(
 
   // ── 返回句柄 ─────────────────────────────────────────────────────────────
 
-  async function cancelActiveTurn(): Promise<void> {
+  /**
+   * 通过操作系统信号强制终止 pi 进程。
+   *
+   * 依赖 sandbox.ts 中 bwrap 的 --unshare-pid + --die-with-parent：pi 及其在沙盒内
+   * 派生的所有子进程（bash 工具等）共享同一个独立 PID 命名空间，杀掉命名空间内
+   * PID 1（即此处的 piProcess）会被内核连带清空整棵子进程树，不会有遗留僵尸进程
+   * 继续占用 CPU/网络。这是协议层 abort（协作式，pi 可能因未接入取消钩子的工具
+   * 调用/网络请求而无法及时响应）之外唯一能 100% 保证"真正停止"的手段。
+   */
+  async function hardKillProcess(): Promise<void> {
+    if (piProcess.exitCode !== null || piProcess.signalCode !== null) return;
+    console.warn(`[pi-session] session=${sessionId}: SIGKILL 强制终止 pi 进程 pid=${piProcess.pid}`);
+    piProcess.kill("SIGKILL");
+    await piExitPromise;
+  }
+
+  /** 返回 true 表示协议层 abort 未在限时内确认，已升级为强制终止整个 pi 进程 */
+  async function cancelActiveTurn(): Promise<boolean> {
     if (!activeTurn) {
       console.warn(`[pi-session] session=${sessionId}: 无活跃轮次，跳过中断`);
-      return;
+      return false;
     }
     const turn = activeTurn;
     console.log(`[pi-session] session=${sessionId} turn=${turn.turnId}: 发送 abort`);
@@ -529,48 +523,18 @@ export async function startPiSession(
     piProcess.stdin!.write(JSON.stringify(abortBashPayload) + "\n");
 
     await new Promise<void>((res) => setTimeout(res, CANCEL_ABORT_WAIT_MS));
-    if (activeTurn !== turn) return;
+    if (activeTurn !== turn) return false; // 已通过正常的 agent_end 路径结束
 
     console.warn(
-      `[pi-session] session=${sessionId} turn=${turn.turnId}: abort 超时，本地放弃该轮` +
-        `（pi 进程未必已真正停止，后续 sendTurn 会先确认）`,
+      `[pi-session] session=${sessionId} turn=${turn.turnId}: 协议层 abort 超时未确认` +
+        `（pi 可能卡在工具调用或上游网络请求上），强制终止 pi 进程以保证真正停止`,
     );
     await turn.outputStream.pushCancelled();
     turn.resolve();
     activeTurn = null;
-    abandonedTurnId = turn.turnId;
-  }
 
-  /**
-   * 发送新轮次前的安全检查：若上一轮是本地放弃的（cancelActiveTurn 超时），
-   * pi 进程可能仍在处理它。重发一次 abort 并限时等待其 agent_end 确认真正结束，
-   * 避免直接发新 prompt 撞上 pi 的 "Agent is already processing" 错误。
-   * 等不到确认则明确报错，而不是假装空闲继续发送。
-   */
-  async function ensurePiSettledBeforeNextTurn(): Promise<void> {
-    if (!abandonedTurnId) return;
-
-    console.warn(
-      `[pi-session] session=${sessionId}: 检测到放弃的 turn=${abandonedTurnId} 尚未确认结束，` +
-        `重发 abort 并等待 pi 恢复空闲`,
-    );
-    piProcess.stdin!.write(JSON.stringify({ type: "abort" } as PiAbortCommand) + "\n");
-    piProcess.stdin!.write(JSON.stringify({ type: "abort_bash" } as PiAbortCommand) + "\n");
-
-    const settled = await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), SETTLE_AFTER_ABANDON_WAIT_MS);
-      settleWaiters.push(() => {
-        clearTimeout(timer);
-        resolve(true);
-      });
-    });
-
-    if (!settled) {
-      throw new Error(
-        `session=${sessionId}: pi 进程仍在处理已放弃的 turn=${abandonedTurnId}，` +
-          `未能确认结束，暂不能发送新消息，请稍后重试`,
-      );
-    }
+    await hardKillProcess();
+    return true;
   }
 
   return {
@@ -580,13 +544,16 @@ export async function startPiSession(
           console.warn(
             `[pi-session] session=${sessionId}: 新消息到达，先中断残留 recovery=${activeTurn.turnId}`,
           );
-          await cancelActiveTurn();
+          const killed = await cancelActiveTurn();
+          if (killed) {
+            throw new Error(
+              `session=${sessionId}: pi 进程已被强制终止，请等待上层重建 session 后重试`,
+            );
+          }
         } else {
           throw new Error(`session=${sessionId}: 上一轮 turn=${activeTurn.turnId} 尚未结束，不能发送新消息`);
         }
       }
-
-      await ensurePiSettledBeforeNextTurn();
 
       let workspaceSnapshot: WorkspaceSnapshot = new Map();
       try {
@@ -621,7 +588,17 @@ export async function startPiSession(
     async close(): Promise<void> {
       console.log(`[pi-session] session=${sessionId}: 关闭 pi 进程`);
       piProcess.stdin!.end();
-      await piExitPromise;
+
+      const exitedGracefully = await Promise.race([
+        piExitPromise.then(() => true),
+        new Promise<boolean>((res) => setTimeout(() => res(false), CLOSE_GRACEFUL_WAIT_MS)),
+      ]);
+      if (!exitedGracefully) {
+        console.warn(
+          `[pi-session] session=${sessionId}: 关闭超时（stdin 结束后 pi 未自行退出），强制终止`,
+        );
+        await hardKillProcess();
+      }
       await destroySessionCgroup();
     },
 
@@ -629,8 +606,8 @@ export async function startPiSession(
       return piProcess.exitCode === null && piProcess.signalCode === null;
     },
 
-    async cancelTurn(): Promise<void> {
-      await cancelActiveTurn();
+    async cancelTurn(): Promise<boolean> {
+      return cancelActiveTurn();
     },
   };
 }
