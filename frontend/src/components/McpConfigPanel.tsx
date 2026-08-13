@@ -108,7 +108,7 @@ export default function McpConfigPanel({ userId }: Props) {
 
   const openUserCreate = () => {
     if (!userId.trim()) {
-      setErrMsg("请先在右上角「历史」中设置用户 ID");
+      setErrMsg("请先在配置页设置用户 ID");
       return;
     }
     setEdit({

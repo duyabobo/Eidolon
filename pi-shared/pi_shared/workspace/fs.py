@@ -4,7 +4,9 @@
 结构：
   {sandbox_root}/users/{user_id}/
     skills/      只读
-    sessions/    只读（磁盘为 UUID；展示名由本地 SQLite enrichment）
+    sessions/    容器本身只读（磁盘为 UUID；展示名由本地 SQLite enrichment），
+                 但 sessions/{sid}/workspace/ 这个会话自己的子目录可读写
+                 （会话级文件系统，见 session_workspace_rel_parts）
     files/       可读写
     memory/      只读（MEMORY.md）
     pi-sessions/ 只读（pi 对话 JSONL）
@@ -22,6 +24,7 @@ from pi_shared.workspace.constants import (
     READONLY_ROOTS,
     ROOT_VISIBLE_DIRS,
     SESSION_DISPLAY_REQUEST_MAX_LEN,
+    SESSION_WORKSPACE_SUBDIR,
     WRITABLE_ROOT,
 )
 
@@ -89,11 +92,27 @@ def resolve_under_user(
     return target, rel
 
 
+def session_workspace_root_rel(session_id: str) -> str:
+    return f"sessions/{session_id}/{SESSION_WORKSPACE_SUBDIR}"
+
+
+def session_workspace_rel_parts(rel_path: str) -> list[str] | None:
+    """若 rel_path 落在某个会话自己的 workspace 子树内，返回按 "/" 拆分的分段；否则 None。"""
+    if not rel_path:
+        return None
+    parts = rel_path.split("/")
+    if len(parts) >= 3 and parts[0] == "sessions" and parts[2] == SESSION_WORKSPACE_SUBDIR:
+        return parts
+    return None
+
+
 def is_writable_rel(rel_path: str) -> bool:
     if not rel_path:
         return False
     first = rel_path.split("/", 1)[0]
-    return first == WRITABLE_ROOT
+    if first == WRITABLE_ROOT:
+        return True
+    return session_workspace_rel_parts(rel_path) is not None
 
 
 def require_writable(rel_path: str) -> None:
@@ -158,6 +177,11 @@ def list_directory(
     session_meta: dict[str, dict] | None = None,
 ) -> dict:
     abs_path, rel = resolve_under_user(sandbox_root, user_id, rel_path or "")
+    session_ws_parts = session_workspace_rel_parts(rel)
+    if session_ws_parts is not None and len(session_ws_parts) == 3 and not abs_path.exists():
+        # 会话工作区是随对话惰性创建的（见 gateway session_upload / pi-runtime sandbox），
+        # 首次直接浏览一个从未上传过文件的会话时目录可能还不存在，这里补建而不是报 404。
+        abs_path.mkdir(parents=True, exist_ok=True)
     if not abs_path.exists():
         raise WorkspaceError("路径不存在", 404)
     if not abs_path.is_dir():
@@ -201,8 +225,8 @@ def list_directory(
                 info.get("created_at"),
             )
             st = child.stat()
-            target_rel = f"sessions/{sid}/workspace"
-            workspace_path = abs_path / sid / "workspace"
+            target_rel = session_workspace_root_rel(sid)
+            workspace_path = abs_path / sid / SESSION_WORKSPACE_SUBDIR
             if not workspace_path.exists():
                 workspace_path.mkdir(parents=True, exist_ok=True)
             entries.append(
@@ -285,6 +309,9 @@ def delete_entry(sandbox_root: str | Path, user_id: str, rel_path: str) -> None:
     require_writable(rel)
     if rel == WRITABLE_ROOT:
         raise WorkspaceError("不能删除 files 根目录", 403)
+    session_ws_parts = session_workspace_rel_parts(rel)
+    if session_ws_parts is not None and len(session_ws_parts) == 3:
+        raise WorkspaceError("不能删除会话工作区根目录", 403)
     if not abs_path.exists():
         raise WorkspaceError("路径不存在", 404)
     if abs_path.is_dir():
@@ -343,7 +370,7 @@ def save_session_workspace_upload(
         raise WorkspaceError("无效的 session_id", 400)
 
     safe_name = _safe_filename(filename)
-    dir_rel = f"sessions/{sid}/workspace"
+    dir_rel = session_workspace_root_rel(sid)
     dir_abs, _ = resolve_under_user(sandbox_root, user_id, dir_rel)
     dir_abs.mkdir(parents=True, exist_ok=True)
 

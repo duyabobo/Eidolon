@@ -1,0 +1,11 @@
+# 桌面安装包内置沙盒 Python 科学栈（与 pi-runtime/Dockerfile apt 预装对齐）
+numpy
+pandas
+scipy
+matplotlib
+scikit-learn
+openpyxl
+sympy
+seaborn
+requests
+Pillow

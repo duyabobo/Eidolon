@@ -1,17 +1,18 @@
 FROM node:24-bookworm-slim
 
-# 安装系统工具：
-#   bwrap       沙盒核心
-#   iproute2    提供 ip 命令（沙盒启动脚本用 ip link set lo up 启用 loopback）
-#   python3     沙盒内 Python 环境
-#   ripgrep     pi 依赖
+# 安装系统工具 + 沙盒预装科学 Python 包（走 apt，避免 bookworm PEP 668 限制）：
+#   bwrap / iproute2 / python3 / ripgrep 等为运行时基础
+#   科学栈：numpy pandas scipy matplotlib scikit-learn openpyxl sympy seaborn
+#   常用工具：requests pillow
 # Acquire::Retries 应对 deb.debian.org 偶发 502；外层循环应对 update/install 整段失败
 # bookworm 使用 DEB822（debian.sources），国内 ECS 换清华源
 RUN set -eux; \
     # slim 镜像尚无 ca-certificates，必须用 http，不能用 https
     sed -i 's|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/debian|g' \
       /etc/apt/sources.list.d/debian.sources; \
-    apt_pkgs="bash bubblewrap ca-certificates curl git iproute2 python3 python3-pip python3-venv ripgrep"; \
+    apt_pkgs="bash bubblewrap ca-certificates curl git iproute2 python3 python3-pip python3-venv ripgrep \
+      python3-numpy python3-pandas python3-scipy python3-matplotlib python3-sklearn \
+      python3-openpyxl python3-sympy python3-seaborn python3-requests python3-pil"; \
     apt_opts="-o Acquire::Retries=5 -o Acquire::http::Timeout=120"; \
     for attempt in 1 2 3 4 5; do \
       if apt-get ${apt_opts} update \
@@ -22,6 +23,7 @@ RUN set -eux; \
       echo "apt failed (attempt ${attempt}), retry in 15s..."; \
       sleep 15; \
     done; \
+    python3 -c "import numpy, pandas, scipy, matplotlib, sklearn, openpyxl, sympy, seaborn, requests, PIL; print('sandbox python scientific stack ok')"; \
     rm -rf /var/lib/apt/lists/*
 
 # 国内 ECS 使用 npmmirror，避免 registry.npmjs.org 过慢/超时

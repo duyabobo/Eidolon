@@ -42,6 +42,8 @@ class SkillMeta(BaseModel):
     mcp_tools：运行时白名单，精确到工具名，由 mcp-proxy 按此过滤可用 MCP 工具
       （见 pi-runtime/src/skill-mcp.ts、mcp-proxy/services/mcp_cache_manager.py）。
       Skill 只描述工具名，不记录工具来自哪个业务 MCP Server（Agent 侧看不到 Server 名，记了没用）。
+
+    source：来源标记。空=对话创建；github=从 GitHub 导入（不可对话编辑）。
     """
     name: str
     description: str
@@ -49,6 +51,7 @@ class SkillMeta(BaseModel):
     tags: list[str] = []
     mcp_tools: list[str] = []
     hidden: bool = False
+    source: str = ""
     created_at: datetime = None  # type: ignore[assignment]
     updated_at: datetime = None  # type: ignore[assignment]
 

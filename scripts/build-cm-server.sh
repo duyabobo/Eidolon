@@ -39,6 +39,7 @@ pyinstaller \
   --collect-all uvicorn \
   --collect-all httpx \
   --collect-all httpcore \
+  --collect-all openai \
   --collect-submodules cm_server \
   --paths "$SRC_DIR" \
   "$SRC_DIR/run.py"

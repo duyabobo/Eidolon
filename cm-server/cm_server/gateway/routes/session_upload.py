@@ -1,15 +1,10 @@
-"""会话附件上传：落盘 workspace + mRAG 入库（对话域，属 gateway）。"""
+"""会话附件上传：落盘 workspace + 本地知识库入库。"""
 from __future__ import annotations
 
 import logging
 import time
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
-from pi_shared.knowledge import (
-    MragError,
-    load_mrag_base_url,
-    upload_chat_attachment_to_mrag,
-)
 from pi_shared.workspace import (
     WorkspaceError,
     attachment_event_payload,
@@ -17,9 +12,9 @@ from pi_shared.workspace import (
 )
 from pydantic import BaseModel, Field
 
+from cm_server.admin.services.chat_document_service import upload_chat_document_to_knowledge
 from cm_server.gateway.config import settings
 from cm_server.gateway.services import session_store
-from cm_server.gateway.services.db import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +34,7 @@ class ChatUploadResponse(BaseModel):
 @router.post(
     "/{session_id}/upload",
     response_model=ChatUploadResponse,
-    summary="对话附件上传（session workspace + mRAG）",
+    summary="对话附件上传（session workspace + 本地知识库）",
 )
 async def session_upload(
     session_id: str,
@@ -60,17 +55,9 @@ async def session_upload(
     filename = file.filename or "upload.bin"
     content_type = file.content_type
 
-    base_url = await load_mrag_base_url(get_db())
-    if not base_url:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="未配置 mRAG 服务地址；本地 knowledge 模式请在 Admin 配置远程环境后再上传",
-        )
-
     async def _upload_knowledge():
-        return await upload_chat_attachment_to_mrag(
-            base_url=base_url,
-            scene_uid=uid,
+        return await upload_chat_document_to_knowledge(
+            user_id=uid,
             filename=filename,
             content=data,
             content_type=content_type,
@@ -86,8 +73,6 @@ async def session_upload(
             upload_to_knowledge=_upload_knowledge,
         )
     except WorkspaceError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-    except MragError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
     event = attachment_event_payload(result, int(time.time() * 1000))

@@ -18,6 +18,7 @@ def _row_to_meta(row: dict) -> SkillMeta:
         tags=loads(row.get("tags"), []),
         mcp_tools=loads(row.get("mcp_tools"), []),
         hidden=bool(row.get("hidden", 0)),
+        source=str(row.get("source") or ""),
         created_at=row.get("created_at"),
         updated_at=row.get("updated_at"),
     )
@@ -27,6 +28,14 @@ async def list_skill_metas() -> list[SkillMeta]:
     """列出所有系统 Skill 元数据（`user_id IS NULL`）。"""
     rows = await get_db().fetch_all("SELECT * FROM skills WHERE user_id IS NULL")
     return [_row_to_meta(row) for row in rows]
+
+
+async def get_skill_meta(name: str, user_id: str | None = None) -> SkillMeta | None:
+    row = await get_db().fetch_one(
+        "SELECT * FROM skills WHERE name = ? AND user_id IS ?",
+        (name, user_id),
+    )
+    return _row_to_meta(row) if row else None
 
 
 async def save_skill_meta(meta: SkillMeta) -> SkillMeta:
@@ -47,18 +56,37 @@ async def save_skill_meta(meta: SkillMeta) -> SkillMeta:
     if existing:
         await db.execute(
             """
-            UPDATE skills SET description = ?, tags = ?, mcp_tools = ?, hidden = ?, updated_at = ?
+            UPDATE skills SET description = ?, tags = ?, mcp_tools = ?, hidden = ?, source = ?, updated_at = ?
             WHERE name = ? AND user_id IS ?
             """,
-            (meta.description, dumps(meta.tags), dumps(meta.mcp_tools), int(meta.hidden), now, meta.name, meta.user_id),
+            (
+                meta.description,
+                dumps(meta.tags),
+                dumps(meta.mcp_tools),
+                int(meta.hidden),
+                meta.source or "",
+                now,
+                meta.name,
+                meta.user_id,
+            ),
         )
     else:
         await db.execute(
             """
-            INSERT INTO skills (name, user_id, description, tags, mcp_tools, hidden, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO skills (name, user_id, description, tags, mcp_tools, hidden, source, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (meta.name, meta.user_id, meta.description, dumps(meta.tags), dumps(meta.mcp_tools), int(meta.hidden), created_at, now),
+            (
+                meta.name,
+                meta.user_id,
+                meta.description,
+                dumps(meta.tags),
+                dumps(meta.mcp_tools),
+                int(meta.hidden),
+                meta.source or "",
+                created_at,
+                now,
+            ),
         )
     logger.info("skill 元数据已保存 name=%s user_id=%s", meta.name, meta.user_id)
     return meta

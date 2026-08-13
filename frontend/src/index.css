@@ -3,12 +3,17 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    /* 主内容区与侧栏选中态共用，保证左右视觉连续 */
+    --app-surface: #f1f3f5;
+    --app-sidebar: #fafbfc;
+  }
+
   body {
     @apply antialiased text-ink-900;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
       "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    background: linear-gradient(165deg, #f8fafc 0%, #f5f3ff 45%, #fafaf9 100%);
-    background-attachment: fixed;
+    background: var(--app-surface);
   }
 
   ::selection {

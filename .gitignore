@@ -22,6 +22,10 @@ data/
 node_modules/
 dist/
 *.js.map
+
+# frontend/src 是纯 TypeScript 源码；tsconfig.json 已加 noEmit 防止 `tsc` 把编译产物
+# 直接吐在源码目录里（历史上曾经这样误提交过 64 个 .js 影子文件），这里再兜底一层
+frontend/src/**/*.js
 *.d.ts
 
 # Environment
@@ -64,3 +68,6 @@ cm-server/.pyinstaller-venv/
 cm-server/*.spec
 arxiv-mcp/.pyinstaller-venv/
 arxiv-mcp/*.spec
+nature-mcp/.pyinstaller-venv/
+nature-mcp/.venv/
+nature-mcp/*.spec

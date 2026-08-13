@@ -36,6 +36,12 @@ export interface LlmProfileListResponse {
   active_id: string | null;
 }
 
+export interface ServiceTestResult {
+  ok: boolean;
+  latency_ms: number;
+  message: string;
+}
+
 export interface McpServerConfig {
   url: string;
   description?: string;
@@ -76,6 +82,9 @@ export const configApi = {
 
   activateLlmProfile: (id: string) =>
     request<LlmConfig>(`/config/llm/profiles/${encodeURIComponent(id)}/activate`, { method: "PUT" }),
+
+  testLlmProfile: (id: string) =>
+    request<ServiceTestResult>(`/config/llm/profiles/${encodeURIComponent(id)}/test`, { method: "POST" }),
 
   getMcp: () => request<McpConfig>("/config/mcp"),
   saveMcp: (cfg: McpConfig) =>

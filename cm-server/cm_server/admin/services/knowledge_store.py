@@ -1,6 +1,5 @@
-"""本地知识库（admin 侧）：CM 架构下替代原 admin/services/knowledge_store.py 的 Mongo 实现（Mongo → SQLite）。"""
+"""本地知识库：SQLite 元数据 + 本地文件 + 上传后入队 parse/understand。"""
 import logging
-import shutil
 import uuid
 from pathlib import Path
 
@@ -9,7 +8,11 @@ from pi_shared import format_iso, now_china
 from pi_shared.sqlite import dumps, loads
 
 from cm_server.admin.config import settings
-from cm_server.admin.constants.knowledge import CHAT_UPLOAD_KB_NAME
+from cm_server.admin.constants.knowledge import (
+    ALLOWED_EXTENSIONS,
+    CHAT_UPLOAD_KB_NAME,
+    DOC_STATUS_PROCESSING,
+)
 from cm_server.admin.models.knowledge import (
     ChunkingConfig,
     KnowledgeBase,
@@ -19,22 +22,13 @@ from cm_server.admin.models.knowledge import (
     KnowledgeDocument,
     KnowledgeDocumentList,
 )
+from cm_server.admin.services import knowledge_pipeline_store
 from cm_server.admin.services.db import get_db
+from cm_server.mrag import storage
+from cm_server.mrag.doc_status import map_public_status
+from cm_server.mrag.jobs import enqueue_document_processing
 
 logger = logging.getLogger(__name__)
-
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".csv", ".xlsx", ".pptx"}
-MAX_FILE_BYTES = 10 * 1024 * 1024
-
-
-def _knowledge_root() -> Path:
-    root = Path(settings.sandbox_root) / "global" / "knowledge"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
-
-
-def _doc_dir(kb_id: str, doc_id: str) -> Path:
-    return _knowledge_root() / kb_id / doc_id
 
 
 def _row_to_kb(row: dict, doc_count: int = 0) -> KnowledgeBase:
@@ -57,15 +51,19 @@ def _row_to_doc(row: dict) -> KnowledgeDocument:
         kb_id=row["kb_id"],
         name=row["name"],
         file_size=int(row.get("file_size", 0)),
-        status=row.get("status", "uploaded"),
+        status=map_public_status(row),  # type: ignore[arg-type]
         error_message=row.get("error_message"),
+        wiki_compiled=bool(row.get("wiki_compiled")),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
 
 
 async def _count_docs(kb_id: str) -> int:
-    row = await get_db().fetch_one("SELECT COUNT(*) AS n FROM knowledge_documents WHERE kb_id = ?", (kb_id,))
+    row = await get_db().fetch_one(
+        "SELECT COUNT(*) AS n FROM knowledge_documents WHERE kb_id = ?",
+        (kb_id,),
+    )
     return int(row["n"]) if row else 0
 
 
@@ -104,13 +102,13 @@ async def create_base(body: KnowledgeBaseCreate) -> KnowledgeBase:
         """,
         (kb_id, body.name.strip(), body.description.strip(), body.type, chunking_config, now, now),
     )
-    (_knowledge_root() / kb_id).mkdir(parents=True, exist_ok=True)
+    (storage.knowledge_root() / kb_id).mkdir(parents=True, exist_ok=True)
     logger.info("知识库已创建 id=%s name=%s", kb_id, body.name)
     return await get_base(kb_id)
 
 
 async def update_base(kb_id: str, body: KnowledgeBaseUpdate) -> KnowledgeBase:
-    await get_base(kb_id)  # 404 检查
+    await get_base(kb_id)
     now = format_iso(now_china())
 
     fields: list[str] = []
@@ -128,45 +126,61 @@ async def update_base(kb_id: str, body: KnowledgeBaseUpdate) -> KnowledgeBase:
     params.append(now)
     params.append(kb_id)
 
-    await get_db().execute(f"UPDATE knowledge_bases SET {', '.join(fields)} WHERE id = ?", tuple(params))
+    await get_db().execute(
+        f"UPDATE knowledge_bases SET {', '.join(fields)} WHERE id = ?",
+        tuple(params),
+    )
     return await get_base(kb_id)
 
 
 async def delete_base(kb_id: str) -> None:
-    await get_base(kb_id)  # 404 检查
+    await get_base(kb_id)
     db = get_db()
     await db.execute("DELETE FROM knowledge_documents WHERE kb_id = ?", (kb_id,))
     await db.execute("DELETE FROM knowledge_bases WHERE id = ?", (kb_id,))
-    shutil.rmtree(_knowledge_root() / kb_id, ignore_errors=True)
+    storage.delete_kb_files(kb_id)
     logger.info("知识库已删除 id=%s", kb_id)
 
 
 async def list_documents(kb_id: str, page: int, page_size: int) -> KnowledgeDocumentList:
-    await get_base(kb_id)  # 404 检查
+    await get_base(kb_id)
     db = get_db()
     offset = (page - 1) * page_size
-    total_row = await db.fetch_one("SELECT COUNT(*) AS n FROM knowledge_documents WHERE kb_id = ?", (kb_id,))
+    total_row = await db.fetch_one(
+        "SELECT COUNT(*) AS n FROM knowledge_documents WHERE kb_id = ?",
+        (kb_id,),
+    )
     total = int(total_row["n"]) if total_row else 0
     rows = await db.fetch_all(
         "SELECT * FROM knowledge_documents WHERE kb_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
         (kb_id, page_size, offset),
     )
-    return KnowledgeDocumentList(items=[_row_to_doc(row) for row in rows], total=total, page=page, page_size=page_size)
+    return KnowledgeDocumentList(
+        items=[_row_to_doc(row) for row in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 async def get_document(kb_id: str, doc_id: str) -> KnowledgeDocument:
-    row = await get_db().fetch_one("SELECT * FROM knowledge_documents WHERE id = ? AND kb_id = ?", (doc_id, kb_id))
+    row = await get_db().fetch_one(
+        "SELECT * FROM knowledge_documents WHERE id = ? AND kb_id = ?",
+        (doc_id, kb_id),
+    )
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
     return _row_to_doc(row)
 
 
 def document_file_path(kb_id: str, doc_id: str, filename: str) -> Path:
-    return _doc_dir(kb_id, doc_id) / filename
+    return storage.resolve_original_file(kb_id, doc_id, filename)
 
 
-async def upload_document(kb_id: str, upload: UploadFile) -> KnowledgeDocument:
-    await get_base(kb_id)  # 404 检查
+async def upload_document(kb_id: str, upload: UploadFile, *, process: bool = True) -> KnowledgeDocument:
+    await get_base(kb_id)
+    if process:
+        await knowledge_pipeline_store.require_mineru_configured()
 
     filename = (upload.filename or "unnamed").strip()
     suffix = Path(filename).suffix.lower()
@@ -177,32 +191,45 @@ async def upload_document(kb_id: str, upload: UploadFile) -> KnowledgeDocument:
         )
 
     content = await upload.read()
-    if len(content) > MAX_FILE_BYTES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文件不能超过 10MB")
+    max_bytes = settings.knowledge_max_file_bytes
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"文件不能超过 {max_bytes // (1024 * 1024)}MB",
+        )
 
     now = format_iso(now_china())
     doc_id = str(uuid.uuid4())
-    target_dir = _doc_dir(kb_id, doc_id)
+    target_dir = storage.doc_dir(kb_id, doc_id)
     target_dir.mkdir(parents=True, exist_ok=True)
     (target_dir / filename).write_bytes(content)
 
+    initial_status = DOC_STATUS_PROCESSING if process else "uploaded"
     db = get_db()
     await db.execute(
         """
-        INSERT INTO knowledge_documents (id, kb_id, name, file_size, status, error_message, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'uploaded', NULL, ?, ?)
+        INSERT INTO knowledge_documents
+            (id, kb_id, name, file_size, status, error_message, wiki_compiled, file_format, track_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NULL, 0, ?, '', ?, ?)
         """,
-        (doc_id, kb_id, filename, len(content), now, now),
+        (doc_id, kb_id, filename, len(content), initial_status, suffix.lstrip("."), now, now),
     )
     await db.execute("UPDATE knowledge_bases SET updated_at = ? WHERE id = ?", (now, kb_id))
-    logger.info("文档已上传 kb=%s doc=%s file=%s size=%d", kb_id, doc_id, filename, len(content))
+    logger.info("文档已上传 kb=%s doc=%s file=%s size=%d process=%s", kb_id, doc_id, filename, len(content), process)
+
+    if process:
+        enqueue_document_processing(kb_id, doc_id)
+
     return await get_document(kb_id, doc_id)
 
 
 async def delete_document(kb_id: str, doc_id: str) -> None:
-    await get_document(kb_id, doc_id)  # 404 检查
+    await get_document(kb_id, doc_id)
     db = get_db()
     await db.execute("DELETE FROM knowledge_documents WHERE id = ?", (doc_id,))
-    shutil.rmtree(_doc_dir(kb_id, doc_id), ignore_errors=True)
-    await db.execute("UPDATE knowledge_bases SET updated_at = ? WHERE id = ?", (format_iso(now_china()), kb_id))
+    storage.delete_doc_files(kb_id, doc_id)
+    await db.execute(
+        "UPDATE knowledge_bases SET updated_at = ? WHERE id = ?",
+        (format_iso(now_china()), kb_id),
+    )
     logger.info("文档已删除 kb=%s doc=%s", kb_id, doc_id)

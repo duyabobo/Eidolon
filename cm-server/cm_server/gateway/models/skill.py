@@ -19,6 +19,8 @@ class SkillMeta(BaseModel):
     # 不记录 Server 名：pi 运行时看不到 Server 名，Skill 只需描述用到的工具
     mcp_tools: list[str] = Field(default_factory=list)
     hidden: bool = False
+    # 空=对话创建；github=GitHub 导入（不可对话编辑）
+    source: str = ""
     created_at: datetime = Field(default_factory=now_china)
     updated_at: datetime = Field(default_factory=now_china)
 
@@ -30,6 +32,7 @@ class SkillListItem(BaseModel):
     tags: list[str] = Field(default_factory=list)
     mcp_tools: list[str] = Field(default_factory=list)
     user_id: str | None = None
+    source: str = ""
 
 
 class SkillCreateRequest(BaseModel):

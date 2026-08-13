@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  knowledgeApi, KnowledgeBase, KnowledgeDocument, KnowledgeServiceConfig,
-  ensureKnowledgeKey, formatFileSize, docStatusLabel,
+  knowledgeApi,
+  KnowledgeBase,
+  KnowledgeDocument,
+  formatFileSize,
+  docStatusLabel,
 } from "../api/knowledge";
-import { setKnowledgeSceneUid } from "../api/knowledgeKeyCache";
 import { formatChinaDateTime } from "../utils/datetime";
 import { ConfigActionBtn, ConfigPrimaryBtn, ConfigToolbarBtn } from "./config/ConfigActionBtn";
 import { ConfigListItem } from "./config/ConfigListItem";
@@ -17,7 +19,6 @@ import {
 import DocumentWikiExplorer from "./knowledge/DocumentWikiExplorer";
 import { CONFIG_PAGE_SIZE } from "./config/useClientPagination";
 
-const EMPTY_SERVICE: KnowledgeServiceConfig = { base_url: "", environment: "local" };
 const PAGE_SIZE = CONFIG_PAGE_SIZE;
 
 function StatusBadge({ status }: { status: KnowledgeDocument["status"] }) {
@@ -269,7 +270,13 @@ function DocumentSection({
               })}`}
               actions={(
                 <>
-                  <ConfigActionBtn variant="violet" onClick={() => openWiki(doc)}>图谱</ConfigActionBtn>
+                  <ConfigActionBtn
+                    variant="violet"
+                    disabled={doc.status !== "indexed"}
+                    onClick={() => openWiki(doc)}
+                  >
+                    图谱
+                  </ConfigActionBtn>
                   <ConfigActionBtn onClick={() => knowledgeApi.downloadDocument(kb.id, doc.id, doc.name)}>
                     下载
                   </ConfigActionBtn>
@@ -285,11 +292,10 @@ function DocumentSection({
 }
 
 export default function KnowledgePanel({
-  userId,
   deepLinkKbId,
   deepLinkDocId,
 }: {
-  userId: string;
+  userId?: string;
   deepLinkKbId?: string;
   deepLinkDocId?: string;
 }) {
@@ -304,46 +310,14 @@ export default function KnowledgePanel({
   const [selectedKb, setSelectedKb] = useState<KnowledgeBase | null>(null);
   const [selectedKbLoading, setSelectedKbLoading] = useState(false);
 
-  const [serviceForm, setServiceForm] = useState<KnowledgeServiceConfig>(EMPTY_SERVICE);
-  const [envOptions, setEnvOptions] = useState<Array<{ id: KnowledgeServiceConfig["environment"]; label: string; base_url: string }>>([]);
-  const [envLoading, setEnvLoading] = useState(true);
-  const [envSaving, setEnvSaving] = useState(false);
-
   useEffect(() => {
     if (deepLinkKbId) setSelectedId(deepLinkKbId);
   }, [deepLinkKbId]);
-
-  const loadServiceConfig = useCallback(async () => {
-    setEnvLoading(true);
-    try {
-      const [cfg, envs] = await Promise.all([
-        knowledgeApi.getServiceConfig(),
-        knowledgeApi.listServiceEnvironments(),
-      ]);
-      setServiceForm(cfg);
-      setEnvOptions(envs.items);
-      setKnowledgeSceneUid(userId.trim());
-    } catch {
-      setServiceForm(EMPTY_SERVICE);
-    } finally {
-      setEnvLoading(false);
-    }
-  }, [userId]);
-
-  useEffect(() => { void loadServiceConfig(); }, [loadServiceConfig]);
 
   const loadBases = useCallback(async (targetPage = page) => {
     setLoading(true);
     setErrMsg(null);
     try {
-      const cfg = await knowledgeApi.getServiceConfig();
-      if (cfg.base_url?.trim() && !userId.trim()) {
-        setBases([]);
-        setTotal(0);
-        setErrMsg("请先在右上角「历史」中设置用户 ID");
-        return;
-      }
-      await ensureKnowledgeKey(cfg, userId);
       const res = await knowledgeApi.listBases(targetPage, PAGE_SIZE);
       let items = res.items;
       if (deepLinkKbId && !items.some((kb) => kb.id === deepLinkKbId)) {
@@ -363,7 +337,7 @@ export default function KnowledgePanel({
     } finally {
       setLoading(false);
     }
-  }, [userId, deepLinkKbId, page]);
+  }, [deepLinkKbId, page]);
 
   useEffect(() => { void loadBases(page); }, [loadBases, page]);
 
@@ -388,29 +362,6 @@ export default function KnowledgePanel({
       })
       .finally(() => setSelectedKbLoading(false));
   }, [selectedId, bases, navigate]);
-
-  const handleEnvironmentChange = async (environment: KnowledgeServiceConfig["environment"]) => {
-    if (!environment || environment === serviceForm.environment) return;
-    const targetOpt = (envOptions.length ? envOptions : []).find((opt) => opt.id === environment);
-    if (targetOpt?.base_url?.trim() && !userId.trim()) {
-      setErrMsg("请先在右上角「历史」中设置用户 ID");
-      return;
-    }
-    setEnvSaving(true);
-    setErrMsg(null);
-    try {
-      const saved = await knowledgeApi.saveServiceConfig({ environment, base_url: "" });
-      setServiceForm(saved);
-      setSelectedId(null);
-      setPage(1);
-      await ensureKnowledgeKey(saved, userId, true);
-      await loadBases(1);
-    } catch (e) {
-      setErrMsg(e instanceof Error ? e.message : "切换失败");
-    } finally {
-      setEnvSaving(false);
-    }
-  };
 
   const selected = selectedKb;
 
@@ -456,23 +407,6 @@ export default function KnowledgePanel({
     void loadBases(page);
   };
 
-  const envSelect = (
-    <select
-      value={serviceForm.environment ?? "local"}
-      disabled={envLoading || envSaving}
-      onChange={(e) => void handleEnvironmentChange(e.target.value as KnowledgeServiceConfig["environment"])}
-      className="ui-field text-sm py-1.5 min-w-[120px]"
-    >
-      {(envOptions.length ? envOptions : [
-        { id: "local" as const, label: "本地", base_url: "" },
-        { id: "prod" as const, label: "线上", base_url: "" },
-        { id: "test" as const, label: "测试", base_url: "" },
-      ]).map((opt) => (
-        <option key={opt.id} value={opt.id}>{opt.label}</option>
-      ))}
-    </select>
-  );
-
   if (selectedId && selectedKbLoading) {
     return <p className="text-sm text-ink-400 py-6">加载知识库…</p>;
   }
@@ -489,13 +423,15 @@ export default function KnowledgePanel({
 
   return (
     <ConfigPanelLayout
-      loading={loading || envLoading}
+      loading={loading}
       loadingText="加载知识库…"
       errMsg={errMsg}
       toolbar={(
         <ConfigListToolbar
-          left={envSelect}
-          right={<ConfigPrimaryBtn onClick={() => setBaseModal({ mode: "create" })}>添加</ConfigPrimaryBtn>}
+          left={<span className="text-sm font-medium text-ink-800">知识库</span>}
+          right={(
+            <ConfigPrimaryBtn onClick={() => setBaseModal({ mode: "create" })}>添加</ConfigPrimaryBtn>
+          )}
         />
       )}
       pagination={(

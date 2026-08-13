@@ -52,10 +52,18 @@ class Settings(BaseSettings):
     # ===== gateway-sse：SSE 等待新增量事件超时（秒），超时未等到则发一次心跳保活 =====
     sse_heartbeat_interval_s: float = 5.0
 
-    # ===== admin：知识库上游地址 =====
-    knowledge_local_base_url: str = "http://host.docker.internal:9621"
-    knowledge_prod_base_url: str = "http://www.scienceone.cn/mrag-knowledge"
-    knowledge_test_base_url: str = "http://1.92.211.130:38026/mrag-knowledge"
+    # ===== 知识库流水线（默认值；运行时 mineru/reranker 以 DB knowledge_pipeline 为准） =====
+    knowledge_job_concurrency: int = 1
+    knowledge_llm_max_concurrent: int = 4
+    knowledge_vlm_max_concurrent: int = 2
+    knowledge_fixed_chunk_chars: int = 1000
+    knowledge_fixed_chunk_overlap_chars: int = 200
+    knowledge_wiki_leaf_max_chars: int = 4000
+    knowledge_understand_tree_concurrency: int = 4
+    knowledge_mineru3_poll_interval_seconds: float = 2.0
+    knowledge_mineru3_poll_timeout_seconds: float = 3600.0
+    knowledge_mineru3_submit_timeout_seconds: float = 120.0
+    knowledge_max_file_bytes: int = 10 * 1024 * 1024
 
     class Config:
         env_file = ".env"

@@ -1,7 +1,7 @@
 import type { WikiGraphEdge, WikiGraphNode, WikiNodeItem } from "../../api/knowledge";
 import WikiConnectionList from "./WikiConnectionList";
 import WikiMarkdown from "./WikiMarkdown";
-import WikiNodeMeta, { isMetadataBodySection, resolveNodeTitle, resolveNodeType } from "./WikiNodeMeta";
+import WikiNodeMeta, { resolveNodeTitle, resolveNodeType } from "./WikiNodeMeta";
 import { resolveWikiConnections } from "./wikiConnections";
 
 interface WikiNodeDetailProps {
@@ -18,14 +18,10 @@ function SectionTitle({ children }: { children: string }) {
   return <h4 className="text-xs font-medium text-ink-500 mb-1.5">{children}</h4>;
 }
 
-function collectConnectionInputs(node: WikiNodeItem): unknown[] {
+function collectReferenceInputs(node: WikiNodeItem): unknown[] {
   const inputs: unknown[] = [...(node.connections ?? [])];
-  const linksSection =
-    node.body_sections["链接"] ??
-    node.body_sections["connections"] ??
-    node.body_sections["Connections"];
-  if (linksSection?.trim()) {
-    inputs.push(linksSection);
+  if (node.references?.trim()) {
+    inputs.push(node.references);
   }
   return inputs;
 }
@@ -41,15 +37,13 @@ export default function WikiNodeDetail({
 }: WikiNodeDetailProps) {
   if (!node && !loading && !error) return null;
 
-  const bodySections = node
-    ? Object.entries(node.body_sections).filter(([key, value]) => {
-        if (!value?.trim()) return false;
-        if (key.toLowerCase() === "connections" || key === "链接") return false;
-        return !isMetadataBodySection(key);
-      })
-    : [];
-  const connections = node
-    ? resolveWikiConnections(collectConnectionInputs(node), graphNodes, graphEdges, node.node_id)
+  const overview = node?.overview?.trim() ?? "";
+  const body = node?.body?.trim() ?? "";
+  // 摘要与详情相同时只展示详情，避免旧数据/错误解析导致重复
+  const showOverview = Boolean(overview) && overview !== body;
+  const references = node?.references?.trim() ?? "";
+  const referenceLinks = node
+    ? resolveWikiConnections(collectReferenceInputs(node), graphNodes, graphEdges, node.node_id)
     : [];
 
   const markdownProps = {
@@ -88,61 +82,29 @@ export default function WikiNodeDetail({
           <div className="space-y-5">
             <WikiNodeMeta node={node} />
 
-            {node.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {node.tags.map((tag) => (
-                  <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {(node.keywords_zh.length > 0 || node.keywords_en.length > 0) && (
-              <section>
-                <SectionTitle>关键词</SectionTitle>
-                <div className="flex flex-wrap gap-1.5">
-                  {[...node.keywords_zh, ...node.keywords_en].map((keyword) => (
-                    <span key={keyword} className="text-[10px] px-2 py-0.5 rounded-full bg-ink-100 text-ink-600">
-                      {keyword}
-                    </span>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {node.overview && (
+            {showOverview && (
               <section>
                 <SectionTitle>摘要</SectionTitle>
-                <WikiMarkdown content={node.overview} {...markdownProps} />
+                <WikiMarkdown content={overview} {...markdownProps} />
               </section>
             )}
 
-            {node.body && (
+            {body && (
               <section>
-                <SectionTitle>正文</SectionTitle>
-                <WikiMarkdown content={node.body} {...markdownProps} />
+                <SectionTitle>详情</SectionTitle>
+                <WikiMarkdown content={body} {...markdownProps} />
               </section>
             )}
 
-            {bodySections.map(([sectionKey, sectionBody]) => (
-              <section key={sectionKey}>
-                <SectionTitle>{sectionKey}</SectionTitle>
-                <WikiMarkdown content={sectionBody} {...markdownProps} />
-              </section>
-            ))}
-
-            {node.references && (
+            {(references || referenceLinks.length > 0) && (
               <section>
                 <SectionTitle>引用</SectionTitle>
-                <WikiMarkdown content={node.references} {...markdownProps} />
-              </section>
-            )}
-
-            {connections.length > 0 && (
-              <section>
-                <SectionTitle>链接</SectionTitle>
-                <WikiConnectionList links={connections} onNavigate={onNavigateNode} />
+                {references && <WikiMarkdown content={references} {...markdownProps} />}
+                {referenceLinks.length > 0 && (
+                  <div className={references ? "mt-2" : undefined}>
+                    <WikiConnectionList links={referenceLinks} onNavigate={onNavigateNode} />
+                  </div>
+                )}
               </section>
             )}
           </div>

@@ -1,10 +1,11 @@
 import { useMemo, useRef, useEffect, useCallback, useState } from "react";
 import { APP_LOGO, APP_NAME } from "../../constants/brand";
 import type { Message } from "../../context/ChatSessionContext";
-import { workspaceApi } from "../../api/workspace";
+import FilePreviewModal, { type FilePreviewSource } from "../FilePreviewModal";
 import ChatMarkdown from "./ChatMarkdown";
 import ExecutionSteps from "./ExecutionSteps";
 import { formatMessageTime } from "./stepTiming";
+import { canPreviewFile } from "../../utils/filePreview";
 
 interface AssistantAttachment {
   filename: string;
@@ -162,23 +163,24 @@ function FileChip({
   filename,
   subtitle,
   title,
-  onDownload,
-  downloading,
+  onOpen,
+  busy,
   align,
 }: {
   filename: string;
   subtitle?: string;
   title?: string;
-  onDownload?: () => void;
-  downloading?: boolean;
+  onOpen?: () => void;
+  busy?: boolean;
   align: "left" | "right";
 }) {
-  const clickable = Boolean(onDownload) && !downloading;
+  const clickable = Boolean(onOpen) && !busy;
+  const previewHint = canPreviewFile(filename) ? "点击预览" : "点击打开";
   const className = [
     "rounded-2.5xl px-3.5 py-2.5 text-sm bg-white border border-ink-200/70 text-ink-800 shadow-soft inline-flex items-center gap-2.5 max-w-full text-left",
     align === "right" ? "rounded-br-md" : "rounded-bl-md",
     clickable ? "hover:border-brand-300 hover:bg-brand-50/40 cursor-pointer transition-colors" : "",
-    downloading ? "opacity-70 cursor-wait" : "",
+    busy ? "opacity-70 cursor-wait" : "",
   ].filter(Boolean).join(" ");
 
   const body = (
@@ -188,13 +190,13 @@ function FileChip({
       </span>
       <span className="min-w-0">
         <span className="block font-medium truncate">
-          {downloading ? "下载中…" : filename}
+          {busy ? "打开中…" : filename}
         </span>
         {subtitle && (
           <span className="block text-[11px] text-ink-400 mt-0.5">{subtitle}</span>
         )}
         {clickable && (
-          <span className="block text-[11px] text-brand-600 mt-0.5">点击下载</span>
+          <span className="block text-[11px] text-brand-600 mt-0.5">{previewHint}</span>
         )}
       </span>
     </>
@@ -202,7 +204,7 @@ function FileChip({
 
   if (clickable) {
     return (
-      <button type="button" onClick={onDownload} className={className} title={title || filename}>
+      <button type="button" onClick={onOpen} className={className} title={title || filename}>
         {body}
       </button>
     );
@@ -219,29 +221,27 @@ function AssistantTurnBlock({
   turn,
   userId,
   sessionId,
+  onPreview,
 }: {
   turn: AssistantTurn;
   userId: string;
   sessionId: string | null;
+  onPreview: (source: FilePreviewSource) => void;
 }) {
   const { steps, finalText, attachments, startedAt } = turn;
   const hasSteps = steps.length > 0;
   const onlySteps = hasSteps && !finalText;
-  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
 
-  const downloadAttachment = useCallback(async (file: AssistantAttachment) => {
+  const openAttachment = useCallback((file: AssistantAttachment) => {
     const path = resolveWorkspaceDownloadPath(sessionId, file.relativePath, file.filename);
     if (!userId.trim() || !path) return;
-    const key = path;
-    setDownloadingKey(key);
-    try {
-      await workspaceApi.download(userId, path, file.filename);
-    } catch (err) {
-      console.error("[MessageList] 附件下载失败", err);
-    } finally {
-      setDownloadingKey(null);
-    }
-  }, [userId, sessionId]);
+    onPreview({
+      type: "workspace",
+      userId: userId.trim(),
+      path,
+      filename: file.filename,
+    });
+  }, [userId, sessionId, onPreview]);
 
   return (
     <div className="flex gap-3 justify-start">
@@ -273,8 +273,7 @@ function AssistantTurnBlock({
                       filename={file.filename}
                       subtitle={sizeLabel || undefined}
                       title={file.relativePath || file.filename}
-                      onDownload={path ? () => void downloadAttachment(file) : undefined}
-                      downloading={path != null && downloadingKey === path}
+                      onOpen={path ? () => openAttachment(file) : undefined}
                       align="left"
                     />
                   );
@@ -294,8 +293,7 @@ function AssistantTurnBlock({
                   filename={file.filename}
                   subtitle={sizeLabel || undefined}
                   title={file.relativePath || file.filename}
-                  onDownload={path ? () => void downloadAttachment(file) : undefined}
-                  downloading={path != null && downloadingKey === path}
+                  onOpen={path ? () => openAttachment(file) : undefined}
                   align="left"
                 />
               );
@@ -334,22 +332,20 @@ export default function MessageList({ messages, userId, sessionId }: Props) {
   const displayItems = useMemo(() => groupMessages(messages), [messages]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
-  const [downloadingUserFile, setDownloadingUserFile] = useState<string | null>(null);
+  const [preview, setPreview] = useState<FilePreviewSource | null>(null);
 
-  const downloadUserFile = useCallback(async (
+  const openUserFile = useCallback((
     filename: string,
     relativePath?: string,
   ) => {
     const path = resolveWorkspaceDownloadPath(sessionId, relativePath, filename);
     if (!userId.trim() || !path) return;
-    setDownloadingUserFile(path);
-    try {
-      await workspaceApi.download(userId, path, filename);
-    } catch (err) {
-      console.error("[MessageList] 用户附件下载失败", err);
-    } finally {
-      setDownloadingUserFile(null);
-    }
+    setPreview({
+      type: "workspace",
+      userId: userId.trim(),
+      path,
+      filename,
+    });
   }, [userId, sessionId]);
 
   useEffect(() => {
@@ -434,8 +430,7 @@ export default function MessageList({ messages, userId, sessionId }: Props) {
                         ? `${item.relativePath || item.filename}\ndoc_id: ${item.docId}`
                         : (item.relativePath || item.filename)
                     }
-                    onDownload={path ? () => void downloadUserFile(item.filename, item.relativePath) : undefined}
-                    downloading={path != null && downloadingUserFile === path}
+                    onOpen={path ? () => openUserFile(item.filename, item.relativePath) : undefined}
                     align="right"
                   />
                 </div>
@@ -448,10 +443,19 @@ export default function MessageList({ messages, userId, sessionId }: Props) {
               turn={item.turn}
               userId={userId}
               sessionId={sessionId}
+              onPreview={setPreview}
             />
           );
         })}
       </div>
+
+      {preview && (
+        <FilePreviewModal
+          source={preview}
+          subtitle={preview.path}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   );
 }

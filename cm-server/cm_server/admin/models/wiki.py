@@ -39,6 +39,7 @@ class WikiDocumentGraphResponse(BaseModel):
 class WikiNodeDetailRequest(BaseModel):
     node_id: str = Field(..., min_length=1)
     knowledge_ids: list[str] | None = None
+    doc_id: str | None = None
 
 
 class WikiNodeItem(BaseModel):
@@ -47,6 +48,7 @@ class WikiNodeItem(BaseModel):
     type: str = ""
     source: str = ""
     source_doc_id: str = ""
+    source_date: str = ""
     knowledge_id: str = ""
     tree_node_id: str = ""
     tags: list[str] = Field(default_factory=list)

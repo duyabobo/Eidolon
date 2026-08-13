@@ -96,10 +96,22 @@ async def workspace_delete(
 async def workspace_download(
     user_id: str = Query(..., description="用户 ID"),
     path: str = Query(..., description="要下载的文件相对路径"),
+    disposition: str = Query(
+        default="attachment",
+        description="attachment=下载；inline=预览（浏览器内联）",
+    ),
 ) -> FileResponse:
     uid = _require_user_id(user_id)
     try:
         abs_path, filename = open_download(uid, path)
-        return FileResponse(path=abs_path, filename=filename)
+        disp = (disposition or "attachment").strip().lower()
+        if disp not in {"attachment", "inline"}:
+            disp = "attachment"
+        # inline 时不强制 filename=（FileResponse 默认 attachment），改用 content_disposition_type
+        return FileResponse(
+            path=abs_path,
+            filename=filename if disp == "attachment" else None,
+            content_disposition_type=disp,
+        )
     except WorkspaceError as exc:
         raise _http_exc(exc) from exc

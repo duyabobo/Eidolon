@@ -61,7 +61,7 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWiki
     setNodeError(null);
     setNodeDetail(null);
     try {
-      const res = await knowledgeApi.getWikiNodeDetail(nodeId, [kbId]);
+      const res = await knowledgeApi.getWikiNodeDetail(nodeId, [kbId], doc.id);
       setNodeDetail(res.node);
     } catch (e) {
       setNodeError(e instanceof Error ? e.message : "加载节点详情失败");
@@ -69,7 +69,7 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWiki
       setNodeLoading(false);
       detailRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, [graph?.nodes, kbId]);
+  }, [graph?.nodes, kbId, doc.id]);
 
   const handleNodeClick = async (node: WikiGraphNode) => {
     await loadNodeDetail(node.node_id);

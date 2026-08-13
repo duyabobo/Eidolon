@@ -1,7 +1,7 @@
 import type { WikiNodeItem } from "../../api/knowledge";
-import { isMetadataBodySection, resolveNodeTitle } from "./WikiNodeMeta";
+import { resolveNodeTitle } from "./WikiNodeMeta";
 
-/** 将 Wiki 节点各字段拼成单一 Markdown 文档，供弹框直接渲染 */
+/** 将 Wiki 节点四段结构拼成单一 Markdown，供弹框直接渲染 */
 export function buildWikiNodeMarkdown(node: WikiNodeItem): string {
   const parts: string[] = [];
   const title = resolveNodeTitle(node);
@@ -9,20 +9,14 @@ export function buildWikiNodeMarkdown(node: WikiNodeItem): string {
     parts.push(`# ${title}`);
   }
 
-  if (node.overview?.trim()) {
-    parts.push(node.overview.trim());
+  const overview = node.overview?.trim() ?? "";
+  const body = node.body?.trim() ?? "";
+  if (overview && overview !== body) {
+    parts.push(`## 摘要\n\n${overview}`);
   }
-  if (node.body?.trim()) {
-    parts.push(node.body.trim());
+  if (body) {
+    parts.push(`## 详情\n\n${body}`);
   }
-
-  for (const [sectionKey, sectionBody] of Object.entries(node.body_sections ?? {})) {
-    if (!sectionBody?.trim()) continue;
-    if (sectionKey.toLowerCase() === "connections" || sectionKey === "链接") continue;
-    if (isMetadataBodySection(sectionKey)) continue;
-    parts.push(`## ${sectionKey}\n\n${sectionBody.trim()}`);
-  }
-
   if (node.references?.trim()) {
     parts.push(`## 引用\n\n${node.references.trim()}`);
   }

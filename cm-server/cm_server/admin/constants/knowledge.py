@@ -1,32 +1,19 @@
-"""知识库外部服务（mRAG）约定常量。"""
+"""知识库约定常量。"""
 
-from cm_server.admin.config import settings
 from pi_shared.knowledge_constants import (
     CHAT_UPLOAD_KB_DESCRIPTION,
     CHAT_UPLOAD_KB_NAME,
-    KNOWLEDGE_BATCH_PROCESS_TYPE,
-    KNOWLEDGE_SCENE_TYPE,
     is_chat_upload_kb,
 )
 
-# 平台级 scene_uid（管理页知识库操作用）
-KNOWLEDGE_PLATFORM_SCENE_UID = "llm_wiki_pi"
+DOC_STATUS_UPLOADED = "uploaded"
+DOC_STATUS_PROCESSING = "processing"
+DOC_STATUS_INDEXED = "indexed"
+DOC_STATUS_FAILED = "failed"
 
-DEFAULT_DATASET_AVATAR = "/icon/logo.svg"
+PHASE1_MD_NAME = "phase1_convert_md_result.md"
+PHASE2_TREE_NAME = "phase2_doctree.json"
 
-KNOWLEDGE_KEY_HEADER = "x-knowledge-key"
-SCENE_UID_HEADER = "x-scene-uid"
+SYNTHESIS_NODE_ID = "compiled_doc_synthesis"
 
-KNOWLEDGE_ENVIRONMENT_LABELS = {
-    "local": "本地",
-    "prod": "线上",
-    "test": "测试",
-}
-
-
-def knowledge_environment_urls() -> dict[str, str]:
-    return {
-        "local": settings.knowledge_local_base_url.rstrip("/"),
-        "prod": settings.knowledge_prod_base_url.rstrip("/"),
-        "test": settings.knowledge_test_base_url.rstrip("/"),
-    }
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".csv", ".xlsx", ".pptx"}

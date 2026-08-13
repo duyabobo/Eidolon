@@ -11,6 +11,7 @@
 import logging
 
 from pi_shared.sqlite import SCHEMA_SQL, Database
+from pi_shared.sqlite.migrate import ensure_schema_columns
 
 from cm_server.config import settings
 
@@ -25,6 +26,7 @@ def get_db() -> Database:
 
 async def connect() -> None:
     await _db.connect(schema_sql=SCHEMA_SQL)
+    await ensure_schema_columns(_db)
     logger.info("SQLite 连接成功: %s", settings.sqlite_path)
 
 

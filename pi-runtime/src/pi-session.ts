@@ -348,8 +348,15 @@ export async function startPiSession(
     mcpDirectTools,
   );
 
+  const basePath = process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin";
+  // 桌面安装包：把内置 Python（含科学栈）放在 PATH 最前，agent 执行 python3 时不依赖本机环境
+  const sandboxPythonBinDir = (process.env.SANDBOX_PYTHON_BIN_DIR ?? "").trim();
+  const pathWithSandboxPython = sandboxPythonBinDir
+    ? `${sandboxPythonBinDir}:${basePath}`
+    : basePath;
+
   const piEnv: Record<string, string> = {
-    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    PATH: pathWithSandboxPython,
     HOME: sandboxPaths.home,
     TERM: process.env.TERM ?? "xterm",
     PI_SANDBOX_ROOT: process.env.SANDBOX_ROOT ?? "/data/sandboxes",
@@ -370,6 +377,14 @@ export async function startPiSession(
     PI_BRIDGE_LLM_PORT: String(bridgePorts.llmPort),
     PI_BRIDGE_MCP_PORT: String(bridgePorts.mcpPort),
   };
+  if (sandboxPythonBinDir) {
+    piEnv.SANDBOX_PYTHON_BIN_DIR = sandboxPythonBinDir;
+    // 无显示器时 matplotlib 走 Agg，避免沙盒弹 GUI
+    piEnv.MPLBACKEND = process.env.MPLBACKEND ?? "Agg";
+    console.log(
+      `[pi-session] session=${sessionId}: 使用内置沙盒 Python PATH 前缀=${sandboxPythonBinDir}`,
+    );
+  }
   // Electron 桌面场景：用安装包内的 Electron 二进制当 Node 跑 bridge.js / pi CLI
   // （用户机器上不一定装了 node）。容器不设这些变量，sandbox-init.sh 退回 PATH 的 node。
   if (process.env.NODE_BIN) {

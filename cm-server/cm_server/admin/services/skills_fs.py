@@ -154,6 +154,136 @@ def get_global_skills_root() -> str:
     return str(_GLOBAL_SKILLS_ROOT)
 
 
+def resolve_skill_dir(name: str, user_id: str | None = None) -> Path | None:
+    """解析 skill 目录；不存在返回 None。"""
+    safe = (name or "").strip()
+    if not safe or _UNSAFE_NAME_RE.search(safe) or "/" in safe or safe in {".", ".."}:
+        return None
+    skill_dir = (_user_skills_root(user_id) / safe) if user_id else _skill_dir(safe)
+    if not skill_dir.is_dir():
+        return None
+    return skill_dir
+
+
+def _safe_rel_path(rel: str) -> str | None:
+    cleaned = (rel or "").replace("\\", "/").strip().lstrip("/")
+    if not cleaned or cleaned == ".":
+        return ""
+    parts = Path(cleaned).parts
+    if any(p in {"", ".", ".."} for p in parts):
+        return None
+    if any(_UNSAFE_NAME_RE.search(p) for p in parts):
+        return None
+    return "/".join(parts)
+
+
+def list_skill_tree(name: str, user_id: str | None = None) -> dict | None:
+    """列出 skill 目录树（扁平 entries，含相对路径）。"""
+    skill_dir = resolve_skill_dir(name, user_id)
+    if skill_dir is None:
+        return None
+    return {"name": name, "user_id": user_id, "entries": _list_dir_entries(skill_dir)}
+
+
+def open_skill_file(name: str, rel_path: str, user_id: str | None = None) -> tuple[Path, str] | None:
+    """打开 skill 内文件，返回 (绝对路径, 文件名)。"""
+    skill_dir = resolve_skill_dir(name, user_id)
+    if skill_dir is None:
+        return None
+    safe_rel = _safe_rel_path(rel_path)
+    if safe_rel is None or safe_rel == "":
+        return None
+    target = (skill_dir / safe_rel).resolve()
+    try:
+        target.relative_to(skill_dir.resolve())
+    except ValueError:
+        return None
+    if not target.is_file():
+        return None
+    return target, target.name
+
+
+def _list_dir_entries(skill_dir: Path) -> list[dict]:
+    entries: list[dict] = []
+    if not skill_dir.is_dir():
+        return entries
+    for path in sorted(skill_dir.rglob("*")):
+        rel = path.relative_to(skill_dir).as_posix()
+        if not rel or any(part.startswith(".") for part in Path(rel).parts):
+            continue
+        is_dir = path.is_dir()
+        entries.append(
+            {
+                "path": rel,
+                "name": path.name,
+                "is_dir": is_dir,
+                "size": 0 if is_dir else path.stat().st_size,
+            }
+        )
+    return entries
+
+
+def sync_creator_draft_to_disk(
+    *,
+    user_id: str | None,
+    session_id: str,
+    skill_name: str | None,
+    draft_name: str | None,
+    name: str,
+    description: str,
+    content: str,
+    mcp_tools: list[str] | None = None,
+) -> str:
+    """把当前草稿 SKILL.md 写到 creator 解析出的目录，便于目录树预览。"""
+    skill_dir, skill_key = resolve_skill_creator_dir(user_id, session_id, skill_name, draft_name)
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text(_build_skill_md(name, description, content, mcp_tools), encoding="utf-8")
+    logger.info("skill-creator 草稿已同步到磁盘: %s", skill_file)
+    return skill_key
+
+
+def list_creator_session_tree(
+    *,
+    user_id: str | None,
+    session_id: str,
+    skill_name: str | None,
+    draft_name: str | None,
+) -> dict:
+    """列出 skill-creator 会话对应目录树。"""
+    skill_dir, skill_key = resolve_skill_creator_dir(user_id, session_id, skill_name, draft_name)
+    return {
+        "session_id": session_id,
+        "skill_dir": skill_key,
+        "entries": _list_dir_entries(skill_dir),
+    }
+
+
+def open_creator_session_file(
+    *,
+    user_id: str | None,
+    session_id: str,
+    skill_name: str | None,
+    draft_name: str | None,
+    rel_path: str,
+) -> tuple[Path, str] | None:
+    """打开 creator 会话目录内文件。"""
+    skill_dir, _ = resolve_skill_creator_dir(user_id, session_id, skill_name, draft_name)
+    safe_rel = _safe_rel_path(rel_path)
+    if safe_rel is None or safe_rel == "":
+        return None
+    if not skill_dir.is_dir():
+        return None
+    target = (skill_dir / safe_rel).resolve()
+    try:
+        target.relative_to(skill_dir.resolve())
+    except ValueError:
+        return None
+    if not target.is_file():
+        return None
+    return target, target.name
+
+
 def _skills_root_for_user(user_id: str | None) -> Path:
     if user_id:
         return _user_skills_root(user_id)

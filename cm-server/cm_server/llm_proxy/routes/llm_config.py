@@ -8,9 +8,11 @@ from cm_server.llm_proxy.models.config import (
     LlmProfileCreate,
     LlmProfileListResponse,
     LlmProfileUpdate,
+    ServiceTestResult,
 )
 from cm_server.llm_proxy.services import llm_profile_store
 from cm_server.llm_proxy.services.llm_config_store import activate_profile, get_effective_config
+from cm_server.llm_proxy.services.llm_probe import probe_llm_profile
 
 logger = logging.getLogger(__name__)
 
@@ -67,3 +69,11 @@ async def activate_llm_profile(profile_id: str) -> LlmConfig:
         return await activate_profile(profile_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/llm/profiles/{profile_id}/test", response_model=ServiceTestResult)
+async def test_llm_profile(profile_id: str) -> ServiceTestResult:
+    profile = await llm_profile_store.get_llm_profile(profile_id)
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="LLM 配置不存在")
+    return await probe_llm_profile(profile)

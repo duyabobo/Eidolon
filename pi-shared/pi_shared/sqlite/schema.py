@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS skills (
     tags TEXT NOT NULL DEFAULT '[]',
     mcp_tools TEXT NOT NULL DEFAULT '[]',
     hidden INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (name, user_id)
@@ -112,11 +113,15 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
     file_size INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'uploaded',
     error_message TEXT,
+    wiki_compiled INTEGER NOT NULL DEFAULT 0,
+    file_format TEXT NOT NULL DEFAULT '',
+    track_id TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_knowledge_documents_kb ON knowledge_documents(kb_id);
 
+-- 遗留表：远程 mRAG 环境切换已废弃，保留以免旧库报错；配置改存 app_config.knowledge_pipeline
 CREATE TABLE IF NOT EXISTS knowledge_service_configs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     base_url TEXT NOT NULL DEFAULT '',

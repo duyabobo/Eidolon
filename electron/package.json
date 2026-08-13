@@ -60,8 +60,22 @@
         ]
       },
       {
+        "from": "../build/nature-mcp",
+        "to": "nature-mcp",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "../build/frontend",
         "to": "frontend",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../build/sandbox-python",
+        "to": "sandbox-python",
         "filter": [
           "**/*"
         ]

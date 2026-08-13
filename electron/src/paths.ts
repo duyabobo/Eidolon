@@ -25,6 +25,10 @@ export interface ResourcePaths {
   piExtensionsDir: string;
   /** 安装包内 arxiv-mcp 可执行程序（PyInstaller 产物，build/arxiv-mcp/arxiv-mcp） */
   arxivMcpExecutable: string;
+  /** 安装包内 nature-mcp 可执行程序（PyInstaller 产物，build/nature-mcp/nature-mcp） */
+  natureMcpExecutable: string;
+  /** 安装包内沙盒 Python 的 bin 目录（含 python3 + 科学栈） */
+  sandboxPythonBinDir: string;
 }
 
 export function resolveResourcePaths(): ResourcePaths {
@@ -37,6 +41,8 @@ export function resolveResourcePaths(): ResourcePaths {
     piBin: join(root, "pi-cli", "bin", "pi"),
     piExtensionsDir: join(root, "pi-cli", "extensions"),
     arxivMcpExecutable: join(root, "arxiv-mcp", "arxiv-mcp"),
+    natureMcpExecutable: join(root, "nature-mcp", "nature-mcp"),
+    sandboxPythonBinDir: join(root, "sandbox-python", "bin"),
   };
 }
 

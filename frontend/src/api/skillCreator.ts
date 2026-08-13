@@ -1,4 +1,5 @@
 import { apiFetch, mergeTraceHeaders } from "./http";
+import type { SkillTreeEntry } from "./skills";
 
 export interface SkillDraft {
   name: string;
@@ -114,5 +115,55 @@ export const skillCreatorApi = {
       skill_dir: string;
       size: number;
     }>;
+  },
+
+  getTree: (sessionId: string) =>
+    request<{ session_id: string; skill_dir: string; entries: SkillTreeEntry[] }>(
+      `/config/skills/creator/sessions/${encodeURIComponent(sessionId)}/tree`,
+    ),
+
+  fetchFileText: async (sessionId: string, path: string): Promise<string> => {
+    const qs = new URLSearchParams({ path, as_text: "true", disposition: "inline" });
+    const resp = await fetch(
+      `/config/skills/creator/sessions/${encodeURIComponent(sessionId)}/file?${qs}`,
+      { cache: "no-store", headers: mergeTraceHeaders() },
+    );
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
+    }
+    return resp.text();
+  },
+
+  fetchFileBlob: async (sessionId: string, path: string): Promise<Blob> => {
+    const qs = new URLSearchParams({ path, disposition: "inline" });
+    const resp = await fetch(
+      `/config/skills/creator/sessions/${encodeURIComponent(sessionId)}/file?${qs}`,
+      { cache: "no-store", headers: mergeTraceHeaders() },
+    );
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
+    }
+    return resp.blob();
+  },
+
+  downloadFile: async (sessionId: string, path: string, filename: string): Promise<void> => {
+    const qs = new URLSearchParams({ path, disposition: "attachment" });
+    const resp = await fetch(
+      `/config/skills/creator/sessions/${encodeURIComponent(sessionId)}/file?${qs}`,
+      { cache: "no-store", headers: mergeTraceHeaders() },
+    );
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   },
 };

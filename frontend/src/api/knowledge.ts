@@ -1,11 +1,3 @@
-import {
-  clearCachedKnowledgeKey,
-  getCachedKnowledgeKeyHeader,
-  getSceneUidHeader,
-  readCachedKnowledgeKey,
-  setKnowledgeSceneUid,
-  writeCachedKnowledgeKey,
-} from "./knowledgeKeyCache";
 import { mergeTraceHeaders } from "./http";
 
 export interface ChunkingConfig {
@@ -38,6 +30,7 @@ export interface KnowledgeDocument {
   file_size: number;
   status: "uploaded" | "processing" | "indexed" | "failed";
   error_message: string | null;
+  wiki_compiled?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -49,20 +42,22 @@ export interface KnowledgeDocumentList {
   page_size: number;
 }
 
-export interface KnowledgeServiceConfig {
-  base_url: string;
-  environment?: "local" | "prod" | "test";
-  created_at?: string | null;
+export interface KnowledgePipelineConfig {
+  mineru3_api_base: string;
+  mineru3_backend?: string;
+  mineru3_lang?: string;
+  mineru3_parse_method?: string;
+  mineru_vlm_url?: string;
+  reranker_base_url: string;
+  reranker_api_key: string;
+  reranker_model_name: string;
+  updated_at?: string | null;
 }
 
-export interface KnowledgeEnvironmentOption {
-  id: "local" | "prod" | "test";
-  label: string;
-  base_url: string;
-}
-
-export interface KnowledgeKeyResponse {
-  knowledge_key: string;
+export interface ServiceTestResult {
+  ok: boolean;
+  latency_ms: number;
+  message: string;
 }
 
 export interface WikiGraphNode {
@@ -121,18 +116,14 @@ export interface WikiNodeDetailResponse {
   took_ms: number;
 }
 
-function apiHeaders(extra?: Record<string, string>): Record<string, string> {
-  return { ...getSceneUidHeader(), ...getCachedKnowledgeKeyHeader(), ...extra };
-}
-
 function jsonHeaders(): Record<string, string> {
-  return apiHeaders({ "Content-Type": "application/json" });
+  return { "Content-Type": "application/json" };
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const headers = mergeTraceHeaders(
     {
-      ...apiHeaders(),
+      ...jsonHeaders(),
       ...(options?.headers as Record<string, string> | undefined),
     },
     { json: true },
@@ -146,53 +137,28 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return resp.json();
 }
 
-/** 远程模式下获取并缓存 knowledge_key；userId 在聊天页右上角「历史」中设置 */
-export async function ensureKnowledgeKey(
-  cfg: KnowledgeServiceConfig,
-  userId: string,
-  forceRefresh = false,
-): Promise<string | null> {
-  const uid = userId.trim();
-  setKnowledgeSceneUid(uid);
-
-  if (!cfg.base_url?.trim()) {
-    clearCachedKnowledgeKey();
-    return null;
-  }
-  if (!uid) {
-    clearCachedKnowledgeKey();
-    throw new Error("请先在右上角「历史」中设置用户 ID");
-  }
-  if (!forceRefresh) {
-    const cached = readCachedKnowledgeKey(cfg, uid);
-    if (cached) return cached;
-  }
-  clearCachedKnowledgeKey();
-  const resp = await request<KnowledgeKeyResponse>("/config/knowledge/service/key", {
-    method: "POST",
-    headers: jsonHeaders(),
-  });
-  writeCachedKnowledgeKey(cfg, uid, resp.knowledge_key);
-  return resp.knowledge_key;
-}
-
 export const knowledgeApi = {
-  getServiceConfig: () => request<KnowledgeServiceConfig>("/config/knowledge/service"),
+  getPipelineConfig: () => request<KnowledgePipelineConfig>("/config/knowledge/service"),
 
-  listServiceEnvironments: () =>
-    request<{ items: KnowledgeEnvironmentOption[] }>("/config/knowledge/service/environments"),
-
-  saveServiceConfig: (cfg: KnowledgeServiceConfig) =>
-    request<KnowledgeServiceConfig>("/config/knowledge/service", {
+  savePipelineConfig: (cfg: KnowledgePipelineConfig) =>
+    request<KnowledgePipelineConfig>("/config/knowledge/service", {
       method: "PUT",
       headers: jsonHeaders(),
       body: JSON.stringify(cfg),
     }),
 
-  fetchKnowledgeKey: () =>
-    request<KnowledgeKeyResponse>("/config/knowledge/service/key", {
+  testMineru: (cfg: KnowledgePipelineConfig) =>
+    request<ServiceTestResult>("/config/knowledge/service/test-mineru", {
       method: "POST",
       headers: jsonHeaders(),
+      body: JSON.stringify(cfg),
+    }),
+
+  testReranker: (cfg: KnowledgePipelineConfig) =>
+    request<ServiceTestResult>("/config/knowledge/service/test-reranker", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(cfg),
     }),
 
   listBases: (page = 1, pageSize = 20) =>
@@ -237,7 +203,7 @@ export const knowledgeApi = {
         method: "POST",
         body: form,
         cache: "no-store",
-        headers: mergeTraceHeaders(apiHeaders()),
+        headers: mergeTraceHeaders({}),
       },
     );
     if (!resp.ok) {
@@ -261,7 +227,7 @@ export const knowledgeApi = {
   downloadDocument: async (kbId: string, docId: string, filename: string): Promise<void> => {
     const resp = await fetch(
       `/config/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`,
-      { cache: "no-store", headers: mergeTraceHeaders(apiHeaders()) },
+      { cache: "no-store", headers: mergeTraceHeaders({}) },
     );
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
@@ -283,11 +249,15 @@ export const knowledgeApi = {
       body: JSON.stringify({ doc_id: docId, knowledge_ids: knowledgeIds }),
     }),
 
-  getWikiNodeDetail: (nodeId: string, knowledgeIds?: string[]) =>
+  getWikiNodeDetail: (nodeId: string, knowledgeIds?: string[], docId?: string) =>
     request<WikiNodeDetailResponse>("/config/knowledge/wiki/nodes/detail", {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ node_id: nodeId, knowledge_ids: knowledgeIds }),
+      body: JSON.stringify({
+        node_id: nodeId,
+        knowledge_ids: knowledgeIds,
+        doc_id: docId,
+      }),
     }),
 };
 

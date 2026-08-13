@@ -13,12 +13,13 @@ from cm_server.admin.services.db import get_db
 
 logger = logging.getLogger(__name__)
 
-# Electron 桌面端把 arxiv-mcp 当子进程拉起，每次启动分配的本机端口都不同
-# （见 electron/src/ports.ts + process-manager.ts 的 startArxivMcp），通过这个环境变量把
-# 当次真实地址传进来。Docker 部署没有这个环境变量，退回下面硬编码的容器内 DNS 地址。
+# Electron 桌面端把内置 MCP 当子进程拉起，每次启动分配的本机端口都不同
+# （见 electron/src/ports.ts + process-manager.ts），通过环境变量把当次真实地址传进来。
+# Docker 部署没有这些环境变量，退回下面硬编码的容器内 DNS 地址。
 _ARXIV_MCP_URL_ENV = "ARXIV_MCP_URL"
+_NATURE_MCP_URL_ENV = "NATURE_MCP_URL"
 
-# 平台内置系统级 MCP。url 默认值仅在 _ARXIV_MCP_URL_ENV 未设置（Docker 场景）时生效；
+# 平台内置系统级 MCP。url 默认值仅在对应 *_MCP_URL 未设置（Docker 场景）时生效；
 # 桌面端每次启动都会用环境变量里的真实端口刷新 url，但不动 enabled/api_key
 # （尊重用户在 Admin 页手动开关/改配置的操作）。
 _BUILTIN_SYSTEM_SERVERS: tuple[dict[str, Any], ...] = (
@@ -28,14 +29,24 @@ _BUILTIN_SYSTEM_SERVERS: tuple[dict[str, Any], ...] = (
         "description": "平台内置 arXiv：检索、全文/PDF、LaTeX、引用图谱",
         "enabled": True,
         "api_key": "",
+        "url_env": _ARXIV_MCP_URL_ENV,
+    },
+    {
+        "name": "nature",
+        "url": "http://nature-mcp:8082/mcp",
+        "description": "平台内置 Nature/Science 检索：OpenAlex/S2/Crossref/Unpaywall；元数据+合法 OA",
+        "enabled": True,
+        "api_key": "",
+        "url_env": _NATURE_MCP_URL_ENV,
     },
 )
 
 
 def _resolve_builtin_url(spec: dict[str, Any]) -> str:
     """桌面端环境变量覆盖优先，仅对同名内置 Server 生效，避免影响其它内置项。"""
-    if str(spec["name"]) == "arxiv":
-        override = os.environ.get(_ARXIV_MCP_URL_ENV)
+    url_env = str(spec.get("url_env") or "")
+    if url_env:
+        override = os.environ.get(url_env)
         if override:
             return override
     return str(spec["url"])
@@ -71,7 +82,8 @@ async def ensure_builtin_system_servers() -> None:
     for spec in _BUILTIN_SYSTEM_SERVERS:
         name = str(spec["name"])
         url = _resolve_builtin_url(spec)
-        has_override = name == "arxiv" and os.environ.get(_ARXIV_MCP_URL_ENV)
+        url_env = str(spec.get("url_env") or "")
+        has_override = bool(url_env and os.environ.get(url_env))
         existing = await get_db().fetch_one(
             "SELECT 1 FROM mcp_servers WHERE name = ? AND user_id IS NULL", (name,)
         )

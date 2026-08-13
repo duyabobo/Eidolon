@@ -87,7 +87,7 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
       await configApi.addServer(name, config);
     } else {
       if (!userId.trim()) {
-        throw new Error("请先在右上角「历史」中设置用户 ID");
+        throw new Error("请先在配置页设置用户 ID");
       }
       await mcpApi.addUserServer(userId.trim(), name, config);
     }

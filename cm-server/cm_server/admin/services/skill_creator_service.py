@@ -21,7 +21,11 @@ from cm_server.admin.services.skill_creator_draft_sync import sync_skill_draft
 from cm_server.admin.services.skill_creator_parser import extract_skill_draft, strip_skill_draft_blocks
 from cm_server.admin.services.skill_creator_prompt import load_system_prompt
 from cm_server.admin.services import skill_meta_store
-from cm_server.admin.services.skills_fs import write_skill, write_user_skill
+from cm_server.admin.services.skills_fs import (
+    sync_creator_draft_to_disk,
+    write_skill,
+    write_user_skill,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,27 @@ _WELCOME_USER = (
 )
 
 
+def _persist_draft_preview(session: SkillCreatorSession, draft: SkillDraft | None) -> None:
+    """把草稿 SKILL.md 落到 creator 目录，供右侧目录树预览。"""
+    if draft is None or not draft.name.strip():
+        return
+    sync_creator_draft_to_disk(
+        user_id=session.user_id,
+        session_id=session.id,
+        skill_name=session.skill_name,
+        draft_name=draft.name,
+        name=draft.name,
+        description=draft.description,
+        content=draft.content,
+        mcp_tools=draft.mcp_tools,
+    )
+
+
+def ensure_draft_on_disk(session: SkillCreatorSession) -> None:
+    """列出目录树前确保草稿已落盘。"""
+    _persist_draft_preview(session, session.draft)
+
+
 async def start_session(
     user_id: str | None = None,
     force_new: bool = False,
@@ -54,6 +79,10 @@ async def start_session(
     欢迎语使用静态文本，不调用 LLM，保证即开即用。
     """
     if skill_name:
+        meta = await skill_meta_store.get_skill_meta(skill_name, user_id)
+        if meta and meta.source == "github":
+            raise ValueError("从 GitHub 导入的 Skill 不支持对话编辑，请直接查看目录文件")
+
         existing = await skill_creator_store.get_session_by_skill_name(user_id, skill_name)
         if existing:
             logger.info("复用 skill-creator 会话（编辑模式）: %s skill=%s", existing.id, skill_name)
@@ -170,6 +199,7 @@ async def send_user_message(session_id: str, content: str) -> SendMessageRespons
     assistant_message = SkillCreatorMessage(role="assistant", content=display, created_at=now_china())
 
     await skill_creator_store.append_messages(session_id, user_message, assistant_message, draft)
+    _persist_draft_preview(session, draft)
     return SendMessageResponse(message=assistant_message, draft=draft)
 
 
@@ -227,6 +257,7 @@ async def publish_session(session_id: str, body: PublishSkillRequest) -> SkillMe
         tags=draft.tags,
         mcp_tools=draft.mcp_tools,
         hidden=body.hidden if not user_id else False,
+        source="",
     )
     saved = await skill_meta_store.save_skill_meta(meta)
     await skill_creator_store.mark_published(session_id, draft.name)

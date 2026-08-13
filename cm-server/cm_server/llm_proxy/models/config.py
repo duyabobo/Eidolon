@@ -37,3 +37,9 @@ class LlmProfileUpdate(BaseModel):
 class LlmProfileListResponse(BaseModel):
     items: list[LlmProfile]
     active_id: str | None = None
+
+
+class ServiceTestResult(BaseModel):
+    ok: bool
+    latency_ms: int = 0
+    message: str = ""

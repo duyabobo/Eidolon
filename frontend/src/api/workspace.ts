@@ -82,13 +82,31 @@ export const workspaceApi = {
       method: "DELETE",
     }),
 
-  download: async (userId: string, path: string, filename: string): Promise<void> => {
-    const resp = await fetch(
-      `/config/workspace/download?${withUser(userId, path)}`,
-      { cache: "no-store", headers: mergeTraceHeaders() },
-    );
+  fetchBlob: async (
+    userId: string,
+    path: string,
+    disposition: "inline" | "attachment" = "inline",
+  ): Promise<Blob> => {
+    const qs = new URLSearchParams({
+      user_id: userId.trim(),
+      path,
+      disposition,
+    });
+    const resp = await fetch(`/config/workspace/download?${qs}`, {
+      cache: "no-store",
+      headers: mergeTraceHeaders(),
+    });
     if (!resp.ok) throw new Error(await parseError(resp));
-    const blob = await resp.blob();
+    return resp.blob();
+  },
+
+  fetchText: async (userId: string, path: string): Promise<string> => {
+    const blob = await workspaceApi.fetchBlob(userId, path, "inline");
+    return blob.text();
+  },
+
+  download: async (userId: string, path: string, filename: string): Promise<void> => {
+    const blob = await workspaceApi.fetchBlob(userId, path, "attachment");
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

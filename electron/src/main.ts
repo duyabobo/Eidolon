@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog } from "electron";
 import type { Server } from "http";
 import { allocateAppPorts } from "./ports";
 import { resolveResourcePaths, resolveUserDataPaths } from "./paths";
-import { ManagedProcess, startArxivMcp, startCmServer, startPiRuntime, stopManagedProcess } from "./process-manager";
+import { ManagedProcess, startArxivMcp, startCmServer, startNatureMcp, startPiRuntime, stopManagedProcess } from "./process-manager";
 import { startStaticAndProxyServer } from "./static-server";
 
 const WINDOW_WIDTH = 1280;
@@ -31,9 +31,9 @@ if (!gotSingleInstanceLock) {
 async function bootstrap(): Promise<void> {
   const resourcePaths = resolveResourcePaths();
   const userDataPaths = resolveUserDataPaths();
-  const { cmServerPort, piRuntimePort, staticServerPort, arxivMcpPort } = await allocateAppPorts();
+  const { cmServerPort, piRuntimePort, staticServerPort, arxivMcpPort, natureMcpPort } = await allocateAppPorts();
 
-  // 先起 arxiv-mcp：cm-server 启动时会立刻用 ARXIV_MCP_URL 刷新内置系统 MCP 的地址
+  // 先起内置 MCP：cm-server 启动时会立刻用 *_MCP_URL 刷新内置系统 MCP 的地址
   // （见 mcp_server_store.ensure_builtin_system_servers），必须在 cm-server 之前拿到端口。
   const arxivMcp = await startArxivMcp({
     executablePath: resourcePaths.arxivMcpExecutable,
@@ -43,6 +43,13 @@ async function bootstrap(): Promise<void> {
   });
   managedProcesses.push(arxivMcp);
 
+  const natureMcp = await startNatureMcp({
+    executablePath: resourcePaths.natureMcpExecutable,
+    port: natureMcpPort,
+    logDir: userDataPaths.logDir,
+  });
+  managedProcesses.push(natureMcp);
+
   const cmServer = await startCmServer({
     executablePath: resourcePaths.cmServerExecutable,
     port: cmServerPort,
@@ -51,6 +58,7 @@ async function bootstrap(): Promise<void> {
     logDir: userDataPaths.logDir,
     piRuntimeBaseUrl: `http://127.0.0.1:${piRuntimePort}`,
     arxivMcpUrl: `http://127.0.0.1:${arxivMcpPort}/mcp`,
+    natureMcpUrl: `http://127.0.0.1:${natureMcpPort}/mcp`,
   });
   managedProcesses.push(cmServer);
 
@@ -63,6 +71,7 @@ async function bootstrap(): Promise<void> {
     logDir: userDataPaths.logDir,
     piBin: resourcePaths.piBin,
     piExtensionsDir: resourcePaths.piExtensionsDir,
+    sandboxPythonBinDir: resourcePaths.sandboxPythonBinDir,
   });
   managedProcesses.push(piRuntime);
 

@@ -1,20 +1,36 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SkillScope } from "../api/skills";
-import { SkillCreatorMessage, SkillDraft, skillCreatorApi, buildSkillMarkdown } from "../api/skillCreator";
+import { SkillCreatorMessage, SkillDraft, skillCreatorApi } from "../api/skillCreator";
 import { useAutoGrowTextarea } from "../hooks/useAutoGrowTextarea";
 import ChatMarkdown from "./chat/ChatMarkdown";
+import FilePreviewModal, { type FilePreviewSource } from "./FilePreviewModal";
+import SkillFolderTree from "./SkillFolderTree";
 
 interface Props {
   userId?: string;
   scope: SkillScope;
   onClose: () => void;
-  onPublished: (skill: { name: string; description: string; tags: string[]; hidden: boolean; scope: SkillScope; user_id: string | null }) => void;
+  onPublished: (skill: {
+    name: string;
+    description: string;
+    tags: string[];
+    hidden: boolean;
+    scope: SkillScope;
+    user_id: string | null;
+  }) => void;
   embedded?: boolean;
   /** 编辑已保存的 Skill 时传入 skill 名称，加载对应的历史会话 */
   editSkillName?: string;
 }
 
-export default function SkillCreatorChat({ userId, scope, onClose, onPublished, embedded = false, editSkillName }: Props) {
+export default function SkillCreatorChat({
+  userId,
+  scope,
+  onClose,
+  onPublished,
+  embedded = false,
+  editSkillName,
+}: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<SkillCreatorMessage[]>([]);
   const [draft, setDraft] = useState<SkillDraft | null>(null);
@@ -23,10 +39,11 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
   const [sending, setSending] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 当前会话是否已发布（已发布时才显示「新建对话」按钮）
   const [isPublished, setIsPublished] = useState(false);
   const [uploads, setUploads] = useState<{ filename: string; relative_path: string; skill_dir: string }[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [treeTick, setTreeTick] = useState(0);
+  const [preview, setPreview] = useState<FilePreviewSource | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortCtrlRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -47,6 +64,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
         setMessages(session.messages);
         setDraft(session.draft ?? null);
         setIsPublished(session.published ?? false);
+        setTreeTick((n) => n + 1);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : "无法启动 Skill 创建助手");
@@ -54,17 +72,25 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   };
 
   useEffect(() => {
     return openSession(false, editSkillName);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, editSkillName]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, draft]);
+
+  const loadTreeEntries = useCallback(async () => {
+    if (!sessionId) return [];
+    const res = await skillCreatorApi.getTree(sessionId);
+    return res.entries;
+  }, [sessionId]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -88,11 +114,10 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
           tags: [...(res.draft.tags ?? [])],
           mcp_tools: [...(res.draft.mcp_tools ?? [])],
         });
+        setTreeTick((n) => n + 1);
       }
     } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") {
-        // 用户主动中断，不展示错误
-      } else {
+      if (!(e instanceof Error && e.name === "AbortError")) {
         setError(e instanceof Error ? e.message : "发送失败");
       }
     } finally {
@@ -115,6 +140,7 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
         ...prev,
         { filename: res.filename, relative_path: res.relative_path, skill_dir: res.skill_dir },
       ]);
+      setTreeTick((n) => n + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "上传失败");
     } finally {
@@ -124,10 +150,9 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // 中文输入法组合期间的 Enter 不触发发送
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -155,9 +180,11 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
   };
 
   const panel = (
-    <div className={`bg-white/95 backdrop-blur-xl rounded-2.5xl shadow-panel w-full flex flex-col border border-ink-200/60 ${
-      embedded ? "h-[70vh]" : "max-w-4xl h-[90vh]"
-    }`}>
+    <div
+      className={`bg-white/95 backdrop-blur-xl rounded-2.5xl shadow-panel w-full flex flex-col border border-ink-200/60 ${
+        embedded ? "h-[70vh]" : "max-w-4xl h-[90vh]"
+      }`}
+    >
       <div className="px-6 py-4 border-b border-ink-200/60 flex items-center justify-between shrink-0">
         <div>
           <h2 className="font-semibold text-ink-900">
@@ -170,17 +197,17 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* 未发布草稿才允许重新开始（编辑已保存 skill 的会话不能清） */}
           {!isPublished && !isEditMode && sessionId && (
             <button
               type="button"
               onClick={() => {
                 if (!confirm("确认清除当前对话历史，重新开始？")) return;
-                skillCreatorApi.resetSession(sessionId).then((session) => {
+                void skillCreatorApi.resetSession(sessionId).then((session) => {
                   setMessages(session.messages);
                   setDraft(null);
                   setInput("");
                   setUploads([]);
+                  setTreeTick((n) => n + 1);
                 });
               }}
               disabled={loading || sending}
@@ -189,7 +216,6 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
               重新开始
             </button>
           )}
-          {/* 已发布后才允许新建，编辑模式下不提供（新建会脱离当前 skill 上下文） */}
           {isPublished && !isEditMode && (
             <button
               type="button"
@@ -206,21 +232,31 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
               新建对话
             </button>
           )}
-          <button type="button" onClick={onClose} className="text-sm text-ink-400 hover:text-ink-700 transition-colors">关闭</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-sm text-ink-400 hover:text-ink-700 transition-colors"
+          >
+            关闭
+          </button>
         </div>
       </div>
 
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 flex flex-col border-r min-w-0">
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-            {loading && <p className="text-sm text-gray-400 text-center py-8">正在连接 Skill 创建助手…</p>}
+            {loading && (
+              <p className="text-sm text-gray-400 text-center py-8">正在连接 Skill 创建助手…</p>
+            )}
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
-                  m.role === "user"
-                    ? "bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-soft whitespace-pre-wrap"
-                    : "bg-ink-100/80 text-ink-800 border border-ink-200/60"
-                }`}>
+                <div
+                  className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
+                    m.role === "user"
+                      ? "bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-soft whitespace-pre-wrap"
+                      : "bg-ink-100/80 text-ink-800 border border-ink-200/60"
+                  }`}
+                >
                   {m.role === "user" ? m.content : <ChatMarkdown content={m.content} />}
                 </div>
               </div>
@@ -230,7 +266,9 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
           </div>
 
           {error && (
-            <p className="mx-4 mb-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+            <p className="mx-4 mb-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {error}
+            </p>
           )}
 
           {uploads.length > 0 && (
@@ -274,17 +312,13 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
               className="flex-1 resize-none bg-transparent border border-ink-200/80 rounded-xl px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-300 disabled:opacity-60 leading-relaxed"
             />
             {sending ? (
-              <button
-                type="button"
-                onClick={handleInterrupt}
-                className="ui-btn-danger shrink-0 self-end"
-              >
+              <button type="button" onClick={handleInterrupt} className="ui-btn-danger shrink-0 self-end">
                 中断
               </button>
             ) : (
               <button
                 type="button"
-                onClick={handleSend}
+                onClick={() => void handleSend()}
                 disabled={loading || !sessionId || !input.trim()}
                 className="ui-btn-primary shrink-0 self-end"
               >
@@ -296,21 +330,33 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
 
         <div className="w-80 flex flex-col shrink-0 bg-gray-50">
           <div className="px-4 py-3 border-b">
-            <h3 className="text-sm font-medium text-gray-700">草稿预览</h3>
-            <p className="text-xs text-gray-500 mt-0.5">继续对话完善，定稿后保存</p>
+            <h3 className="text-sm font-medium text-gray-700">草稿目录</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {draft?.name ? draft.name : "生成草稿后显示文件树"}
+            </p>
           </div>
-          <div className="flex-1 overflow-y-auto px-4 py-3 text-xs">
-            {!draft ? (
-              <p className="text-gray-400 text-center py-8">对话生成 Skill 后显示在此</p>
+          <div className="flex-1 overflow-y-auto px-3 py-3 text-xs min-h-0">
+            {!sessionId ? (
+              <p className="text-gray-400 text-center py-8">等待会话…</p>
+            ) : !draft && uploads.length === 0 ? (
+              <p className="text-gray-400 text-center py-8">对话生成 Skill 或上传附件后显示在此</p>
             ) : (
-              <div className="bg-white border rounded-lg p-3 max-h-full overflow-y-auto">
-                <ChatMarkdown content={buildSkillMarkdown(draft)} />
-              </div>
+              <SkillFolderTree
+                loadEntries={loadTreeEntries}
+                refreshKey={`${sessionId}:${draft?.name ?? ""}:${treeTick}`}
+                onPreview={(path, filename) =>
+                  setPreview({ type: "skill-creator", sessionId, path, filename })
+                }
+                emptyText="目录尚无文件"
+                maxHeightClass="max-h-full"
+                className="rounded-lg border border-ink-200/60 bg-white p-2"
+              />
             )}
           </div>
           <div className="px-4 py-3 border-t">
             <button
-              onClick={handlePublish}
+              type="button"
+              onClick={() => void handlePublish()}
               disabled={!draft || publishing}
               className="w-full ui-btn-primary"
             >
@@ -319,6 +365,14 @@ export default function SkillCreatorChat({ userId, scope, onClose, onPublished, 
           </div>
         </div>
       </div>
+
+      {preview && (
+        <FilePreviewModal
+          source={preview}
+          subtitle={preview.type === "skill-creator" ? "草稿目录" : undefined}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   );
 

@@ -37,6 +37,8 @@ export default function LlmConfigPanel() {
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,6 +116,29 @@ export default function LlmConfigPanel() {
     }
   };
 
+  const handleTest = async (profile: LlmProfile) => {
+    setErrMsg(null);
+    setTestingIds((prev) => new Set(prev).add(profile.id));
+    try {
+      const result = await configApi.testLlmProfile(profile.id);
+      const message = result.ok
+        ? `${result.message}${result.latency_ms ? ` · ${result.latency_ms}ms` : ""}`
+        : result.message || "测试失败";
+      setTestResults((prev) => ({ ...prev, [profile.id]: { ok: result.ok, message } }));
+      if (!result.ok) setErrMsg(`「${profile.name}」测试失败：${message}`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "测试失败";
+      setTestResults((prev) => ({ ...prev, [profile.id]: { ok: false, message } }));
+      setErrMsg(`「${profile.name}」测试失败：${message}`);
+    } finally {
+      setTestingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(profile.id);
+        return next;
+      });
+    }
+  };
+
   const pagination = useClientPagination(profiles, CONFIG_PAGE_SIZE);
 
   return (
@@ -140,41 +165,69 @@ export default function LlmConfigPanel() {
         <ConfigEmptyState message="暂无 LLM 配置，点击「添加」创建" />
       ) : (
         <div className="space-y-2">
-          {pagination.slice.map((profile) => (
-            <ConfigListItem
-              key={profile.id}
-              leading={(
-                <input
-                  type="radio"
-                  name="llm-profile"
-                  checked={activeId === profile.id}
-                  onChange={() => void handleSelect(profile.id)}
-                  className="accent-brand-600 mt-1"
-                />
-              )}
-              title={profile.name}
-              meta={
-                activeId === profile.id ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-brand-50 text-brand-700">
-                    当前生效
-                  </span>
-                ) : undefined
-              }
-              subtitle={`${profile.protocol} · ${profile.model} · ${profile.base_url}`}
-              actions={(
-                <>
-                  <ConfigActionBtn onClick={() => openEdit(profile)}>编辑</ConfigActionBtn>
-                  <ConfigActionBtn
-                    variant="danger"
-                    disabled={profiles.length <= 1}
-                    onClick={() => void handleDelete(profile)}
-                  >
-                    删除
-                  </ConfigActionBtn>
-                </>
-              )}
-            />
-          ))}
+          {pagination.slice.map((profile) => {
+            const testing = testingIds.has(profile.id);
+            const testResult = testResults[profile.id];
+            return (
+              <ConfigListItem
+                key={profile.id}
+                leading={(
+                  <input
+                    type="radio"
+                    name="llm-profile"
+                    checked={activeId === profile.id}
+                    onChange={() => void handleSelect(profile.id)}
+                    className="accent-brand-600 mt-1"
+                  />
+                )}
+                title={profile.name}
+                meta={(
+                  <>
+                    {activeId === profile.id && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-brand-50 text-brand-700">
+                        当前生效
+                      </span>
+                    )}
+                    {testing && !testResult && (
+                      <span className="text-[10px] text-ink-400">测试中…</span>
+                    )}
+                    {testResult && (
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded-full max-w-[220px] truncate ${
+                          testResult.ok
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-rose-50 text-rose-700"
+                        }`}
+                        title={testResult.message}
+                      >
+                        {testResult.ok ? `可用 · ${testResult.message}` : "不可用"}
+                      </span>
+                    )}
+                  </>
+                )}
+                subtitle={`${profile.protocol} · ${profile.model} · ${profile.base_url}`}
+                actions={(
+                  <>
+                    <ConfigActionBtn
+                      variant="sky"
+                      disabled={testing}
+                      onClick={() => void handleTest(profile)}
+                    >
+                      {testing ? "测试中…" : "测试"}
+                    </ConfigActionBtn>
+                    <ConfigActionBtn onClick={() => openEdit(profile)}>编辑</ConfigActionBtn>
+                    <ConfigActionBtn
+                      variant="danger"
+                      disabled={profiles.length <= 1}
+                      onClick={() => void handleDelete(profile)}
+                    >
+                      删除
+                    </ConfigActionBtn>
+                  </>
+                )}
+              />
+            );
+          })}
         </div>
       )}
 

@@ -22,9 +22,10 @@
 
 | 服务 | 端口 | 技术栈 | 职责 |
 |------|------|--------|------|
-| **frontend** | 3000 | React + Vite + Tailwind | 对话界面、LLM / MCP / Skill 配置管理页 |
+| **frontend** | 3000 | React + Vite + Tailwind | 对话界面（含模型配置、会话级文件管理入口）、Skill / MCP / 知识库配置管理页 |
 | **cm-server** | 8000 | Python FastAPI（单进程） | 合并原 gateway/gateway-sse/admin/llm-proxy/mcp-proxy：会话 CRUD、任务派发、SSE 流式输出、MCP/Skill/知识库配置、LLM 代理 |
 | **arxiv-mcp** | 8081（仅内网） | arxiv-mcp-server | 平台内置 arXiv MCP（Streamable HTTP），经 cm-server 内的 mcp-proxy 模块暴露 |
+| **nature-mcp** | 8082（仅内网） | 自研 nature-mcp | 平台内置 Nature/Science 检索（OpenAlex/S2/Crossref/Unpaywall），仅元数据+合法 OA |
 | **pi-runtime** | 8090 | Node.js 执行引擎 | Agent 任务执行、bwrap 沙盒隔离、Unix socket 网络白名单 |
 
 CM 桌面架构下单机单用户场景不再需要按 QPS/并发连接数/下游调用量分别独立扩容，原 5 个
@@ -83,6 +84,7 @@ eidolon-platform/
 ├── cm-server/             # FastAPI 单进程服务：合并原 gateway/gateway-sse/admin/llm-proxy/mcp-proxy
 ├── pi-shared/             # Python 服务共享工具库（日志、中间件、SQLite 访问层）
 ├── arxiv-mcp/             # 平台内置 arXiv MCP（HTTP sidecar）
+├── nature-mcp/            # 平台内置 Nature/Science 学术检索 MCP（HTTP/stdio）
 ├── pi-runtime/            # Node.js 执行引擎（沙盒内 agent 运行时）
 ├── electron/              # Electron 主进程：拉起 cm-server/pi-runtime 子进程 + 本机静态代理
 └── scripts/               # 打包构建脚本（build-frontend/build-pi-runtime/build-cm-server/package-mac）

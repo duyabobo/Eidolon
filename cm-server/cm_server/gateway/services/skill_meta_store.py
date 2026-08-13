@@ -20,6 +20,7 @@ def _to_list_item(row: dict) -> SkillListItem:
         tags=loads(row.get("tags"), []),
         mcp_tools=[str(item) for item in loads(row.get("mcp_tools"), []) if str(item).strip()],
         user_id=str(user_id) if user_id else None,
+        source=str(row.get("source") or ""),
     )
 
 
@@ -63,18 +64,37 @@ async def save_skill_meta(meta: SkillMeta) -> SkillMeta:
     if existing:
         await db.execute(
             """
-            UPDATE skills SET description = ?, tags = ?, mcp_tools = ?, hidden = ?, updated_at = ?
+            UPDATE skills SET description = ?, tags = ?, mcp_tools = ?, hidden = ?, source = ?, updated_at = ?
             WHERE name = ? AND user_id IS ?
             """,
-            (meta.description, dumps(meta.tags), dumps(meta.mcp_tools), int(meta.hidden), now, meta.name, meta.user_id),
+            (
+                meta.description,
+                dumps(meta.tags),
+                dumps(meta.mcp_tools),
+                int(meta.hidden),
+                meta.source or "",
+                now,
+                meta.name,
+                meta.user_id,
+            ),
         )
     else:
         await db.execute(
             """
-            INSERT INTO skills (name, user_id, description, tags, mcp_tools, hidden, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO skills (name, user_id, description, tags, mcp_tools, hidden, source, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (meta.name, meta.user_id, meta.description, dumps(meta.tags), dumps(meta.mcp_tools), int(meta.hidden), created_at, now),
+            (
+                meta.name,
+                meta.user_id,
+                meta.description,
+                dumps(meta.tags),
+                dumps(meta.mcp_tools),
+                int(meta.hidden),
+                meta.source or "",
+                created_at,
+                now,
+            ),
         )
     logger.info("skill 元数据已保存 name=%s user_id=%s", meta.name, meta.user_id)
     return meta

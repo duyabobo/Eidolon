@@ -7,7 +7,7 @@ interface NavItemProps {
   onClick?: () => void;
 }
 
-/** 纯文字导航项（无 icon）：选中态用淡灰色背景 + 深色文字，不用品牌色，保持克制。 */
+/** 选中态背景与右侧主内容区 --app-surface 一致，形成连续面。 */
 export default function NavItem({ to, label, end = false, onClick }: NavItemProps) {
   return (
     <NavLink
@@ -15,10 +15,10 @@ export default function NavItem({ to, label, end = false, onClick }: NavItemProp
       end={end}
       onClick={onClick}
       className={({ isActive }) =>
-        `w-full text-left px-3.5 py-2.5 rounded-xl text-sm font-medium transition-colors duration-150 ${
+        `w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150 ${
           isActive
-            ? "bg-ink-200/70 text-ink-900"
-            : "text-ink-500 hover:bg-ink-100/70 hover:text-ink-700"
+            ? "bg-[var(--app-surface)] text-ink-900"
+            : "text-ink-500 hover:bg-ink-100/80 hover:text-ink-700"
         }`
       }
     >

@@ -47,6 +47,7 @@ class KnowledgeDocument(BaseModel):
     file_size: int
     status: Literal["uploaded", "processing", "indexed", "failed"] = "uploaded"
     error_message: str | None = None
+    wiki_compiled: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -58,25 +59,37 @@ class KnowledgeDocumentList(BaseModel):
     page_size: int
 
 
-KnowledgeEnvironment = Literal["local", "prod", "test"]
+class KnowledgePipelineConfig(BaseModel):
+    """知识库流水线配置：mineru-api 必填，reranker 可选。"""
+
+    mineru3_api_base: str = Field(default="", max_length=512)
+    mineru3_backend: str = Field(default="pipeline", max_length=64)
+    mineru3_lang: str = Field(default="ch", max_length=32)
+    mineru3_parse_method: str = Field(default="auto", max_length=32)
+    mineru_vlm_url: str = Field(default="", max_length=512)
+    reranker_base_url: str = Field(default="", max_length=512)
+    reranker_api_key: str = Field(default="", max_length=512)
+    reranker_model_name: str = Field(default="", max_length=128)
+    updated_at: datetime | None = None
+
+    @property
+    def mineru_configured(self) -> bool:
+        return bool(self.mineru3_api_base.strip())
+
+    @property
+    def reranker_enabled(self) -> bool:
+        return bool(self.reranker_base_url.strip())
+
+    @property
+    def vlm_enabled(self) -> bool:
+        return bool(self.mineru_vlm_url.strip())
 
 
-class KnowledgeServiceConfig(BaseModel):
-    """知识库后端服务地址（为空时使用 admin 本地存储）"""
-    base_url: str = Field(default="", max_length=512)
-    environment: KnowledgeEnvironment = "local"
-    created_at: datetime | None = None
+class ServiceTestResult(BaseModel):
+    ok: bool
+    latency_ms: int = 0
+    message: str = ""
 
 
-class KnowledgeEnvironmentOption(BaseModel):
-    id: KnowledgeEnvironment
-    label: str
-    base_url: str
-
-
-class KnowledgeEnvironmentList(BaseModel):
-    items: list[KnowledgeEnvironmentOption]
-
-
-class KnowledgeKeyResponse(BaseModel):
-    knowledge_key: str
+# 兼容旧前端类型名（逐步删除）
+KnowledgeServiceConfig = KnowledgePipelineConfig

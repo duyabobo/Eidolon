@@ -111,6 +111,8 @@ export interface StartCmServerOptions {
   piRuntimeBaseUrl: string;
   /** arxiv-mcp 子进程的本机地址（见 startArxivMcp），用于刷新内置系统 MCP 的 url */
   arxivMcpUrl: string;
+  /** nature-mcp 子进程的本机地址（见 startNatureMcp） */
+  natureMcpUrl: string;
 }
 
 export async function startCmServer(options: StartCmServerOptions): Promise<ManagedProcess> {
@@ -125,6 +127,7 @@ export async function startCmServer(options: StartCmServerOptions): Promise<Mana
       LOG_DIR: options.logDir,
       PI_RUNTIME_BASE_URL: options.piRuntimeBaseUrl,
       ARXIV_MCP_URL: options.arxivMcpUrl,
+      NATURE_MCP_URL: options.natureMcpUrl,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "pi-agent-internal",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -172,6 +175,38 @@ export async function startArxivMcp(options: StartArxivMcpOptions): Promise<Mana
   return { name: "arxiv-mcp", process: child };
 }
 
+export interface StartNatureMcpOptions {
+  executablePath: string;
+  port: number;
+  logDir: string;
+}
+
+/**
+ * nature-mcp 与 arxiv-mcp 一样由 Electron 主进程拉起；ALLOWED_HOSTS 必须包含本次
+ * 分配到的 "127.0.0.1:<port>"，否则 DNS rebinding 防护会拒绝 cm-server 请求。
+ */
+export async function startNatureMcp(options: StartNatureMcpOptions): Promise<ManagedProcess> {
+  const child = spawn(options.executablePath, [], {
+    env: {
+      ...process.env,
+      TRANSPORT: "streamable-http",
+      HOST: "127.0.0.1",
+      PORT: String(options.port),
+      ALLOWED_HOSTS: `127.0.0.1,127.0.0.1:${options.port},localhost,localhost:${options.port}`,
+      LOG_DIR: options.logDir,
+      LOG_LEVEL: "INFO",
+      OPENALEX_EMAIL: process.env.OPENALEX_EMAIL ?? "nature-mcp@localhost",
+      UNPAYWALL_EMAIL: process.env.UNPAYWALL_EMAIL ?? "nature-mcp@localhost",
+      S2_API_KEY: process.env.S2_API_KEY ?? "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  pipeToLogFile(child, join(options.logDir, "nature-mcp.stdout.log"));
+
+  await waitForTcpOpen(options.port, HEALTH_CHECK_TIMEOUT_MS);
+  return { name: "nature-mcp", process: child };
+}
+
 export interface StartPiRuntimeOptions {
   entryPath: string;
   cwd: string;
@@ -183,6 +218,8 @@ export interface StartPiRuntimeOptions {
   piBin: string;
   /** 安装包内 pi 扩展目录绝对路径 */
   piExtensionsDir: string;
+  /** 安装包内沙盒 Python bin 目录（python3 + 科学栈）；空则退回系统 PATH */
+  sandboxPythonBinDir: string;
 }
 
 export async function startPiRuntime(options: StartPiRuntimeOptions): Promise<ManagedProcess> {
@@ -200,6 +237,8 @@ export async function startPiRuntime(options: StartPiRuntimeOptions): Promise<Ma
       NODE_BIN: process.execPath,
       PI_BIN: options.piBin,
       PI_EXTENSIONS_DIR: options.piExtensionsDir,
+      // 沙盒内 python/python3 优先用安装包内置解释器（见 pi-session PATH 注入）
+      SANDBOX_PYTHON_BIN_DIR: options.sandboxPythonBinDir,
       PI_RUNTIME_PORT: String(options.port),
       GATEWAY_BASE_URL: cmServerBaseUrl,
       GATEWAY_SSE_BASE_URL: cmServerBaseUrl,
@@ -213,6 +252,8 @@ export async function startPiRuntime(options: StartPiRuntimeOptions): Promise<Ma
       // pi-runtime 自己的 file-logger.ts 也读 LOG_DIR（默认 "/app/logs"，容器专属路径），
       // 桌面场景必须显式覆盖，否则启动时 mkdirSync 直接抛 ENOENT 崩溃。
       LOG_DIR: options.logDir,
+      // 无显示器环境下 matplotlib 默认用 Agg，避免沙盒里弹 GUI 失败
+      MPLBACKEND: process.env.MPLBACKEND ?? "Agg",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

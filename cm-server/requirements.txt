@@ -6,3 +6,5 @@ httpx==0.28.1
 python-multipart==0.0.20
 sse-starlette==2.3.5
 mcp>=1.0,<2
+openai==1.75.0
+pypdf==5.4.0
