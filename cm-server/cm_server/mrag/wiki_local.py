@@ -64,6 +64,19 @@ def _graph_node_id(node: DocNode) -> str:
     return f"{_SECTION_PREFIX}{node.node_id}"
 
 
+def _leaf_display_title(kb_id: str, doc_id: str, tree_node_id: str, fallback: str) -> str:
+    """叶子优先用 compiled wiki 的知识标题，便于与引用 [[名称]] 对齐。"""
+    path = _resolve_wiki_path(kb_id, doc_id, f"{_COMPILED_PREFIX}{tree_node_id}")
+    if path is None:
+        return fallback
+    try:
+        doc = parse_wiki_markdown(path.read_text(encoding="utf-8"), fallback_id=tree_node_id)
+    except OSError:
+        return fallback
+    title = (doc.title or "").strip()
+    return title or fallback
+
+
 def _walk_graph(
     node: DocNode,
     *,
@@ -76,10 +89,16 @@ def _walk_graph(
     if len(nodes) >= max_nodes:
         return
     if node.title != "ROOT":
+        fallback = node.title or node.node_id
+        title = (
+            _leaf_display_title(kb_id, doc_id, node.node_id, fallback)
+            if node.is_leaf()
+            else fallback
+        )
         nodes.append(
             WikiGraphNode(
                 node_id=_graph_node_id(node),
-                title=node.title or node.node_id,
+                title=title,
                 type="compiled" if node.is_leaf() else "section",
                 source="doctree",
                 tree_node_id=node.node_id,

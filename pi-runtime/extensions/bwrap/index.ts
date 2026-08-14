@@ -225,7 +225,7 @@ async function guardPath(rawPath: string): Promise<{ safe: true } | { safe: fals
     return { safe: false, reason: "路径为空（文件工具必须提供 workspace 内相对路径，如 artifacts/out.txt）" };
   }
 
-  const tentative = pathResolve(sandboxWorkspace, trimmed);
+  const { isAbsolute } = await import("path");
   const allowed = [
     sandboxWorkspace,
     sandboxHome,
@@ -235,11 +235,36 @@ async function guardPath(rawPath: string): Promise<{ safe: true } | { safe: fals
   ].filter(Boolean);
 
   const jailHint =
-    "只允许访问本会话 workspace（推荐相对路径：artifacts/xxx、uploads/xxx）、home、userFiles 和 skills；" +
-    "不要使用宿主机绝对路径（如 /Users/...）。";
+    "只允许访问本会话 workspace（推荐相对路径：artifacts/xxx、uploads/xxx）、" +
+    "USER_FILES（如 wiki/xxx.md）、home 和 skills；不要使用宿主机绝对路径。";
 
-  const tentativeOk = allowed.some((base) => tentative === base || tentative.startsWith(`${base}/`));
-  if (!tentativeOk) {
+  const underAllowed = (candidate: string) =>
+    allowed.some((base) => candidate === base || candidate.startsWith(`${base}/`));
+
+  // wiki/* 固定相对 USER_FILES；其余相对路径先按 workspace，越界再试 USER_FILES
+  const preferUserFiles =
+    Boolean(sandboxUserFiles)
+    && !isAbsolute(trimmed)
+    && (trimmed === "wiki" || trimmed.startsWith("wiki/"));
+
+  let tentative: string;
+  if (preferUserFiles) {
+    tentative = pathResolve(sandboxUserFiles, trimmed);
+  } else {
+    tentative = pathResolve(sandboxWorkspace, trimmed);
+    if (
+      sandboxUserFiles
+      && !isAbsolute(trimmed)
+      && !underAllowed(tentative)
+    ) {
+      const fromUserFiles = pathResolve(sandboxUserFiles, trimmed);
+      if (underAllowed(fromUserFiles)) {
+        tentative = fromUserFiles;
+      }
+    }
+  }
+
+  if (!underAllowed(tentative)) {
     return {
       safe: false,
       reason: `路径越界（应用层 jail）: ${trimmed} → ${tentative}（${jailHint}）`,
@@ -258,8 +283,7 @@ async function guardPath(rawPath: string): Promise<{ safe: true } | { safe: fals
     }
   }
 
-  const canonicalOk = allowed.some((base) => canonical === base || canonical.startsWith(`${base}/`));
-  if (!canonicalOk) {
+  if (!underAllowed(canonical)) {
     return {
       safe: false,
       reason: `路径越界（符号链接解析后）: ${trimmed} → ${canonical}（${jailHint}）`,

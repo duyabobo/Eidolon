@@ -18,7 +18,7 @@ interface WikiNodeDetailProps {
 
 function SectionTitle({ children }: { children: string }) {
   return (
-    <h4 className="text-sm font-semibold text-ink-800 mb-2 tracking-wide">
+    <h4 className="text-base font-bold text-ink-900 mb-2.5">
       {children}
     </h4>
   );
@@ -34,6 +34,7 @@ export function buildNodeReferenceLinks(
   }
   return resolveWikiConnections(inputs, graphNodes, [], node.node_id, {
     includeGraphEdges: false,
+    onlyResolved: true,
   });
 }
 

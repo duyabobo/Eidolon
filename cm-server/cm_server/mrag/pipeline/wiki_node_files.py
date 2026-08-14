@@ -1,9 +1,11 @@
 """Wiki node 落盘路径与引用回填。
 
-引用格式（面向图谱 UI）：
-  [[node_id|标题]]  — 本批校验命中
-  [[标题]]          — 未命中本批节点，保留原文供阅读，不写 filepath
-不再写成 [[标题]](/abs/path)（那是给 pi 读文件的，和图谱跳转冲突）。
+引用双写（UI + pi）：
+  [[node_id|标题]](wiki/xxx.md)  — 命中本批且有 pi 可读相对路径
+  [[node_id|标题]]               — 命中本批但无可达路径
+  [[标题]]                       — 未命中本批
+
+括号内路径相对 USER_FILES（如 wiki/a.md）或相对 session workspace（如 uploads/a.pdf）。
 """
 from __future__ import annotations
 
@@ -11,12 +13,17 @@ import logging
 import re
 from pathlib import Path
 
+from pi_shared.workspace.constants import (
+    SESSION_WORKSPACE_SUBDIR,
+    WRITABLE_ROOT,
+)
+from pi_shared.workspace.paths import user_root
+
 from cm_server.mrag.pipeline.models import WikiNode
 
 logger = logging.getLogger(__name__)
 
 _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_\u4e00-\u9fff\-]+")
-# [[id|title]] 或 [[title]]，并吞掉历史错误产物 [[...]](/path)
 _WIKI_REF_RE = re.compile(
     r"\[\[(?:(?P<node_id>[^\]|]+)\|)?(?P<title>[^\]]+)\]\](?:\([^)]*\))?"
 )
@@ -29,8 +36,44 @@ def safe_filename(name: str) -> str:
 
 
 def pi_readable_path(path: Path) -> str:
-    """pi read/grep 接受的绝对路径（workspace / USER_FILES 白名单内可用）。"""
+    """沙盒内绝对路径（fallback；优先用 to_pi_relative_path）。"""
     return str(path.resolve())
+
+
+def to_pi_relative_path(
+    abs_path: Path,
+    *,
+    owner_user_id: str | None,
+    sandbox_root: str | Path,
+) -> str:
+    """把绝对路径收成 pi 可读相对路径；无法收则返回空串。
+
+    - users/{uid}/files/... → 相对 USER_FILES（如 wiki/a.md）
+    - users/{uid}/sessions/{sid}/workspace/... → 相对 workspace（如 uploads/a.pdf）
+    """
+    uid = (owner_user_id or "").strip()
+    if not uid:
+        return ""
+    root = Path(sandbox_root)
+    target = abs_path.resolve()
+
+    user_files = (user_root(root, uid) / WRITABLE_ROOT).resolve()
+    try:
+        rel = target.relative_to(user_files)
+        return rel.as_posix()
+    except ValueError:
+        pass
+
+    sessions_root = (user_root(root, uid) / "sessions").resolve()
+    try:
+        rel = target.relative_to(sessions_root)
+    except ValueError:
+        return ""
+    parts = rel.parts
+    # {sid}/workspace/{...}
+    if len(parts) >= 2 and parts[1] == SESSION_WORKSPACE_SUBDIR:
+        return Path(*parts[2:]).as_posix() if len(parts) > 2 else ""
+    return ""
 
 
 def _unique_wiki_path(wiki: Path, filename: str, reserved: set[str]) -> Path:
@@ -72,8 +115,12 @@ def assign_wiki_paths(
     return paths
 
 
-def build_title_node_id_index(nodes: list[WikiNode]) -> dict[str, str]:
-    """本批节点：标题 / node_id → node_id（casefold）。"""
+def build_title_node_id_index(
+    nodes: list[WikiNode],
+    *,
+    extra_aliases: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """标题 / node_id / 额外别名（如章节原标题）→ node_id。"""
     index: dict[str, str] = {}
     for node in nodes:
         node_id = (node.node_id or "").strip()
@@ -83,11 +130,21 @@ def build_title_node_id_index(nodes: list[WikiNode]) -> dict[str, str]:
         title = (node.title or "").strip()
         if title:
             index.setdefault(title.casefold(), node_id)
+    if extra_aliases:
+        for alias, node_id in extra_aliases.items():
+            key = (alias or "").strip()
+            nid = (node_id or "").strip()
+            if key and nid:
+                index.setdefault(key.casefold(), nid)
     return index
 
 
-def rewrite_wiki_references(text: str, title_to_node_id: dict[str, str]) -> str:
-    """将引用回填为 [[node_id|标题]]；未命中则保留 [[标题]]，去掉 filepath。"""
+def rewrite_wiki_references(
+    text: str,
+    title_to_node_id: dict[str, str],
+    node_id_to_rel_path: dict[str, str],
+) -> str:
+    """双写：[[node_id|标题]](相对路径) 或 [[node_id|标题]] / [[标题]]。"""
     raw = (text or "").strip()
     if raw in _EMPTY_REFS:
         return text
@@ -108,11 +165,14 @@ def rewrite_wiki_references(text: str, title_to_node_id: dict[str, str]) -> str:
             else:
                 node_id = title_to_node_id.get(existing_id.casefold(), "")
 
-        if node_id:
-            return f"[[{node_id}|{title}]]"
+        if not node_id:
+            unresolved.append(title)
+            return f"[[{title}]]"
 
-        unresolved.append(title)
-        return f"[[{title}]]"
+        rel = (node_id_to_rel_path.get(node_id) or "").strip()
+        if rel:
+            return f"[[{node_id}|{title}]]({rel})"
+        return f"[[{node_id}|{title}]]"
 
     rewritten = _WIKI_REF_RE.sub(_replace, text)
     if unresolved:
@@ -128,24 +188,46 @@ def attach_source_and_refs(
     nodes: list[WikiNode],
     *,
     source_file_path: str,
+    owner_user_id: str | None = None,
+    pi_link_paths: list[Path] | None = None,
+    sandbox_root: str | Path,
+    extra_title_aliases: dict[str, str] | None = None,
 ) -> None:
-    """回填 source，并按本批标题把引用写成 [[node_id|标题]]。"""
-    title_to_id = build_title_node_id_index(nodes)
-    source = source_file_path.strip()
+    """回填 source（pi 相对路径优先），引用双写 node_id + 相对路径。"""
+    title_to_id = build_title_node_id_index(nodes, extra_aliases=extra_title_aliases)
+    node_id_to_rel: dict[str, str] = {}
+    if pi_link_paths:
+        for node, path in zip(nodes, pi_link_paths):
+            rel = to_pi_relative_path(
+                path, owner_user_id=owner_user_id, sandbox_root=sandbox_root,
+            )
+            if rel and node.node_id:
+                node_id_to_rel[node.node_id] = rel
+
+    source_raw = source_file_path.strip()
+    source_rel = ""
+    if source_raw:
+        source_rel = to_pi_relative_path(
+            Path(source_raw), owner_user_id=owner_user_id, sandbox_root=sandbox_root,
+        )
+    source_for_meta = source_rel or source_raw
+
     rewritten_nodes = 0
     for node in nodes:
-        if source:
-            node.source = source
+        if source_for_meta:
+            node.source = source_for_meta
         before = node.references
-        node.references = rewrite_wiki_references(before, title_to_id)
+        node.references = rewrite_wiki_references(before, title_to_id, node_id_to_rel)
         if node.references != before:
             rewritten_nodes += 1
+
     logger.info(
-        "Wiki 来源/引用已回填 source=%s nodes=%s refs_rewritten=%s title_index=%s",
-        source or "-",
+        "Wiki 来源/引用已回填 source=%s nodes=%s refs_rewritten=%s pi_paths=%s aliases=%s",
+        source_for_meta or "-",
         len(nodes),
         rewritten_nodes,
-        len(title_to_id),
+        len(node_id_to_rel),
+        len(extra_title_aliases or {}),
     )
 
 

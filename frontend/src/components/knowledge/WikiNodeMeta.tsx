@@ -25,6 +25,16 @@ export function resolveNodeType(node: WikiNodeItem): string {
   return fromMeta || node.type.trim();
 }
 
+/** 仅展示 pi 相对路径类来源；隐藏宿主机绝对路径 */
+export function displayWikiSource(source: string): string {
+  const raw = source.trim();
+  if (!raw) return "";
+  if (raw.startsWith("/") || /^[A-Za-z]:[\\/]/.test(raw)) return "";
+  if (raw.includes("Application Support") || raw.includes("sandboxes/")) return "";
+  if (raw.includes("\\Users\\") || raw.includes("/Users/")) return "";
+  return raw;
+}
+
 interface WikiNodeMetaProps {
   node: WikiNodeItem;
 }
@@ -49,9 +59,10 @@ function MetaRow({ label, value, markdown = false }: { label: string; value: str
 export default function WikiNodeMeta({ node }: WikiNodeMetaProps) {
   const title = resolveNodeTitle(node);
   const type = resolveNodeType(node);
-  const source =
-    (node.source || node.source_doc_id || "").trim() ||
-    (node.metadata ? pickMetaString(node.metadata, ["source", "source_doc_id"]) : "");
+  const sourceRaw =
+    (node.source || "").trim() ||
+    (node.metadata ? pickMetaString(node.metadata, ["source"]) : "");
+  const source = displayWikiSource(sourceRaw);
   const sourceDate =
     (node.source_date || "").trim() ||
     (node.metadata ? pickMetaString(node.metadata, ["source_date", "source_publication_date"]) : "") ||
@@ -60,11 +71,11 @@ export default function WikiNodeMeta({ node }: WikiNodeMetaProps) {
 
   return (
     <section>
-      <h4 className="text-sm font-semibold text-ink-800 mb-2 tracking-wide">元数据</h4>
+      <h4 className="text-base font-bold text-ink-900 mb-2.5">元数据</h4>
       <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-2 text-sm leading-relaxed">
         <MetaRow label="名称" value={title} markdown />
         <MetaRow label="类型" value={type} />
-        <MetaRow label="来源" value={source} markdown />
+        {source ? <MetaRow label="来源" value={source} markdown /> : null}
         <MetaRow label="日期" value={sourceDate} />
       </dl>
     </section>

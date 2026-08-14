@@ -215,6 +215,7 @@ function pushLink(
   description: string,
   graphNodes: WikiGraphNode[],
   currentNodeId?: string,
+  onlyResolved = false,
 ) {
   const token = parseWikiLinkToken(label);
   const finalLabel = (token.title || label).trim();
@@ -223,13 +224,15 @@ function pushLink(
   const byId = new Map(graphNodes.map((node) => [node.node_id, node]));
   let resolvedId = (nodeId || token.nodeId).trim();
   if (resolvedId && !byId.has(resolvedId)) {
-    // understand 回填的 id 若暂不在图上，仍保留，便于详情跳转接口按 id 取
-    // 同时再尝试标题匹配图节点
     const fromTitle = resolveNodeIdFromTitle(finalLabel, graphNodes);
     if (fromTitle) resolvedId = fromTitle;
+    else if (onlyResolved) resolvedId = "";
   }
   if (!resolvedId) {
     resolvedId = resolveNodeIdFromTitle(finalLabel, graphNodes);
+  }
+  if (onlyResolved && (!resolvedId || !byId.has(resolvedId))) {
+    return;
   }
 
   const dedupeKey = (resolvedId || finalLabel).toLowerCase();
@@ -239,7 +242,7 @@ function pushLink(
   seen.add(dedupeKey);
   results.push({
     nodeId: resolvedId,
-    label: finalLabel,
+    label: byId.get(resolvedId)?.title?.trim() || finalLabel,
     description: description.trim(),
   });
 }
@@ -247,6 +250,8 @@ function pushLink(
 export interface ResolveWikiConnectionsOptions {
   /** 是否把图谱树出边并入引用列表；详情「引用」应关闭，避免和语义引用混在一起 */
   includeGraphEdges?: boolean;
+  /** 只保留能落到图谱节点的引用，保证与变蓝数量一致 */
+  onlyResolved?: boolean;
 }
 
 export function resolveWikiConnections(
@@ -257,21 +262,31 @@ export function resolveWikiConnections(
   options: ResolveWikiConnectionsOptions = {},
 ): WikiConnectionLink[] {
   const includeGraphEdges = options.includeGraphEdges ?? false;
+  const onlyResolved = options.onlyResolved ?? false;
   const results: WikiConnectionLink[] = [];
   const seen = new Set<string>();
+
+  const push = (
+    nodeId: string,
+    label: string,
+    description: string,
+  ) => {
+    pushLink(
+      results,
+      seen,
+      nodeId,
+      label,
+      description,
+      graphNodes,
+      currentNodeId,
+      onlyResolved,
+    );
+  };
 
   for (const raw of expandConnections(connections)) {
     if (typeof raw === "string") {
       for (const parsed of parseReferencesBlock(raw)) {
-        pushLink(
-          results,
-          seen,
-          parsed.nodeId,
-          parsed.label,
-          parsed.description,
-          graphNodes,
-          currentNodeId,
-        );
+        push(parsed.nodeId, parsed.label, parsed.description);
       }
       continue;
     }
@@ -283,15 +298,7 @@ export function resolveWikiConnections(
       const firstString = Object.values(raw).find((value) => typeof value === "string") as string | undefined;
       if (firstString) {
         for (const parsed of parseReferencesBlock(firstString)) {
-          pushLink(
-            results,
-            seen,
-            parsed.nodeId,
-            parsed.label,
-            parsed.description,
-            graphNodes,
-            currentNodeId,
-          );
+          push(parsed.nodeId, parsed.label, parsed.description);
         }
         continue;
       }
@@ -299,34 +306,22 @@ export function resolveWikiConnections(
 
     if (!description && (labelHint.includes(" — ") || labelHint.includes("[["))) {
       const parsed = parseConnectionLine(labelHint);
-      pushLink(
-        results,
-        seen,
-        parsed.nodeId,
-        parsed.label,
-        parsed.description,
-        graphNodes,
-        currentNodeId,
-      );
+      push(parsed.nodeId, parsed.label, parsed.description);
       continue;
     }
 
     const nodeId = resolveNodeId(raw, labelHint, graphNodes);
-    pushLink(results, seen, nodeId, labelHint, description, graphNodes, currentNodeId);
+    push(nodeId, labelHint, description);
   }
 
   if (includeGraphEdges && currentNodeId) {
     for (const edge of graphEdges) {
       if (edge.source_id !== currentNodeId) continue;
       const target = graphNodes.find((node) => node.node_id === edge.target_id);
-      pushLink(
-        results,
-        seen,
+      push(
         edge.target_id,
         target?.title ?? edge.target_id,
         edge.description,
-        graphNodes,
-        currentNodeId,
       );
     }
   }
