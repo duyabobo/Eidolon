@@ -1,10 +1,10 @@
-"""从本地 phase2_doctree + wiki/*.md 构建图谱与节点详情。
+"""从本地 wiki/*.md 构建图谱与节点详情。
 
-节点身份约定（与落盘一致）：
-- compiled_{tree_id}  → wiki/compiled_*.md（叶子编译结果）
-- original_{tree_id}  → wiki/original_*.md（叶子原文）
-- compiled_doc_synthesis → 综述
-- section_{tree_id}   → 非叶子章节，无独立 md，详情读 phase2 文档树切片
+图谱只展示编译知识节点：
+- compiled_{tree_id} / compiled_doc_synthesis
+- 边只来自各节点「引用」区（与详情引用列表一致）
+
+original_*.md 仅作编译失败时的详情兜底，不进图谱。
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from cm_server.admin.models.wiki import (
 from cm_server.mrag import storage
 from cm_server.mrag.doc_status import get_document_row, map_public_status
 from cm_server.mrag.pipeline.models import DocNode, DocTree
-from cm_server.mrag.pipeline.wiki_node_files import safe_filename
+from cm_server.mrag.pipeline.wiki_node_files import iter_wiki_refs, safe_filename
 from cm_server.mrag.pipeline.wiki_markdown import parse_wiki_markdown
 
 logger = logging.getLogger(__name__)
@@ -47,82 +47,132 @@ def _require_indexed_doc(doc_id: str, row: dict | None) -> dict:
     return row
 
 
-def _load_tree(kb_id: str, doc_id: str) -> DocTree:
-    phase2 = storage.phase2_path(kb_id, doc_id)
-    if not phase2.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="缺少文档树产物（phase2_doctree.json）",
-        )
-    return DocTree.from_dict(json.loads(phase2.read_text(encoding="utf-8")))
+def _section_graph_id(tree_node_id: str) -> str:
+    return f"{_SECTION_PREFIX}{tree_node_id}"
+
+
+def _compiled_graph_id(tree_node_id: str) -> str:
+    return f"{_COMPILED_PREFIX}{tree_node_id}"
 
 
 def _graph_node_id(node: DocNode) -> str:
-    """图谱 node_id 与详情解析源对齐：叶子走 wiki 文件，章节走文档树。"""
     if node.is_leaf():
-        return f"{_COMPILED_PREFIX}{node.node_id}"
-    return f"{_SECTION_PREFIX}{node.node_id}"
+        return _compiled_graph_id(node.node_id)
+    return _section_graph_id(node.node_id)
 
 
-def _leaf_display_title(kb_id: str, doc_id: str, tree_node_id: str, fallback: str) -> str:
-    """叶子优先用 compiled wiki 的知识标题，便于与引用 [[名称]] 对齐。"""
-    path = _resolve_wiki_path(kb_id, doc_id, f"{_COMPILED_PREFIX}{tree_node_id}")
-    if path is None:
-        return fallback
-    try:
-        doc = parse_wiki_markdown(path.read_text(encoding="utf-8"), fallback_id=tree_node_id)
-    except OSError:
-        return fallback
-    title = (doc.title or "").strip()
-    return title or fallback
-
-
-def _walk_graph(
-    node: DocNode,
+def _append_node(
+    nodes: list[WikiGraphNode],
     *,
-    doc_id: str,
+    node_id: str,
+    title: str,
+    node_type: str,
     kb_id: str,
+    tree_node_id: str | None,
+    max_nodes: int,
+) -> bool:
+    if len(nodes) >= max_nodes:
+        return False
+    nodes.append(
+        WikiGraphNode(
+            node_id=node_id,
+            title=title,
+            type=node_type,
+            source="doctree" if node_type == "section" else "wiki",
+            tree_node_id=tree_node_id,
+            knowledge_id=kb_id,
+        )
+    )
+    return True
+
+
+def _is_knowledge_wiki_stem(stem: str) -> bool:
+    """图谱只收编译知识节点，排除 original / section。"""
+    if not stem or stem.startswith(_ORIGINAL_PREFIX) or stem.startswith(_SECTION_PREFIX):
+        return False
+    return stem.startswith(_COMPILED_PREFIX) or stem == SYNTHESIS_NODE_ID
+
+
+def _load_compiled_graph_nodes(
+    kb_id: str,
+    doc_id: str,
+    *,
+    max_nodes: int,
+) -> list[WikiGraphNode]:
+    """从文档 wiki 目录扫描 compiled_*.md，不走文档树、不展示 original。"""
+    nodes: list[WikiGraphNode] = []
+    wiki = storage.wiki_dir(kb_id, doc_id)
+    if not wiki.exists():
+        return nodes
+
+    for path in sorted(wiki.glob("*.md")):
+        stem = path.stem
+        if not _is_knowledge_wiki_stem(stem):
+            continue
+        try:
+            doc = parse_wiki_markdown(path.read_text(encoding="utf-8"), fallback_id=stem)
+        except OSError:
+            continue
+        node_type = (doc.node_type or "").strip()
+        if node_type.lower() == "original":
+            continue
+        if not node_type:
+            node_type = "synthesis" if stem == SYNTHESIS_NODE_ID else "compiled"
+        tree_id = _tree_id_from_graph_id(stem)
+        if not _append_node(
+            nodes,
+            node_id=stem,
+            title=(doc.title or stem).strip(),
+            node_type=node_type,
+            kb_id=kb_id,
+            tree_node_id=doc.source_leaf_id or tree_id or "",
+            max_nodes=max_nodes,
+        ):
+            break
+    return nodes
+
+
+def _append_reference_edges(
+    kb_id: str,
+    doc_id: str,
     nodes: list[WikiGraphNode],
     edges: list[WikiGraphEdge],
-    max_nodes: int,
-) -> None:
-    if len(nodes) >= max_nodes:
-        return
-    if node.title != "ROOT":
-        fallback = node.title or node.node_id
-        title = (
-            _leaf_display_title(kb_id, doc_id, node.node_id, fallback)
-            if node.is_leaf()
-            else fallback
-        )
-        nodes.append(
-            WikiGraphNode(
-                node_id=_graph_node_id(node),
-                title=title,
-                type="compiled" if node.is_leaf() else "section",
-                source="doctree",
-                tree_node_id=node.node_id,
-                knowledge_id=kb_id,
-            )
-        )
-    for child in node.children:
-        if node.title != "ROOT":
+) -> int:
+    """只按落盘「引用」建边，与详情引用列表一一对应。"""
+    known = {n.node_id for n in nodes}
+    title_to_id = {n.title.strip().casefold(): n.node_id for n in nodes if n.title.strip()}
+    existing = {(e.source_id, e.target_id) for e in edges}
+    added = 0
+    for node in nodes:
+        nid = node.node_id
+        if not _is_knowledge_wiki_stem(nid):
+            continue
+        path = _resolve_wiki_path(kb_id, doc_id, nid)
+        if path is None:
+            continue
+        try:
+            doc = parse_wiki_markdown(path.read_text(encoding="utf-8"), fallback_id=nid)
+        except OSError:
+            continue
+        for target_id, title, description in iter_wiki_refs(doc.references or ""):
+            if target_id not in known:
+                target_id = title_to_id.get(title.casefold(), "")
+            if not target_id or target_id not in known or target_id == nid:
+                continue
+            key = (nid, target_id)
+            if key in existing:
+                continue
             edges.append(
                 WikiGraphEdge(
-                    source_id=_graph_node_id(node),
-                    target_id=_graph_node_id(child),
-                    description="child",
+                    source_id=nid,
+                    target_id=target_id,
+                    description=description or "引用",
                     source_doc_id=doc_id,
                 )
             )
-        _walk_graph(
-            child,
-            doc_id=doc_id,
-            kb_id=kb_id,
-            nodes=nodes,
-            edges=edges,
-            max_nodes=max_nodes,
-        )
+            existing.add(key)
+            added += 1
+    return added
 
 
 def _resolve_wiki_path(kb_id: str, doc_id: str, node_id: str) -> Path | None:
@@ -199,7 +249,34 @@ def _detail_from_wiki(kb_id: str, doc_id: str, node_id: str) -> WikiNodeItem | N
     item = _parse_wiki_markdown(path.read_text(encoding="utf-8"), node_id)
     item.knowledge_id = kb_id
     item.source_doc_id = doc_id
+    if (
+        not node_id.startswith(_ORIGINAL_PREFIX)
+        and not (item.overview or "").strip()
+        and not (item.body or "").strip()
+    ):
+        _fill_detail_from_original(item, kb_id, doc_id)
     return item
+
+
+def _fill_detail_from_original(item: WikiNodeItem, kb_id: str, doc_id: str) -> None:
+    """编译节点摘要/详情都空时，回退 original 叶子正文，避免「暂无摘要与详情」。"""
+    tree_id = (item.tree_node_id or "").strip() or (_tree_id_from_graph_id(item.node_id) or "")
+    if not tree_id:
+        return
+    path = _resolve_wiki_path(kb_id, doc_id, f"{_ORIGINAL_PREFIX}{tree_id}")
+    if path is None:
+        return
+    original = _parse_wiki_markdown(path.read_text(encoding="utf-8"), f"{_ORIGINAL_PREFIX}{tree_id}")
+    if not (original.body or "").strip():
+        return
+    item.body = original.body
+    item.overview = original.overview or original.body[:240].strip()
+    logger.info(
+        "Wiki 详情用 original 兜底 doc_id=%s node_id=%s chars=%s",
+        doc_id,
+        item.node_id,
+        len(item.body),
+    )
 
 
 def _detail_from_section(kb_id: str, doc_id: str, node_id: str) -> WikiNodeItem | None:
@@ -276,46 +353,17 @@ async def graph_by_doc(
     started = time.time()
     row = _require_indexed_doc(doc_id, await get_document_row(doc_id))
     kb_id = str(row["kb_id"])
-    tree = _load_tree(kb_id, doc_id)
 
-    nodes: list[WikiGraphNode] = []
+    nodes = _load_compiled_graph_nodes(kb_id, doc_id, max_nodes=max_nodes)
     edges: list[WikiGraphEdge] = []
-    _walk_graph(
-        tree.root,
-        doc_id=doc_id,
-        kb_id=kb_id,
-        nodes=nodes,
-        edges=edges,
-        max_nodes=max_nodes,
-    )
-
-    synthesis_path = _resolve_wiki_path(kb_id, doc_id, SYNTHESIS_NODE_ID)
-    if synthesis_path and len(nodes) < max_nodes:
-        nodes.append(
-            WikiGraphNode(
-                node_id=SYNTHESIS_NODE_ID,
-                title="Document Synthesis",
-                type="synthesis",
-                source="wiki",
-                knowledge_id=kb_id,
-            )
-        )
-        if tree.root.children:
-            edges.append(
-                WikiGraphEdge(
-                    source_id=_graph_node_id(tree.root.children[0]),
-                    target_id=SYNTHESIS_NODE_ID,
-                    description="synthesis",
-                    source_doc_id=doc_id,
-                )
-            )
-
+    ref_edges = _append_reference_edges(kb_id, doc_id, nodes, edges)
     took_ms = int((time.time() - started) * 1000)
     logger.info(
-        "本地 Wiki 图谱 doc_id=%s nodes=%s edges=%s took_ms=%s",
+        "本地 Wiki 图谱 doc_id=%s nodes=%s edges=%s ref_edges=%s took_ms=%s",
         doc_id,
         len(nodes),
         len(edges),
+        ref_edges,
         took_ms,
     )
     return WikiDocumentGraphResponse(

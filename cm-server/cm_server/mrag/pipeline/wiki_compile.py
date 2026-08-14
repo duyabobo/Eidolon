@@ -24,70 +24,77 @@ logger = logging.getLogger(__name__)
 
 _LEAF_SUMMARY_MAX_CHARS = 600
 _SYNTHESIS_PROMPT_MAX_CHARS = 12000
+_MIN_LEAF_CHARS = 80
+_FALLBACK_OVERVIEW_CHARS = 240
+_FALLBACK_BODY_CHARS = 2400
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
+_EMPTY_TEXT = frozenset({"", "无", "（无）", "-", "None", "none"})
 
 _SYSTEM_PROMPT = (
-    "你是知识库 Wiki 编译助手。严格按用户要求的 Markdown 四级结构输出，"
-    "不要输出多余说明，不要用代码围栏包裹全文。"
+    "你是知识库 Wiki 编译器。只输出指定 Markdown 结构，"
+    "不要前言、不要结语、不要用代码围栏包裹全文。"
 )
 
-_LEAF_PROMPT_TEMPLATE = """请将下面文档片段提炼为一条「独立知识节点」。
+_LEAF_PROMPT_TEMPLATE = """把下面「原文片段」编译成一条可独立阅读的知识节点。
 
-【语种】全文使用{lang_name}撰写（标题、摘要、详情、引用说明均如此）。
+【语种】全文使用{lang_name}（标题、摘要、详情、引用说明都用这种语言）。
 
-【抽取三原则】
-1. 独立性：该知识应自解释，不依赖其它知识也能理解和使用；若涉及读者可能不熟悉的前置知识，只能通过「引用」指向候选列表中的节点。
-2. 完整性：从本片段的独特视角提炼要点；与其它节点合在一起应覆盖原文信息，避免整段照抄或空洞复述。
-3. 推导性：在「引用」中列出支撑本知识的其它知识节点（用 [[名称]]），名称必须从下方「候选知识名称」中照抄；不要引用候选列表之外的论文名、外部概念；若无则写「无」。
+【硬约束】
+1. 一级标题必须等于「章节标题」原文，不得改写、不得另起新名。
+2. 「摘要」「详情」必须有实质内容，禁止写「无」或留空。
+3. 「引用」只能从「候选知识名称」逐字照抄为 [[名称]]；禁止候选外名称、论文题名、外部概念、自引用。
+4. 没有可引用的候选时，引用区只写：无
+5. 系统会丢弃无法对应到其它知识节点的引用，图谱边 = 引用列表，宁缺毋滥。
 
-【输出格式】必须且仅使用以下结构（一级标题只有标题本身，二级标题固定为这四个）：
-# <知识名称，简洁明确>
+【抽取原则】
+- 独立性：读这一条就能理解核心命题；前置知识只通过引用给出。
+- 完整性：从本片段独特视角提炼，不要整段照抄，也不要空洞套话。
+- 推导性：引用写出本知识依赖哪些候选节点，并一句说明关系。
+
+【输出】必须且仅用以下结构（二级标题文字固定）：
+# {title}
 
 ## 元数据
 - type: <concept|method|fact|entity|process|other 之一>
-- source: （系统填写源头文件路径，留空即可）
 
 ## 摘要
-<2-4 句，只概括核心命题，不要展开步骤与细节>
+<2-4 句核心命题，不要展开步骤>
 
 ## 详情
-<富文本 Markdown：定义、机制、要点、例子等，写得自包含；可用列表/小标题>
+<自包含说明：定义、机制、要点、例子；可用列表>
 
 ## 引用
 - [[候选名称]] — 本知识与它的关系
-（没有可写「无」）
 
-候选知识名称（引用只能用这些，逐字照抄）：
+候选知识名称：
 {candidate_titles}
-
-章节标题：{title}
 
 原文片段：
 {text}
 """
 
-_SYNTHESIS_PROMPT_TEMPLATE = """基于以下各知识节点的「名称 + 摘要」，写一份文档级综述知识节点。
+_SYNTHESIS_PROMPT_TEMPLATE = """基于各知识节点的「名称 + 摘要」，写一份文档级综述节点。
 
-【语种】全文使用{lang_name}撰写。
+【语种】全文使用{lang_name}。
 
-【要求】
-- 独立性：综述本身可读；前置知识点通过「引用」给出
-- 完整性：覆盖各节点视角，形成对原文的整体图景
-- 推导性：引用中列出构成综述的关键知识节点；[[名称]] 必须从下方节点标题中照抄，不要杜撰
+【硬约束】
+1. 「摘要」「详情」必须有实质内容，禁止写「无」或留空。
+2. 引用的 [[名称]] 必须从下方节点标题逐字照抄；禁止杜撰、禁止自引用。
+3. 只引构成综述骨架的关键节点；没有则写：无
+4. 系统会丢弃无法对应的引用，图谱边 = 引用列表。
 
-【输出格式】
+【输出】
 # <综述标题>
 
 ## 元数据
 - type: synthesis
-- source: （系统填写源头文件路径，留空即可）
 
 ## 摘要
-<3-6 句总体摘要>
+<3-6 句总体图景>
 
 ## 详情
-<Markdown：总体图景、核心概念关系、章节视角如何拼成全文>
+<各节点如何拼成全文：核心概念关系、章节视角>
 
 ## 引用
 - [[知识名]] — 在综述中的角色
@@ -162,6 +169,35 @@ def _persist_compiled_nodes(
         write_wiki_nodes(nodes, user_paths)
 
 
+def _is_blank_wiki_text(text: str) -> bool:
+    return (text or "").strip() in _EMPTY_TEXT
+
+
+def _first_sentences(text: str, max_chars: int) -> str:
+    compact = re.sub(r"\s+", " ", (text or "").strip())
+    if not compact:
+        return ""
+    if len(compact) <= max_chars:
+        return compact
+    cut = compact[:max_chars]
+    for sep in ("。", "！", "？", ". ", "! ", "? "):
+        idx = cut.rfind(sep)
+        if idx >= max_chars // 3:
+            return cut[: idx + len(sep.strip())].strip()
+    return cut.rstrip() + "…"
+
+
+def _fill_empty_sections(node: WikiNode, source_text: str) -> None:
+    """LLM 漏写摘要/详情时，用原文切片兜底，避免空节点入库。"""
+    raw = (source_text or "").strip()
+    if _is_blank_wiki_text(node.overview) and raw:
+        node.overview = _first_sentences(raw, _FALLBACK_OVERVIEW_CHARS)
+        logger.info("Wiki 摘要为空，已用原文兜底 node=%s", node.node_id)
+    if _is_blank_wiki_text(node.body) and raw:
+        node.body = raw[:_FALLBACK_BODY_CHARS].strip()
+        logger.info("Wiki 详情为空，已用原文兜底 node=%s chars=%s", node.node_id, len(node.body))
+
+
 def _build_node_from_llm(
     llm_text: str,
     *,
@@ -202,7 +238,10 @@ async def compile_wiki_to_files(
     source_name: str = "",
     source_file_path: str = "",
 ) -> list[WikiNode]:
-    leaves = [leaf for leaf in tree.iter_leaves() if tree.slice_text(leaf).strip()]
+    leaves = [
+        leaf for leaf in tree.iter_leaves()
+        if len(tree.slice_text(leaf).strip()) >= _MIN_LEAF_CHARS
+    ]
     created_at = format_iso(now_china())
 
     sample_text = (tree.source_md or "")[:8000]
@@ -261,12 +300,24 @@ async def compile_wiki_to_files(
             source_leaf_id=leaf.node_id,
             created_at=created_at,
         )
+        # 硬对齐标题到章节名，保证候选列表 / 引用 / 图谱标题一致
+        chapter = title.strip()
+        if chapter and (node.title or "").strip() != chapter:
+            logger.info(
+                "Wiki 标题对齐到章节 leaf=%s llm_title=%s -> %s",
+                leaf.node_id,
+                node.title,
+                chapter,
+            )
+            node.title = chapter
+        _fill_empty_sections(node, text)
         logger.info(
-            "Wiki 叶子已编译 leaf=%s title=%s overview_chars=%s body_chars=%s",
+            "Wiki 叶子已编译 leaf=%s title=%s overview_chars=%s body_chars=%s refs=%s",
             leaf.node_id,
             node.title,
             len(node.overview),
             len(node.body),
+            "yes" if node.references.strip() and node.references.strip() not in _EMPTY_TEXT else "no",
         )
         return node
 
@@ -297,6 +348,7 @@ async def compile_wiki_to_files(
         source_leaf_id=None,
         created_at=created_at,
     )
+    _fill_empty_sections(synthesis, leaf_summaries)
     all_nodes = nodes + [synthesis]
 
     # 章节原标题 → compiled node_id，便于引用按章节名回填

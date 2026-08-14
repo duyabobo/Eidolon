@@ -3,8 +3,8 @@
 引用双写（UI + pi）：
   [[node_id|标题]](wiki/xxx.md)  — 命中本批且有 pi 可读相对路径
   [[node_id|标题]]               — 命中本批但无可达路径
-  [[标题]]                       — 未命中本批
 
+未命中本批 node_id 的引用一律丢弃（硬过滤），保证落盘引用与图谱可跳转集合一致。
 括号内路径相对 USER_FILES（如 wiki/a.md）或相对 session workspace（如 uploads/a.pdf）。
 """
 from __future__ import annotations
@@ -27,7 +27,43 @@ _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_\u4e00-\u9fff\-]+")
 _WIKI_REF_RE = re.compile(
     r"\[\[(?:(?P<node_id>[^\]|]+)\|)?(?P<title>[^\]]+)\]\](?:\([^)]*\))?"
 )
-_EMPTY_REFS = frozenset({"", "无", "（无）", "-"})
+_EMPTY_REFS = frozenset({"", "无", "（无）", "-", "None", "none"})
+
+
+_LIST_PREFIX_RE = re.compile(r"^[-*•]\s+")
+_REF_DESC_RE = re.compile(r"^(?:—|–)\s+(.+)$")
+
+
+def iter_wiki_refs(references: str) -> list[tuple[str, str, str]]:
+    """从引用块提取 (target_node_id, 标题, 关系说明)。
+
+    node_id 可能为空（旧产物只有 [[标题]]），调用方按标题回填。
+    """
+    results: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for line in (references or "").splitlines():
+        bare = _LIST_PREFIX_RE.sub("", line.strip()).strip()
+        if not bare or bare in _EMPTY_REFS:
+            continue
+        match = _WIKI_REF_RE.search(bare)
+        if not match:
+            continue
+        node_id = (match.group("node_id") or "").strip()
+        title = (match.group("title") or "").strip()
+        rest = bare[match.end():].strip()
+        desc_match = _REF_DESC_RE.match(rest) if rest else None
+        description = desc_match.group(1).strip() if desc_match else ""
+        dedupe = (node_id or title).casefold()
+        if not dedupe or dedupe in seen:
+            continue
+        seen.add(dedupe)
+        results.append((node_id, title, description))
+    return results
+
+
+def iter_wiki_ref_node_ids(references: str) -> list[str]:
+    """从引用块提取已双写的 target node_id（仅含 [[id|标题]] 中的 id）。"""
+    return [node_id for node_id, _title, _desc in iter_wiki_refs(references) if node_id]
 
 
 def safe_filename(name: str) -> str:
@@ -51,28 +87,40 @@ def to_pi_relative_path(
     - users/{uid}/files/... → 相对 USER_FILES（如 wiki/a.md）
     - users/{uid}/sessions/{sid}/workspace/... → 相对 workspace（如 uploads/a.pdf）
     """
-    uid = (owner_user_id or "").strip()
-    if not uid:
+    raw = str(abs_path).strip()
+    if not raw:
         return ""
-    root = Path(sandbox_root)
-    target = abs_path.resolve()
-
-    user_files = (user_root(root, uid) / WRITABLE_ROOT).resolve()
+    uid = (owner_user_id or "").strip()
+    target = Path(raw)
     try:
-        rel = target.relative_to(user_files)
-        return rel.as_posix()
-    except ValueError:
+        target = target.resolve()
+    except OSError:
         pass
 
-    sessions_root = (user_root(root, uid) / "sessions").resolve()
-    try:
-        rel = target.relative_to(sessions_root)
-    except ValueError:
-        return ""
-    parts = rel.parts
-    # {sid}/workspace/{...}
-    if len(parts) >= 2 and parts[1] == SESSION_WORKSPACE_SUBDIR:
-        return Path(*parts[2:]).as_posix() if len(parts) > 2 else ""
+    if uid:
+        root = Path(sandbox_root)
+        user_files = (user_root(root, uid) / WRITABLE_ROOT).resolve()
+        try:
+            return target.relative_to(user_files).as_posix()
+        except ValueError:
+            pass
+
+        sessions_root = (user_root(root, uid) / "sessions").resolve()
+        try:
+            rel = target.relative_to(sessions_root)
+            parts = rel.parts
+            if len(parts) >= 2 and parts[1] == SESSION_WORKSPACE_SUBDIR:
+                return Path(*parts[2:]).as_posix() if len(parts) > 2 else ""
+        except ValueError:
+            pass
+
+    posix = target.as_posix()
+    files_marker = f"/{WRITABLE_ROOT}/"
+    if files_marker in posix:
+        return posix.split(files_marker, 1)[1]
+    workspace_marker = f"/{SESSION_WORKSPACE_SUBDIR}/"
+    if workspace_marker in posix:
+        return posix.split(workspace_marker, 1)[1]
     return ""
 
 
@@ -139,49 +187,121 @@ def build_title_node_id_index(
     return index
 
 
+_DESC_ONLY_RE = re.compile(r"^(?:—|–|-)\s+(.+)$")
+_DESC_PREFIX_RE = re.compile(r"^(?:—|–)\s+(.+)$")
+_PLAIN_REF_RE = re.compile(r"^(.+?)\s*(?:—|–)\s+(.+)$")
+
+
 def rewrite_wiki_references(
     text: str,
     title_to_node_id: dict[str, str],
     node_id_to_rel_path: dict[str, str],
+    *,
+    node_id_to_title: dict[str, str] | None = None,
+    exclude_node_id: str = "",
 ) -> str:
-    """双写：[[node_id|标题]](相对路径) 或 [[node_id|标题]] / [[标题]]。"""
+    """硬校验引用：只保留能落到本批 node_id 的条目，双写 [[id|标题]](相对路径)。
+
+    未命中的 [[名称]] / 纯文本引用一律丢弃，保证落盘引用与图谱可跳转集合一致。
+    """
     raw = (text or "").strip()
     if raw in _EMPTY_REFS:
-        return text
+        return "无"
 
     known_ids = {node_id for node_id in title_to_node_id.values()}
-    unresolved: list[str] = []
+    id_to_title = node_id_to_title or {}
+    exclude = (exclude_node_id or "").strip()
+    kept: list[str] = []
+    dropped: list[str] = []
 
-    def _replace(match: re.Match[str]) -> str:
-        existing_id = (match.group("node_id") or "").strip()
-        title = (match.group("title") or "").strip()
-        if not title:
-            return match.group(0)
-
+    def _resolve(title: str, existing_id: str = "") -> str:
         node_id = title_to_node_id.get(title.casefold(), "")
         if not node_id and existing_id:
             if existing_id in known_ids:
                 node_id = existing_id
             else:
                 node_id = title_to_node_id.get(existing_id.casefold(), "")
+        if node_id and exclude and node_id == exclude:
+            return ""
+        return node_id
 
-        if not node_id:
-            unresolved.append(title)
-            return f"[[{title}]]"
+    seen_ids: set[str] = set()
 
+    def _emit(node_id: str, fallback_title: str, description: str) -> None:
+        if node_id in seen_ids:
+            return
+        seen_ids.add(node_id)
+        title = (id_to_title.get(node_id) or fallback_title or node_id).strip()
         rel = (node_id_to_rel_path.get(node_id) or "").strip()
-        if rel:
-            return f"[[{node_id}|{title}]]({rel})"
-        return f"[[{node_id}|{title}]]"
+        link = f"[[{node_id}|{title}]]({rel})" if rel else f"[[{node_id}|{title}]]"
+        if description:
+            kept.append(f"- {link} — {description}")
+        else:
+            kept.append(f"- {link}")
 
-    rewritten = _WIKI_REF_RE.sub(_replace, text)
-    if unresolved:
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    pending_title = ""
+    pending_id = ""
+
+    for line in lines:
+        bare = _LIST_PREFIX_RE.sub("", line).strip()
+        desc_only = _DESC_ONLY_RE.match(bare)
+        if desc_only and pending_title:
+            node_id = _resolve(pending_title, pending_id)
+            if node_id:
+                _emit(node_id, pending_title, desc_only.group(1).strip())
+            else:
+                dropped.append(pending_title)
+            pending_title, pending_id = "", ""
+            continue
+
+        link_match = _WIKI_REF_RE.search(bare)
+        if link_match:
+            existing_id = (link_match.group("node_id") or "").strip()
+            title = (link_match.group("title") or "").strip()
+            rest = bare[link_match.end():].strip()
+            desc_match = _DESC_PREFIX_RE.match(rest) if rest else None
+            description = desc_match.group(1).strip() if desc_match else ""
+            if not description and not rest:
+                pending_title, pending_id = title, existing_id
+                continue
+            node_id = _resolve(title, existing_id)
+            if node_id:
+                _emit(node_id, title, description)
+            else:
+                dropped.append(title)
+            pending_title, pending_id = "", ""
+            continue
+
+        plain = _PLAIN_REF_RE.match(bare)
+        if plain:
+            title = plain.group(1).strip()
+            description = plain.group(2).strip()
+            node_id = _resolve(title)
+            if node_id:
+                _emit(node_id, title, description)
+            else:
+                dropped.append(title)
+            pending_title, pending_id = "", ""
+            continue
+
+        if bare and bare not in _EMPTY_REFS:
+            pending_title, pending_id = bare, ""
+
+    if pending_title:
+        node_id = _resolve(pending_title, pending_id)
+        if node_id:
+            _emit(node_id, pending_title, "")
+        else:
+            dropped.append(pending_title)
+
+    if dropped:
         logger.info(
-            "Wiki 引用未命中本批节点 count=%s samples=%s",
-            len(unresolved),
-            unresolved[:8],
+            "Wiki 引用硬过滤未命中 count=%s samples=%s",
+            len(dropped),
+            dropped[:8],
         )
-    return rewritten
+    return "\n".join(kept) if kept else "无"
 
 
 def attach_source_and_refs(
@@ -193,8 +313,13 @@ def attach_source_and_refs(
     sandbox_root: str | Path,
     extra_title_aliases: dict[str, str] | None = None,
 ) -> None:
-    """回填 source（pi 相对路径优先），引用双写 node_id + 相对路径。"""
+    """回填 source（pi 相对路径优先），引用硬校验后双写 node_id + 相对路径。"""
     title_to_id = build_title_node_id_index(nodes, extra_aliases=extra_title_aliases)
+    node_id_to_title = {
+        (n.node_id or "").strip(): (n.title or n.node_id or "").strip()
+        for n in nodes
+        if (n.node_id or "").strip()
+    }
     node_id_to_rel: dict[str, str] = {}
     if pi_link_paths:
         for node, path in zip(nodes, pi_link_paths):
@@ -210,14 +335,21 @@ def attach_source_and_refs(
         source_rel = to_pi_relative_path(
             Path(source_raw), owner_user_id=owner_user_id, sandbox_root=sandbox_root,
         )
-    source_for_meta = source_rel or source_raw
+        if not source_rel:
+            logger.warning("Wiki 源文件无法收成 pi 相对路径 source=%s", source_raw)
+    source_for_meta = source_rel
 
     rewritten_nodes = 0
     for node in nodes:
-        if source_for_meta:
-            node.source = source_for_meta
+        node.source = source_for_meta
         before = node.references
-        node.references = rewrite_wiki_references(before, title_to_id, node_id_to_rel)
+        node.references = rewrite_wiki_references(
+            before,
+            title_to_id,
+            node_id_to_rel,
+            node_id_to_title=node_id_to_title,
+            exclude_node_id=node.node_id,
+        )
         if node.references != before:
             rewritten_nodes += 1
 

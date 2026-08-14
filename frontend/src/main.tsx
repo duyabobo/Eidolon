@@ -16,14 +16,14 @@ function AppLayout() {
       <AppSidebar />
       <main className="flex-1 min-w-0 overflow-hidden bg-[var(--app-surface)]">
         <Routes>
-          <Route path="/" element={<ChatPage />} />
-          <Route path="/skills" element={<SkillsPage />} />
-          <Route path="/mcp" element={<McpPage />} />
-          <Route path="/config" element={<ConfigPage />} />
+          <Route path="/" Component={ChatPage} />
+          <Route path="/skills" Component={SkillsPage} />
+          <Route path="/mcp" Component={McpPage} />
+          <Route path="/config" Component={ConfigPage} />
           {/* 知识已融入会话；深链保留兼容，侧栏不再入口 */}
-          <Route path="/knowledge" element={<KnowledgePage />} />
-          <Route path="/knowledge/bases/:kbId" element={<KnowledgePage />} />
-          <Route path="/knowledge/bases/:kbId/documents/:docId" element={<KnowledgePage />} />
+          <Route path="/knowledge" Component={KnowledgePage} />
+          <Route path="/knowledge/bases/:kbId" Component={KnowledgePage} />
+          <Route path="/knowledge/bases/:kbId/documents/:docId" Component={KnowledgePage} />
           <Route path="/history" element={<Navigate to="/" replace />} />
           <Route path="/llm" element={<Navigate to="/config" replace />} />
           <Route path="/admin" element={<Navigate to="/skills" replace />} />

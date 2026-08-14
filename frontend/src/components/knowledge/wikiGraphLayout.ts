@@ -7,13 +7,6 @@ export interface LayoutNode extends WikiGraphNode {
   vy: number;
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  concept: "#6366f1",
-  method: "#0ea5e9",
-  entity: "#10b981",
-  default: "#94a3b8",
-};
-
 export const GRAPH_COLORS = {
   nodeInactive: "#94a3b8",
   nodeInactiveStroke: "#e2e8f0",
@@ -26,11 +19,7 @@ export const GRAPH_COLORS = {
   labelActive: "#312e81",
 };
 
-export function nodeColor(type: string): string {
-  return TYPE_COLORS[type.toLowerCase()] ?? TYPE_COLORS.default;
-}
-
-/** 选中节点 + 邻接节点（入边与出边）。 */
+/** 选中节点 + 出边引用目标。 */
 export function collectRelatedNodeIds(
   selectedNodeId: string | null,
   edges: WikiGraphEdge[],
@@ -39,7 +28,6 @@ export function collectRelatedNodeIds(
   const related = new Set<string>([selectedNodeId]);
   for (const edge of edges) {
     if (edge.source_id === selectedNodeId) related.add(edge.target_id);
-    if (edge.target_id === selectedNodeId) related.add(edge.source_id);
   }
   return related;
 }

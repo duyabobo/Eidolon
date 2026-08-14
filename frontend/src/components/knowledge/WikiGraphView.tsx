@@ -4,7 +4,6 @@ import {
   collectRelatedNodeIds,
   edgeLabelPosition,
   GRAPH_COLORS,
-  isEdgeConnectedToNode,
   layoutGraph,
   truncateEdgeDescription,
   truncateLabel,
@@ -13,7 +12,7 @@ import {
 interface WikiGraphViewProps {
   graph: WikiDocumentGraph;
   selectedNodeId: string | null;
-  /** 与详情「引用」对齐的高亮节点；未传时回退为树邻接 */
+  /** 与详情「引用」对齐的高亮节点；未传时回退为出边邻接 */
   highlightNodeIds?: Set<string>;
   onNodeClick: (node: WikiGraphNode) => void;
 }
@@ -125,8 +124,8 @@ export default function WikiGraphView({
         </span>
         <span className="text-[11px] text-ink-400">
           {hasSelection
-            ? "蓝色为选中节点及其引用目标"
-            : "点击节点查看详情与关联关系"}
+            ? "蓝色为选中节点及其一级引用"
+            : "默认灰色；点选后选中节点与一级引用变蓝"}
         </span>
       </div>
       <svg width={width} height={GRAPH_HEIGHT} className="block">
@@ -144,15 +143,11 @@ export default function WikiGraphView({
           const target = nodeMap.get(edge.target_id);
           if (!source || !target) return null;
 
-          let active = false;
-          if (selectedNodeId) {
-            active = highlightNodeIds && highlightNodeIds.size > 0
-              ? (
-                (edge.source_id === selectedNodeId && relatedNodeIds.has(edge.target_id))
-                || (edge.target_id === selectedNodeId && relatedNodeIds.has(edge.source_id))
-              )
-              : isEdgeConnectedToNode(edge, selectedNodeId);
-          }
+          const active = Boolean(
+            selectedNodeId
+            && edge.source_id === selectedNodeId
+            && relatedNodeIds.has(edge.target_id),
+          );
 
           return (
             <g key={`${edge.source_id}-${edge.target_id}-${edge.description}`}>
@@ -180,19 +175,12 @@ export default function WikiGraphView({
 
         {layoutNodes.map((node) => {
           const isSelected = selectedNodeId === node.node_id;
-          const isRelated = relatedNodeIds.has(node.node_id);
-          const isActive = !hasSelection || isRelated;
-          const radius = isSelected ? 14 : isRelated && hasSelection ? 12 : 10;
+          const isRelated = hasSelection && relatedNodeIds.has(node.node_id);
+          const radius = isSelected ? 14 : isRelated ? 12 : 10;
 
-          const fill = isActive && hasSelection
-            ? GRAPH_COLORS.nodeActive
-            : GRAPH_COLORS.nodeInactive;
-          const stroke = isSelected
-            ? GRAPH_COLORS.nodeActiveStroke
-            : isRelated && hasSelection
-              ? GRAPH_COLORS.nodeActiveStroke
-              : GRAPH_COLORS.nodeInactiveStroke;
-          const labelClass = isActive && hasSelection
+          const fill = isRelated ? GRAPH_COLORS.nodeActive : GRAPH_COLORS.nodeInactive;
+          const stroke = isRelated ? GRAPH_COLORS.nodeActiveStroke : GRAPH_COLORS.nodeInactiveStroke;
+          const labelClass = isRelated
             ? "fill-indigo-900 text-[10px] font-medium"
             : "fill-ink-500 text-[10px]";
 

@@ -67,7 +67,8 @@ export function parseConnectionLine(text: string): {
   nodeId: string;
 } {
   const trimmed = text.trim().replace(LIST_PREFIX_RE, "").trim();
-  const match = trimmed.match(/^(.+?)\s*(?:—|–|-)\s+(.+)$/);
+  // 只用破折号分隔「标题 — 描述」，不用 ASCII '-'，避免拆开 wiki/foo-bar.md
+  const match = trimmed.match(/^(.+?)\s*(?:—|–)\s+(.+)$/);
   if (match) {
     const token = parseWikiLinkToken(match[1]);
     return {
@@ -84,21 +85,31 @@ function titleBeforeParen(title: string): string {
   return title.split(/[（(]/)[0]?.trim() ?? title.trim();
 }
 
-/** 在图谱节点中按标题匹配（精确 → 去括号 → 包含） */
+/** 在图谱节点中按标题匹配（精确 → 去括号 → 包含）；同名时优先非 original。 */
 export function findNodeByTitle(title: string, graphNodes: WikiGraphNode[]): WikiGraphNode | undefined {
   const raw = normalizeWikiRefLabel(title);
   if (!raw) return undefined;
 
+  const ranked = [...graphNodes].sort((a, b) => {
+    const rank = (node: WikiGraphNode) => {
+      const t = (node.type || "").toLowerCase();
+      if (t === "original") return 2;
+      if (t === "compiled" || t === "synthesis") return 0;
+      return 1;
+    };
+    return rank(a) - rank(b);
+  });
+
   const lower = raw.toLowerCase();
-  const exact = graphNodes.find((node) => node.title.trim().toLowerCase() === lower);
+  const exact = ranked.find((node) => node.title.trim().toLowerCase() === lower);
   if (exact) return exact;
 
   const base = titleBeforeParen(raw).toLowerCase();
   if (base) {
-    const byBase = graphNodes.find((node) => node.title.trim().toLowerCase() === base);
+    const byBase = ranked.find((node) => node.title.trim().toLowerCase() === base);
     if (byBase) return byBase;
 
-    const byContains = graphNodes.find((node) => {
+    const byContains = ranked.find((node) => {
       const nodeTitle = node.title.trim().toLowerCase();
       return nodeTitle.includes(base) || base.includes(nodeTitle);
     });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { McpServerConfig, McpServerItem } from "../api/mcp";
 import { McpEditModal, McpServerRow } from "./McpServerUi";
 import { serverStatusKey } from "./mcpManagerUtils";
@@ -26,7 +26,6 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
     statusMap,
     errMsg,
     setErrMsg,
-    load,
     probeOne,
     saveServer,
     toggleEnabled,
@@ -34,10 +33,6 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
   } = useMcpManager({ userId, includeDisabled: true });
 
   const [edit, setEdit] = useState<EditState | null>(null);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   const userServers = servers.filter((s) => s.scope === "user");
   const systemServers = servers.filter((s) => s.scope === "system");

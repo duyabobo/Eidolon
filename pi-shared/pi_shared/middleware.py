@@ -13,6 +13,10 @@ from pi_shared.trace_context import (
 
 _MAX_BODY_CHARS = 2000
 _SKIP_PATHS = {"/health"}
+# 高频只读列表：不打 access（否则停留在工具/经验页时日志会被刷屏）
+_SKIP_GET_PATHS = frozenset({"/mcp", "/skills"})
+# GET 成功时不落 resp 正文（列表/静态读接口体积大且无排障价值）
+_SKIP_RESP_BODY_GET_PREFIXES = ("/mcp", "/skills", "/config/", "/sessions")
 
 logger = logging.getLogger("access")
 
@@ -57,9 +61,19 @@ def _emit_log(
     start: float,
 ) -> None:
     elapsed_ms = int((time.perf_counter() - start) * 1000)
-    resp_body = "[stream]" if resp_chunks is None else _truncate(
-        b"".join(resp_chunks).decode("utf-8", errors="replace")
+    skip_resp = (
+        method == "GET"
+        and status_code < 400
+        and any(path == p or path.startswith(p) for p in _SKIP_RESP_BODY_GET_PREFIXES)
     )
+    if resp_chunks is None:
+        resp_body = "[stream]"
+    elif skip_resp:
+        resp_body = f"[omitted {sum(len(c) for c in resp_chunks)}b]"
+    else:
+        resp_body = _truncate(
+            b"".join(resp_chunks).decode("utf-8", errors="replace")
+        )
     logger.info(
         "traceId=%s method=%s path=%s status=%d timecost=%dms req=%s resp=%s",
         trace_id, method, path, status_code, elapsed_ms, req_body, resp_body,
@@ -84,7 +98,7 @@ class AccessLogMiddleware:
         method: str = scope.get("method", "")
         path: str = scope.get("path", "")
 
-        if path in _SKIP_PATHS:
+        if path in _SKIP_PATHS or (method == "GET" and path in _SKIP_GET_PATHS):
             await self.app(scope, receive, send)
             return
 

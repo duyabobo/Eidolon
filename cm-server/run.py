@@ -14,4 +14,5 @@ if __name__ == "__main__":
         host=settings.cm_server_host,
         port=settings.cm_server_port,
         log_config=None,  # 复用 pi_shared.setup_logging 已配置的 root logger，不用 uvicorn 默认配置覆盖
+        access_log=False,  # 访问明细由 AccessLogMiddleware 记录，避免与 uvicorn.access 双写
     )

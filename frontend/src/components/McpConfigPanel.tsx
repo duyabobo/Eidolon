@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { configApi, McpServerConfig } from "../api/config";
 import type { McpServerItem } from "../api/mcp";
 import { ScopeBadge } from "./config/ConfigListItem";
@@ -39,7 +39,6 @@ export default function McpConfigPanel({ userId }: Props) {
     statusMap,
     errMsg,
     setErrMsg,
-    load,
     probeOne,
     saveServer,
     toggleEnabled,
@@ -47,10 +46,6 @@ export default function McpConfigPanel({ userId }: Props) {
   } = useMcpManager({ userId, includeDisabled: true });
 
   const [edit, setEdit] = useState<EditState | null>(null);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   const handleDelete = async (server: McpServerItem) => {
     const label = server.scope === "system" ? "系统" : "个人";
