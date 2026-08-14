@@ -14,6 +14,8 @@ _KNOWLEDGE_DOC_COLUMNS: tuple[tuple[str, str], ...] = (
     ("wiki_compiled", "INTEGER NOT NULL DEFAULT 0"),
     ("file_format", "TEXT NOT NULL DEFAULT ''"),
     ("track_id", "TEXT NOT NULL DEFAULT ''"),
+    ("owner_user_id", "TEXT NOT NULL DEFAULT ''"),
+    ("source_file_path", "TEXT NOT NULL DEFAULT ''"),
 )
 
 _SKILLS_COLUMNS: tuple[tuple[str, str], ...] = (

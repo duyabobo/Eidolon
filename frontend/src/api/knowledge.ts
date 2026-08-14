@@ -44,13 +44,11 @@ export interface KnowledgeDocumentList {
 
 export interface KnowledgePipelineConfig {
   mineru3_api_base: string;
+  mineru3_api_key?: string;
   mineru3_backend?: string;
   mineru3_lang?: string;
   mineru3_parse_method?: string;
   mineru_vlm_url?: string;
-  reranker_base_url: string;
-  reranker_api_key: string;
-  reranker_model_name: string;
   updated_at?: string | null;
 }
 
@@ -149,13 +147,6 @@ export const knowledgeApi = {
 
   testMineru: (cfg: KnowledgePipelineConfig) =>
     request<ServiceTestResult>("/config/knowledge/service/test-mineru", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify(cfg),
-    }),
-
-  testReranker: (cfg: KnowledgePipelineConfig) =>
-    request<ServiceTestResult>("/config/knowledge/service/test-reranker", {
       method: "POST",
       headers: jsonHeaders(),
       body: JSON.stringify(cfg),
@@ -260,12 +251,6 @@ export const knowledgeApi = {
       }),
     }),
 };
-
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 export function docStatusLabel(status: KnowledgeDocument["status"]): string {
   const map: Record<KnowledgeDocument["status"], string> = {

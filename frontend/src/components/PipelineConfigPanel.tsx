@@ -3,36 +3,67 @@ import {
   knowledgeApi,
   type KnowledgePipelineConfig,
 } from "../api/knowledge";
-import { ConfigActionBtn, ConfigPrimaryBtn } from "./config/ConfigActionBtn";
+import { ConfigActionBtn } from "./config/ConfigActionBtn";
+import { ConfigListItem } from "./config/ConfigListItem";
+import { ConfigPanelLayout } from "./config/ConfigPanelLayout";
+
+type SmallModelId = "mineru";
+
+interface SmallModelForm {
+  base_url: string;
+  api_key: string;
+}
 
 const EMPTY_PIPELINE: KnowledgePipelineConfig = {
   mineru3_api_base: "",
-  reranker_base_url: "",
-  reranker_api_key: "",
-  reranker_model_name: "",
+  mineru3_api_key: "",
 };
 
+const PRESET_ITEMS: { id: SmallModelId; title: string }[] = [
+  { id: "mineru", title: "mineru" },
+];
+
+function formFromConfig(cfg: KnowledgePipelineConfig): SmallModelForm {
+  return { base_url: cfg.mineru3_api_base, api_key: cfg.mineru3_api_key ?? "" };
+}
+
+function applyForm(cfg: KnowledgePipelineConfig, form: SmallModelForm): KnowledgePipelineConfig {
+  return { ...cfg, mineru3_api_base: form.base_url.trim(), mineru3_api_key: form.api_key.trim() };
+}
+
+function subtitleFor(cfg: KnowledgePipelineConfig): string {
+  return cfg.mineru3_api_base.trim() || "未配置";
+}
+
+function isConfigured(cfg: KnowledgePipelineConfig): boolean {
+  return Boolean(cfg.mineru3_api_base.trim());
+}
+
 /**
- * MinerU / Reranker 流水线配置面板（供配置页使用）。
+ * 配置页「小模型」：预设 mineru，列表交互对齐大模型。
  */
 export default function PipelineConfigPanel() {
-  const [form, setForm] = useState<KnowledgePipelineConfig>(EMPTY_PIPELINE);
-  const [saving, setSaving] = useState(false);
+  const [cfg, setCfg] = useState<KnowledgePipelineConfig>(EMPTY_PIPELINE);
+  const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
-  const [okMsg, setOkMsg] = useState<string | null>(null);
-  const [testingMineru, setTestingMineru] = useState(false);
-  const [testingReranker, setTestingReranker] = useState(false);
-  const [mineruResult, setMineruResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [rerankerResult, setRerankerResult] = useState<{ ok: boolean; message: string } | null>(null);
-
-  const set = (patch: Partial<KnowledgePipelineConfig>) => setForm((prev) => ({ ...prev, ...patch }));
+  const [editId, setEditId] = useState<SmallModelId | null>(null);
+  const [form, setForm] = useState<SmallModelForm>({ base_url: "", api_key: "" });
+  const [saving, setSaving] = useState(false);
+  const [testingIds, setTestingIds] = useState<Set<SmallModelId>>(new Set());
+  const [testResults, setTestResults] = useState<
+    Partial<Record<SmallModelId, { ok: boolean; message: string }>>
+  >({});
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
-      const cfg = await knowledgeApi.getPipelineConfig();
-      setForm(cfg);
-    } catch {
-      setForm(EMPTY_PIPELINE);
+      const next = await knowledgeApi.getPipelineConfig();
+      setCfg(next);
+    } catch (e) {
+      setCfg(EMPTY_PIPELINE);
+      setErrMsg(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -40,46 +71,26 @@ export default function PipelineConfigPanel() {
     void load();
   }, [load]);
 
-  const formatResult = (ok: boolean, message: string, latencyMs?: number) =>
-    ok ? `${message}${latencyMs ? ` · ${latencyMs}ms` : ""}` : (message || "测试失败");
-
-  const handleTestMineru = async () => {
-    setTestingMineru(true);
-    setMineruResult(null);
-    try {
-      const result = await knowledgeApi.testMineru(form);
-      setMineruResult({ ok: result.ok, message: formatResult(result.ok, result.message, result.latency_ms) });
-    } catch (e) {
-      setMineruResult({ ok: false, message: e instanceof Error ? e.message : "测试失败" });
-    } finally {
-      setTestingMineru(false);
-    }
-  };
-
-  const handleTestReranker = async () => {
-    setTestingReranker(true);
-    setRerankerResult(null);
-    try {
-      const result = await knowledgeApi.testReranker(form);
-      setRerankerResult({
-        ok: result.ok,
-        message: formatResult(result.ok, result.message, result.latency_ms),
-      });
-    } catch (e) {
-      setRerankerResult({ ok: false, message: e instanceof Error ? e.message : "测试失败" });
-    } finally {
-      setTestingReranker(false);
-    }
+  const openEdit = (id: SmallModelId) => {
+    setErrMsg(null);
+    setForm(formFromConfig(cfg));
+    setEditId(id);
   };
 
   const handleSave = async () => {
+    if (!editId) return;
     setSaving(true);
     setErrMsg(null);
-    setOkMsg(null);
     try {
-      const saved = await knowledgeApi.savePipelineConfig(form);
-      setForm(saved);
-      setOkMsg("已保存");
+      const next = applyForm(cfg, form);
+      const saved = await knowledgeApi.savePipelineConfig(next);
+      setCfg(saved);
+      setEditId(null);
+      setTestResults((prev) => {
+        const cleared = { ...prev };
+        delete cleared[editId];
+        return cleared;
+      });
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -87,97 +98,167 @@ export default function PipelineConfigPanel() {
     }
   };
 
+  const handleTest = async (id: SmallModelId) => {
+    setErrMsg(null);
+    setTestingIds((prev) => new Set(prev).add(id));
+    try {
+      const result = await knowledgeApi.testMineru(cfg);
+      const message = result.ok
+        ? `${result.message}${result.latency_ms ? ` · ${result.latency_ms}ms` : ""}`
+        : result.message || "测试失败";
+      setTestResults((prev) => ({ ...prev, [id]: { ok: result.ok, message } }));
+      if (!result.ok) setErrMsg(`「${id}」测试失败：${message}`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "测试失败";
+      setTestResults((prev) => ({ ...prev, [id]: { ok: false, message } }));
+      setErrMsg(`「${id}」测试失败：${message}`);
+    } finally {
+      setTestingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  const canSave = Boolean(form.base_url.trim());
+
   return (
-    <div className="space-y-4 max-w-lg">
-      <p className="text-xs text-ink-500">
-        文档解析依赖 mineru-api；Reranker 可选。LLM 使用上方已激活的模型配置。
-      </p>
-      {errMsg && <p className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">{errMsg}</p>}
-      {okMsg && <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">{okMsg}</p>}
+    <ConfigPanelLayout loading={loading} loadingText="加载小模型配置…" errMsg={errMsg}>
+      <div className="space-y-2">
+        {PRESET_ITEMS.map((item) => {
+          const testing = testingIds.has(item.id);
+          const testResult = testResults[item.id];
+          const configured = isConfigured(cfg);
+          return (
+            <ConfigListItem
+              key={item.id}
+              title={item.title}
+              meta={(
+                <>
+                  {configured ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-brand-50 text-brand-700">
+                      已配置
+                    </span>
+                  ) : (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-ink-50 text-ink-400">
+                      未配置
+                    </span>
+                  )}
+                  {testing && !testResult && (
+                    <span className="text-[10px] text-ink-400">测试中…</span>
+                  )}
+                  {testResult && (
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full max-w-[220px] truncate ${
+                        testResult.ok
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-rose-50 text-rose-700"
+                      }`}
+                      title={testResult.message}
+                    >
+                      {testResult.ok ? `可用 · ${testResult.message}` : "不可用"}
+                    </span>
+                  )}
+                </>
+              )}
+              subtitle={subtitleFor(cfg)}
+              actions={(
+                <>
+                  <ConfigActionBtn
+                    variant="sky"
+                    disabled={testing || !configured}
+                    onClick={() => void handleTest(item.id)}
+                  >
+                    {testing ? "测试中…" : "测试"}
+                  </ConfigActionBtn>
+                  <ConfigActionBtn onClick={() => openEdit(item.id)}>编辑</ConfigActionBtn>
+                </>
+              )}
+            />
+          );
+        })}
+      </div>
 
-      <label className="block space-y-1">
-        <span className="text-[11px] text-ink-500">mineru-api（必填）</span>
-        <div className="flex items-center gap-2">
-          <input
-            value={form.mineru3_api_base}
-            onChange={(e) => {
-              setMineruResult(null);
-              set({ mineru3_api_base: e.target.value });
-            }}
-            placeholder="http://127.0.0.1:8000"
-            className="ui-field min-w-0 flex-1 text-sm"
-          />
-          <ConfigActionBtn
-            variant="sky"
-            className="shrink-0"
-            disabled={testingMineru || !form.mineru3_api_base.trim()}
-            onClick={() => void handleTestMineru()}
-          >
-            {testingMineru ? "测试中…" : "测试"}
-          </ConfigActionBtn>
-        </div>
-        {mineruResult && (
-          <p className={`text-[11px] ${mineruResult.ok ? "text-emerald-700" : "text-rose-600"}`}>
-            {mineruResult.message}
-          </p>
-        )}
-      </label>
-
-      <label className="block space-y-1">
-        <span className="text-[11px] text-ink-500">reranker URL（可选）</span>
-        <div className="flex items-center gap-2">
-          <input
-            value={form.reranker_base_url}
-            onChange={(e) => {
-              setRerankerResult(null);
-              set({ reranker_base_url: e.target.value });
-            }}
-            placeholder="http://..."
-            className="ui-field min-w-0 flex-1 text-sm"
-          />
-          <ConfigActionBtn
-            variant="sky"
-            className="shrink-0"
-            disabled={testingReranker || !form.reranker_base_url.trim()}
-            onClick={() => void handleTestReranker()}
-          >
-            {testingReranker ? "测试中…" : "测试"}
-          </ConfigActionBtn>
-        </div>
-        {rerankerResult && (
-          <p className={`text-[11px] ${rerankerResult.ok ? "text-emerald-700" : "text-rose-600"}`}>
-            {rerankerResult.message}
-          </p>
-        )}
-      </label>
-
-      <label className="block space-y-1">
-        <span className="text-[11px] text-ink-500">reranker API Key</span>
-        <input
-          value={form.reranker_api_key}
-          onChange={(e) => set({ reranker_api_key: e.target.value })}
-          placeholder="可选"
-          className="ui-field w-full text-sm"
+      {editId && (
+        <SmallModelModal
+          title={`编辑 · ${editId}`}
+          form={form}
+          saving={saving}
+          canSave={canSave}
+          onChange={setForm}
+          onSave={() => void handleSave()}
+          onCancel={() => setEditId(null)}
         />
-      </label>
+      )}
+    </ConfigPanelLayout>
+  );
+}
 
-      <label className="block space-y-1">
-        <span className="text-[11px] text-ink-500">reranker Model</span>
-        <input
-          value={form.reranker_model_name}
-          onChange={(e) => set({ reranker_model_name: e.target.value })}
-          placeholder="可选"
-          className="ui-field w-full text-sm"
-        />
-      </label>
+function SmallModelModal({
+  title,
+  form,
+  saving,
+  canSave,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  title: string;
+  form: SmallModelForm;
+  saving: boolean;
+  canSave: boolean;
+  onChange: (form: SmallModelForm) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const [showKey, setShowKey] = useState(false);
+  const set = (patch: Partial<SmallModelForm>) => onChange({ ...form, ...patch });
 
-      <div className="pt-1">
-        <ConfigPrimaryBtn
-          disabled={saving || !form.mineru3_api_base.trim()}
-          onClick={() => void handleSave()}
-        >
-          {saving ? "保存中…" : "保存解析服务"}
-        </ConfigPrimaryBtn>
+  return (
+    <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-panel w-full max-w-lg border border-ink-200/60 max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-ink-200/60">
+          <h2 className="font-semibold text-ink-900">{title}</h2>
+        </div>
+        <div className="px-6 py-4 space-y-3">
+          <input
+            type="url"
+            value={form.base_url}
+            onChange={(e) => set({ base_url: e.target.value })}
+            placeholder="Base URL / API"
+            className="ui-field w-full"
+          />
+          <div className="flex gap-2">
+            <input
+              type={showKey ? "text" : "password"}
+              value={form.api_key}
+              onChange={(e) => set({ api_key: e.target.value })}
+              placeholder="API Key（可选）"
+              className="ui-field flex-1"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              className="text-xs px-2 border border-ink-200 rounded-lg"
+            >
+              {showKey ? "隐藏" : "显示"}
+            </button>
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-ink-200/60 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-ink-200 rounded-xl">
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={saving || !canSave}
+            onClick={onSave}
+            className="ui-btn-primary"
+          >
+            {saving ? "保存中…" : "保存"}
+          </button>
+        </div>
       </div>
     </div>
   );

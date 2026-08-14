@@ -1,5 +1,21 @@
+import type { IncomingMessage } from "node:http";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+
+/** 与 React Router 页面同名的 API 根路径；仅这些 exact path 在浏览器导航时回退 SPA */
+const SPA_PAGE_API_PATHS = new Set(["/skills", "/mcp", "/config"]);
+
+/** SPA 页面与 API 前缀同名时：浏览器导航（Accept 含 text/html）回退前端，fetch 仍代理后端 */
+function spaPageBypass(req: IncomingMessage): string | undefined {
+  const path = (req.url ?? "").split("?", 1)[0];
+  if (!SPA_PAGE_API_PATHS.has(path)) {
+    return undefined;
+  }
+  if (req.headers.accept?.includes("text/html")) {
+    return "/index.html";
+  }
+  return undefined;
+}
 
 export default defineConfig({
   plugins: [react()],
@@ -29,8 +45,16 @@ export default defineConfig({
       },
       "/sessions": "http://localhost:8000",
       "/conversations": "http://localhost:8000",
-      "/skills": "http://localhost:8000",
-      "/mcp": "http://localhost:8000",
+      "/skills": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+        bypass: spaPageBypass,
+      },
+      "/mcp": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+        bypass: spaPageBypass,
+      },
       "/health": "http://localhost:8000",
       // skill-creator 单轮可能串行多次 LLM，需长于默认超时
       "/config": {
@@ -38,6 +62,7 @@ export default defineConfig({
         changeOrigin: true,
         timeout: 300_000,
         proxyTimeout: 300_000,
+        bypass: spaPageBypass,
       },
     },
   },

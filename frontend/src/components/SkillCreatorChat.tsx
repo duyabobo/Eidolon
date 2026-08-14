@@ -3,6 +3,7 @@ import { SkillScope } from "../api/skills";
 import { SkillCreatorMessage, SkillDraft, skillCreatorApi } from "../api/skillCreator";
 import { useAutoGrowTextarea } from "../hooks/useAutoGrowTextarea";
 import ChatMarkdown from "./chat/ChatMarkdown";
+import { ModalOverlay } from "./config/ModalOverlay";
 import FilePreviewModal, { type FilePreviewSource } from "./FilePreviewModal";
 import SkillFolderTree from "./SkillFolderTree";
 
@@ -378,9 +379,5 @@ export default function SkillCreatorChat({
 
   if (embedded) return panel;
 
-  return (
-    <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      {panel}
-    </div>
-  );
+  return <ModalOverlay>{panel}</ModalOverlay>;
 }

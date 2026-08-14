@@ -46,6 +46,7 @@ async def update_document_fields(
     error_message: str | None = None,
     wiki_compiled: bool | None = None,
     track_id: str | None = None,
+    source_file_path: str | None = None,
 ) -> None:
     fields: list[str] = ["updated_at = ?"]
     params: list = [format_iso(now_china())]
@@ -61,6 +62,9 @@ async def update_document_fields(
     if track_id is not None:
         fields.append("track_id = ?")
         params.append(track_id)
+    if source_file_path is not None:
+        fields.append("source_file_path = ?")
+        params.append(source_file_path)
     params.append(doc_id)
     await get_db().execute(
         f"UPDATE knowledge_documents SET {', '.join(fields)} WHERE id = ?",

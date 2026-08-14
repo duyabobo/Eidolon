@@ -1,11 +1,15 @@
 import { useMemo, useRef, useEffect, useCallback, useState } from "react";
 import { APP_LOGO, APP_NAME } from "../../constants/brand";
 import type { Message } from "../../context/ChatSessionContext";
+import { formatFileSize } from "../../utils/formatFileSize";
 import FilePreviewModal, { type FilePreviewSource } from "../FilePreviewModal";
+import TruncatedFilename from "../TruncatedFilename";
+import { ConfigActionBtn } from "../config/ConfigActionBtn";
+import DocumentWikiModal, { knowledgeDocFromUpload } from "../knowledge/DocumentWikiModal";
+import type { KnowledgeDocument } from "../../api/knowledge";
 import ChatMarkdown from "./ChatMarkdown";
 import ExecutionSteps from "./ExecutionSteps";
 import { formatMessageTime } from "./stepTiming";
-import { canPreviewFile } from "../../utils/filePreview";
 
 interface AssistantAttachment {
   filename: string;
@@ -22,15 +26,8 @@ interface AssistantTurn {
 
 type DisplayItem =
   | { kind: "user"; content: string; startedAt?: number }
-  | { kind: "user_file"; filename: string; relativePath?: string; size?: number; docId?: string; startedAt?: number }
+  | { kind: "user_file"; filename: string; relativePath?: string; size?: number; docId?: string; kbId?: string; startedAt?: number }
   | { kind: "assistant"; turn: AssistantTurn };
-
-function formatFileSize(bytes?: number): string {
-  if (bytes == null || bytes < 0) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function resolveTurnStartedAt(msgs: Message[]): number | undefined {
   for (const msg of msgs) {
@@ -74,6 +71,7 @@ function groupMessages(messages: Message[]): DisplayItem[] {
           relativePath: msg.relativePath,
           size: msg.size,
           docId: msg.docId,
+          kbId: msg.kbId,
           startedAt: msg.startedAt,
         });
       } else {
@@ -175,9 +173,8 @@ function FileChip({
   align: "left" | "right";
 }) {
   const clickable = Boolean(onOpen) && !busy;
-  const previewHint = canPreviewFile(filename) ? "点击预览" : "点击打开";
   const className = [
-    "rounded-2.5xl px-3.5 py-2.5 text-sm bg-white border border-ink-200/70 text-ink-800 shadow-soft inline-flex items-center gap-2.5 max-w-full text-left",
+    "rounded-2.5xl px-3.5 py-2.5 text-sm bg-white border border-ink-200/70 text-ink-800 shadow-soft inline-flex items-center gap-2.5 max-w-[min(100%,20rem)] text-left",
     align === "right" ? "rounded-br-md" : "rounded-bl-md",
     clickable ? "hover:border-brand-300 hover:bg-brand-50/40 cursor-pointer transition-colors" : "",
     busy ? "opacity-70 cursor-wait" : "",
@@ -188,15 +185,14 @@ function FileChip({
       <span className="w-8 h-8 rounded-lg bg-ink-100 text-ink-500 flex items-center justify-center text-[10px] font-semibold shrink-0">
         FILE
       </span>
-      <span className="min-w-0">
-        <span className="block font-medium truncate">
-          {busy ? "打开中…" : filename}
-        </span>
-        {subtitle && (
-          <span className="block text-[11px] text-ink-400 mt-0.5">{subtitle}</span>
+      <span className="min-w-0 flex-1">
+        {busy ? (
+          <span className="block font-medium truncate">打开中…</span>
+        ) : (
+          <TruncatedFilename name={filename} className="font-medium text-sm" />
         )}
-        {clickable && (
-          <span className="block text-[11px] text-brand-600 mt-0.5">{previewHint}</span>
+        {subtitle && (
+          <span className="block text-[11px] text-ink-400 mt-0.5 truncate">{subtitle}</span>
         )}
       </span>
     </>
@@ -318,6 +314,7 @@ interface Props {
 }
 
 const SCROLL_PIN_THRESHOLD_PX = 80;
+const TOUCH_SCROLL_UP_SLOP_PX = 2;
 
 function isPinnedToBottom(container: HTMLElement): boolean {
   const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
@@ -331,8 +328,13 @@ function scrollToBottom(container: HTMLElement, behavior: ScrollBehavior) {
 export default function MessageList({ messages, userId, sessionId }: Props) {
   const displayItems = useMemo(() => groupMessages(messages), [messages]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  /** 仅由用户滚动意图更新；内容增高时不要用几何位置重算，否则会误判脱离底部 */
   const pinnedToBottomRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  const touchStartYRef = useRef<number | null>(null);
   const [preview, setPreview] = useState<FilePreviewSource | null>(null);
+  const [wikiDoc, setWikiDoc] = useState<KnowledgeDocument | null>(null);
 
   const openUserFile = useCallback((
     filename: string,
@@ -348,46 +350,99 @@ export default function MessageList({ messages, userId, sessionId }: Props) {
     });
   }, [userId, sessionId]);
 
-  useEffect(() => {
+  const stickToBottomIfPinned = useCallback(() => {
     const container = scrollRef.current;
-    if (!container) return;
-
-    const onScroll = () => {
-      const pinned = isPinnedToBottom(container);
-      const wasPinned = pinnedToBottomRef.current;
-      pinnedToBottomRef.current = pinned;
-      if (pinned && !wasPinned) {
-        scrollToBottom(container, "auto");
-      }
-    };
-
-    container.addEventListener("scroll", onScroll, { passive: true });
-    return () => container.removeEventListener("scroll", onScroll);
+    if (!container || !pinnedToBottomRef.current) return;
+    scrollToBottom(container, "auto");
   }, []);
 
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
 
-    const last = messages[messages.length - 1];
-    const userJustSent = last?.role === "user";
+    lastScrollTopRef.current = container.scrollTop;
 
-    if (userJustSent) {
+    // 离开底部 → 取消贴底；回到底部仅在非上滑时恢复，避免小幅上拉被阈值内 scroll 抢回
+    const onScroll = () => {
+      const scrollTop = container.scrollTop;
+      const scrollingUp = scrollTop < lastScrollTopRef.current;
+      const atBottom = isPinnedToBottom(container);
+      lastScrollTopRef.current = scrollTop;
+
+      if (!atBottom) {
+        pinnedToBottomRef.current = false;
+        return;
+      }
+      if (!scrollingUp) {
+        pinnedToBottomRef.current = true;
+      }
+    };
+
+    // 上滑意图立刻取消贴底（即使仍在阈值内），避免与流式跟底抢滚动
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) {
+        pinnedToBottomRef.current = false;
+      }
+    };
+
+    const onTouchStart = () => {
+      touchStartYRef.current = null;
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      const touchY = event.touches[0]?.clientY;
+      if (touchY == null) return;
+      if (touchStartYRef.current == null) {
+        touchStartYRef.current = touchY;
+        return;
+      }
+      // 手指下移 → 内容上拉
+      if (touchY > touchStartYRef.current + TOUCH_SCROLL_UP_SLOP_PX) {
+        pinnedToBottomRef.current = false;
+      }
+    };
+
+    container.addEventListener("scroll", onScroll, { passive: true });
+    container.addEventListener("wheel", onWheel, { passive: true });
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", onScroll);
+      container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+    };
+  }, []);
+
+  // 内容区高度变化（流式 token / markdown 重排 / 步骤展开）时，贴底则持续跟底
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+
+    const observer = new ResizeObserver(() => {
+      stickToBottomIfPinned();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [stickToBottomIfPinned]);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const last = messages[messages.length - 1];
+    if (last?.role === "user") {
       pinnedToBottomRef.current = true;
       scrollToBottom(container, "smooth");
       return;
     }
 
-    const pinned = isPinnedToBottom(container);
-    pinnedToBottomRef.current = pinned;
-    if (pinned) {
-      scrollToBottom(container, "auto");
-    }
-  }, [messages]);
+    stickToBottomIfPinned();
+  }, [messages, stickToBottomIfPinned]);
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
-      <div className="page-content py-6 space-y-5">
+      <div ref={contentRef} className="page-content py-6 space-y-5">
         {messages.length === 0 && (
           <div className="text-center mt-24 px-4">
             <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-lg font-bold shadow-soft mb-4">
@@ -422,17 +477,37 @@ export default function MessageList({ messages, userId, sessionId }: Props) {
               <div key={i} className="flex justify-end">
                 <div className="max-w-[78%]">
                   <MessageTime ts={item.startedAt} align="right" />
-                  <FileChip
-                    filename={item.filename}
-                    subtitle={subtitle || undefined}
-                    title={
-                      item.docId
-                        ? `${item.relativePath || item.filename}\ndoc_id: ${item.docId}`
-                        : (item.relativePath || item.filename)
-                    }
-                    onOpen={path ? () => openUserFile(item.filename, item.relativePath) : undefined}
-                    align="right"
-                  />
+                  <div className="flex items-center justify-end gap-1.5">
+                    {item.docId && item.kbId && (
+                      <ConfigActionBtn
+                        variant="violet"
+                        title="查看 Wiki 图谱"
+                        onClick={() =>
+                          setWikiDoc(
+                            knowledgeDocFromUpload({
+                              docId: item.docId as string,
+                              kbId: item.kbId as string,
+                              name: item.filename,
+                              fileSize: item.size,
+                            }),
+                          )
+                        }
+                      >
+                        图谱
+                      </ConfigActionBtn>
+                    )}
+                    <FileChip
+                      filename={item.filename}
+                      subtitle={subtitle || undefined}
+                      title={
+                        item.docId
+                          ? `${item.relativePath || item.filename}\ndoc_id: ${item.docId}`
+                          : (item.relativePath || item.filename)
+                      }
+                      onOpen={path ? () => openUserFile(item.filename, item.relativePath) : undefined}
+                      align="right"
+                    />
+                  </div>
                 </div>
               </div>
             );
@@ -454,6 +529,13 @@ export default function MessageList({ messages, userId, sessionId }: Props) {
           source={preview}
           subtitle={preview.path}
           onClose={() => setPreview(null)}
+        />
+      )}
+      {wikiDoc && (
+        <DocumentWikiModal
+          kbId={wikiDoc.kb_id}
+          doc={wikiDoc}
+          onClose={() => setWikiDoc(null)}
         />
       )}
     </div>

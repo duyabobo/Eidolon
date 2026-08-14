@@ -10,7 +10,7 @@ export interface Skill {
   content?: string;
   tags?: string[];
   hidden?: boolean;
-  /** 空=对话创建；github=GitHub 导入（不可对话编辑） */
+  /** 空=对话创建/已归自己；github=GitHub 导入（可编辑，发布后清空） */
   source?: string;
 }
 
@@ -25,20 +25,6 @@ export interface SkillTreeResponse {
   name: string;
   user_id: string | null;
   entries: SkillTreeEntry[];
-}
-
-export interface GithubSkillImportResult {
-  name: string;
-  description: string;
-  scope: string;
-  copied_entries: string[];
-  source: {
-    owner: string;
-    repo: string;
-    ref: string;
-    subdir: string;
-    url: string;
-  };
 }
 
 async function parseError(resp: Response): Promise<string> {
@@ -126,18 +112,6 @@ export const skillsApi = {
     a.click();
     URL.revokeObjectURL(url);
   },
-
-  importFromGithub: (body: {
-    github_url: string;
-    user_id: string;
-    ref?: string;
-    subdir?: string;
-    overwrite?: boolean;
-  }) =>
-    request<GithubSkillImportResult>("/config/skills/import-from-github", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
 
   delete: (name: string, userId?: string) => {
     const qs = skillQs(userId);

@@ -14,10 +14,21 @@ const TARGET_ID_KEYS = [
 const LABEL_KEYS = ["title", "name", "target_title", "target_name", "label", "text", "source_title"];
 const DESC_KEYS = ["description", "relation", "type", "link_type", "edge_type", "summary", "intro"];
 
+/** 匹配 [[id|标题]] / [[标题]] / 带 (path) 的历史格式 */
+const WIKI_PIPE_LINK_RE = /^\[\[([^\]|]+)\|([^\]]+)\]\](?:\([^)]*\))?$/;
+const WIKI_LINK_RE = /^\[\[([^\]]+)\]\](?:\([^)]*\))?$/;
+const LIST_PREFIX_RE = /^[-*•]\s+/;
+const DESC_ONLY_RE = /^(?:—|–|-)\s+(.+)$/;
+
 export interface WikiConnectionLink {
   nodeId: string;
   label: string;
   description: string;
+}
+
+export interface WikiLinkToken {
+  nodeId: string;
+  title: string;
 }
 
 function pickString(record: Record<string, unknown>, keys: string[]): string {
@@ -30,14 +41,43 @@ function pickString(record: Record<string, unknown>, keys: string[]): string {
   return "";
 }
 
+/** 解析 [[node_id|标题]] / [[标题]](path) / 纯文本 */
+export function parseWikiLinkToken(raw: string): WikiLinkToken {
+  const text = raw.trim().replace(LIST_PREFIX_RE, "").trim();
+  const piped = text.match(WIKI_PIPE_LINK_RE);
+  if (piped) {
+    return { nodeId: piped[1].trim(), title: piped[2].trim() };
+  }
+  const simple = text.match(WIKI_LINK_RE);
+  if (simple) {
+    return { nodeId: "", title: simple[1].trim() };
+  }
+  return { nodeId: "", title: text };
+}
+
+/** 去掉列表前缀与 wiki 链接外壳，得到展示用标题 */
+export function normalizeWikiRefLabel(raw: string): string {
+  return parseWikiLinkToken(raw).title.trim();
+}
+
 /** 解析「标题 — 描述」或「标题 - 描述」 */
-export function parseConnectionLine(text: string): { label: string; description: string } {
-  const trimmed = text.trim();
+export function parseConnectionLine(text: string): {
+  label: string;
+  description: string;
+  nodeId: string;
+} {
+  const trimmed = text.trim().replace(LIST_PREFIX_RE, "").trim();
   const match = trimmed.match(/^(.+?)\s*(?:—|–|-)\s+(.+)$/);
   if (match) {
-    return { label: match[1].trim(), description: match[2].trim() };
+    const token = parseWikiLinkToken(match[1]);
+    return {
+      label: token.title,
+      description: match[2].trim(),
+      nodeId: token.nodeId,
+    };
   }
-  return { label: trimmed, description: "" };
+  const token = parseWikiLinkToken(trimmed);
+  return { label: token.title, description: "", nodeId: token.nodeId };
 }
 
 function titleBeforeParen(title: string): string {
@@ -46,7 +86,7 @@ function titleBeforeParen(title: string): string {
 
 /** 在图谱节点中按标题匹配（精确 → 去括号 → 包含） */
 export function findNodeByTitle(title: string, graphNodes: WikiGraphNode[]): WikiGraphNode | undefined {
-  const raw = title.trim();
+  const raw = normalizeWikiRefLabel(title);
   if (!raw) return undefined;
 
   const lower = raw.toLowerCase();
@@ -76,17 +116,59 @@ export function resolveNavigationTarget(
   target: string,
   graphNodes: WikiGraphNode[],
 ): string | null {
-  const token = target.trim();
-  if (!token) return null;
-  if (graphNodes.some((node) => node.node_id === token)) {
-    return token;
+  const token = parseWikiLinkToken(target);
+  if (token.nodeId && graphNodes.some((node) => node.node_id === token.nodeId)) {
+    return token.nodeId;
   }
-  return resolveNodeIdFromTitle(token, graphNodes) || null;
+  const title = token.title.trim();
+  if (!title) return null;
+  if (graphNodes.some((node) => node.node_id === title)) {
+    return title;
+  }
+  return resolveNodeIdFromTitle(title, graphNodes) || null;
+}
+
+/**
+ * 把引用正文拆成「标题 + 描述」行。
+ * 兼容：同排「标题 — 描述」、以及「[[标题]]\n — 描述」折行。
+ */
+export function parseReferencesBlock(text: string): Array<{
+  label: string;
+  description: string;
+  nodeId: string;
+}> {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const rows: Array<{ label: string; description: string; nodeId: string }> = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const descOnly = line.match(DESC_ONLY_RE);
+    if (descOnly && rows.length > 0 && !rows[rows.length - 1].description) {
+      rows[rows.length - 1].description = descOnly[1].trim();
+      continue;
+    }
+
+    const parsed = parseConnectionLine(line);
+    if (!parsed.label) continue;
+
+    const next = lines[i + 1];
+    if (!parsed.description && next) {
+      const nextDesc = next.match(DESC_ONLY_RE);
+      if (nextDesc) {
+        parsed.description = nextDesc[1].trim();
+        i += 1;
+      }
+    }
+
+    rows.push(parsed);
+  }
+
+  return rows;
 }
 
 function expandConnections(input: unknown): Array<Record<string, unknown> | string> {
   if (typeof input === "string") {
-    return input.split("\n").map((line) => line.trim()).filter(Boolean);
+    return [input];
   }
   if (!Array.isArray(input)) {
     return [];
@@ -95,11 +177,7 @@ function expandConnections(input: unknown): Array<Record<string, unknown> | stri
   const expanded: Array<Record<string, unknown> | string> = [];
   for (const item of input) {
     if (typeof item === "string") {
-      if (item.includes("\n")) {
-        expanded.push(...item.split("\n").map((line) => line.trim()).filter(Boolean));
-      } else {
-        expanded.push(item);
-      }
+      expanded.push(item);
       continue;
     }
     if (item && typeof item === "object") {
@@ -138,14 +216,25 @@ function pushLink(
   graphNodes: WikiGraphNode[],
   currentNodeId?: string,
 ) {
-  const finalLabel = label.trim();
+  const token = parseWikiLinkToken(label);
+  const finalLabel = (token.title || label).trim();
   if (!finalLabel) return;
 
-  const resolvedId = nodeId || resolveNodeIdFromTitle(finalLabel, graphNodes);
-  const dedupeKey = resolvedId || finalLabel.toLowerCase();
-  if (dedupeKey === currentNodeId || seen.has(dedupeKey)) {
-    return;
+  const byId = new Map(graphNodes.map((node) => [node.node_id, node]));
+  let resolvedId = (nodeId || token.nodeId).trim();
+  if (resolvedId && !byId.has(resolvedId)) {
+    // understand 回填的 id 若暂不在图上，仍保留，便于详情跳转接口按 id 取
+    // 同时再尝试标题匹配图节点
+    const fromTitle = resolveNodeIdFromTitle(finalLabel, graphNodes);
+    if (fromTitle) resolvedId = fromTitle;
   }
+  if (!resolvedId) {
+    resolvedId = resolveNodeIdFromTitle(finalLabel, graphNodes);
+  }
+
+  const dedupeKey = (resolvedId || finalLabel).toLowerCase();
+  if (resolvedId && resolvedId === currentNodeId) return;
+  if (seen.has(dedupeKey)) return;
 
   seen.add(dedupeKey);
   results.push({
@@ -155,22 +244,65 @@ function pushLink(
   });
 }
 
+export interface ResolveWikiConnectionsOptions {
+  /** 是否把图谱树出边并入引用列表；详情「引用」应关闭，避免和语义引用混在一起 */
+  includeGraphEdges?: boolean;
+}
+
 export function resolveWikiConnections(
   connections: unknown,
   graphNodes: WikiGraphNode[],
   graphEdges: WikiGraphEdge[] = [],
   currentNodeId?: string,
+  options: ResolveWikiConnectionsOptions = {},
 ): WikiConnectionLink[] {
+  const includeGraphEdges = options.includeGraphEdges ?? false;
   const results: WikiConnectionLink[] = [];
   const seen = new Set<string>();
 
   for (const raw of expandConnections(connections)) {
     if (typeof raw === "string") {
-      const parsed = parseConnectionLine(raw);
+      for (const parsed of parseReferencesBlock(raw)) {
+        pushLink(
+          results,
+          seen,
+          parsed.nodeId,
+          parsed.label,
+          parsed.description,
+          graphNodes,
+          currentNodeId,
+        );
+      }
+      continue;
+    }
+
+    const labelHint = normalizeWikiRefLabel(pickString(raw, LABEL_KEYS));
+    let description = pickString(raw, DESC_KEYS);
+
+    if (!labelHint && !description) {
+      const firstString = Object.values(raw).find((value) => typeof value === "string") as string | undefined;
+      if (firstString) {
+        for (const parsed of parseReferencesBlock(firstString)) {
+          pushLink(
+            results,
+            seen,
+            parsed.nodeId,
+            parsed.label,
+            parsed.description,
+            graphNodes,
+            currentNodeId,
+          );
+        }
+        continue;
+      }
+    }
+
+    if (!description && (labelHint.includes(" — ") || labelHint.includes("[["))) {
+      const parsed = parseConnectionLine(labelHint);
       pushLink(
         results,
         seen,
-        "",
+        parsed.nodeId,
         parsed.label,
         parsed.description,
         graphNodes,
@@ -179,29 +311,11 @@ export function resolveWikiConnections(
       continue;
     }
 
-    const labelHint = pickString(raw, LABEL_KEYS);
-    let description = pickString(raw, DESC_KEYS);
-
-    if (!labelHint && !description) {
-      const firstString = Object.values(raw).find((value) => typeof value === "string") as string | undefined;
-      if (firstString) {
-        const parsed = parseConnectionLine(firstString);
-        pushLink(results, seen, "", parsed.label, parsed.description, graphNodes, currentNodeId);
-        continue;
-      }
-    }
-
-    if (!description && labelHint.includes(" — ")) {
-      const parsed = parseConnectionLine(labelHint);
-      pushLink(results, seen, "", parsed.label, parsed.description, graphNodes, currentNodeId);
-      continue;
-    }
-
     const nodeId = resolveNodeId(raw, labelHint, graphNodes);
     pushLink(results, seen, nodeId, labelHint, description, graphNodes, currentNodeId);
   }
 
-  if (currentNodeId) {
+  if (includeGraphEdges && currentNodeId) {
     for (const edge of graphEdges) {
       if (edge.source_id !== currentNodeId) continue;
       const target = graphNodes.find((node) => node.node_id === edge.target_id);
@@ -218,4 +332,17 @@ export function resolveWikiConnections(
   }
 
   return results;
+}
+
+/** 选中节点 + 引用目标，供图谱高亮与引用列表对齐 */
+export function collectReferenceHighlightIds(
+  selectedNodeId: string | null,
+  links: WikiConnectionLink[],
+): Set<string> {
+  if (!selectedNodeId) return new Set();
+  const related = new Set<string>([selectedNodeId]);
+  for (const link of links) {
+    if (link.nodeId) related.add(link.nodeId);
+  }
+  return related;
 }

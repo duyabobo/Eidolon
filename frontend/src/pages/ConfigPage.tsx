@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import LlmConfigPanel from "../components/LlmConfigPanel";
 import PipelineConfigPanel from "../components/PipelineConfigPanel";
+import UserMemoryPanel from "../components/UserMemoryPanel";
 import ManagePageLayout from "../components/layout/ManagePageLayout";
 import { ConfigPrimaryBtn } from "../components/config/ConfigActionBtn";
 import { DEFAULT_USER_ID } from "../constants/user";
@@ -10,7 +11,7 @@ type ConfigTab = "llm" | "pipeline" | "user";
 
 const TABS: { id: ConfigTab; label: string }[] = [
   { id: "llm", label: "大模型" },
-  { id: "pipeline", label: "解析服务" },
+  { id: "pipeline", label: "小模型" },
   { id: "user", label: "用户" },
 ];
 
@@ -34,9 +35,6 @@ function UserIdConfigSection() {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-ink-500">
-        会话、技能、工具等按用户隔离。未填写时默认为 {DEFAULT_USER_ID}。
-      </p>
       <label className="block space-y-1">
         <span className="text-[11px] text-ink-500">用户 ID</span>
         <div className="flex items-center gap-2 max-w-lg">
@@ -53,10 +51,11 @@ function UserIdConfigSection() {
             }}
           />
           <ConfigPrimaryBtn className="shrink-0" onClick={handleSave}>保存</ConfigPrimaryBtn>
+          <UserMemoryPanel />
         </div>
       </label>
       {okMsg && (
-        <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2 max-w-lg">
+        <p className="text-sm px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 max-w-lg">
           {okMsg}
         </p>
       )}
@@ -66,34 +65,48 @@ function UserIdConfigSection() {
 
 export default function ConfigPage() {
   const [tab, setTab] = useState<ConfigTab>("llm");
+  /** 递增后通知 LlmConfigPanel 打开「添加」弹窗（与经验/工具右上角添加一致） */
+  const [llmCreateRequestId, setLlmCreateRequestId] = useState(0);
 
   return (
     <ManagePageLayout title="配置">
       <div className="space-y-5">
-        <div className="flex gap-1 border-b border-ink-100 -mt-1">
-          {TABS.map((item) => {
-            const active = tab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setTab(item.id)}
-                className={`relative px-3.5 py-2 text-sm font-medium transition-colors ${
-                  active
-                    ? "text-ink-900"
-                    : "text-ink-400 hover:text-ink-600"
-                }`}
-              >
-                {item.label}
-                {active && (
-                  <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-ink-800" />
-                )}
-              </button>
-            );
-          })}
+        <div className="flex items-center justify-between gap-3 border-b border-ink-100 -mt-1">
+          <div className="flex gap-1 min-w-0">
+            {TABS.map((item) => {
+              const active = tab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setTab(item.id)}
+                  className={`relative px-3.5 py-2 text-sm font-medium transition-colors ${
+                    active
+                      ? "text-ink-900"
+                      : "text-ink-400 hover:text-ink-600"
+                  }`}
+                >
+                  {item.label}
+                  {active && (
+                    <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-ink-800" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {tab === "llm" && (
+            <ConfigPrimaryBtn
+              className="shrink-0 mb-1"
+              onClick={() => setLlmCreateRequestId((n) => n + 1)}
+            >
+              添加
+            </ConfigPrimaryBtn>
+          )}
         </div>
 
-        {tab === "llm" && <LlmConfigPanel />}
+        {tab === "llm" && (
+          <LlmConfigPanel hideToolbarAdd createRequestId={llmCreateRequestId} />
+        )}
         {tab === "pipeline" && <PipelineConfigPanel />}
         {tab === "user" && <UserIdConfigSection />}
       </div>

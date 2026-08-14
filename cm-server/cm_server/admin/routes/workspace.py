@@ -13,6 +13,10 @@ from cm_server.admin.services.workspace_fs import (
     open_download,
     save_upload,
 )
+from cm_server.admin.services.workspace_knowledge import (
+    attach_knowledge_to_listing,
+    ingest_session_upload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +49,7 @@ async def workspace_ls(
         if norm == "sessions":
             session_meta = await session_meta_store.list_user_session_meta(uid)
         raw = list_directory(uid, path, session_meta=session_meta)
+        raw = await attach_knowledge_to_listing(uid, raw)
         return WorkspaceListResponse.model_validate(raw)
     except WorkspaceError as exc:
         raise _http_exc(exc) from exc
@@ -59,6 +64,7 @@ async def workspace_mkdir(
     try:
         mkdir(uid, body.path)
         raw = list_directory(uid, body.path.rsplit("/", 1)[0] if "/" in body.path else "")
+        raw = await attach_knowledge_to_listing(uid, raw)
         return WorkspaceListResponse.model_validate(raw)
     except WorkspaceError as exc:
         raise _http_exc(exc) from exc
@@ -73,8 +79,12 @@ async def workspace_upload(
     uid = _require_user_id(user_id)
     data = await file.read()
     try:
-        save_upload(uid, path, file.filename or "upload.bin", data)
+        dest_rel = save_upload(uid, path, file.filename or "upload.bin", data)
+        await ingest_session_upload(
+            uid, dest_rel, file.filename or "upload.bin", data, file.content_type,
+        )
         raw = list_directory(uid, path)
+        raw = await attach_knowledge_to_listing(uid, raw)
         return WorkspaceListResponse.model_validate(raw)
     except WorkspaceError as exc:
         raise _http_exc(exc) from exc

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   knowledgeApi,
   KnowledgeDocument,
@@ -7,16 +7,27 @@ import {
   WikiNodeItem,
 } from "../../api/knowledge";
 import WikiGraphView from "./WikiGraphView";
-import WikiNodeDetail from "./WikiNodeDetail";
-import { resolveNavigationTarget } from "./wikiConnections";
+import WikiNodeDetail, { buildNodeReferenceLinks } from "./WikiNodeDetail";
+import {
+  collectReferenceHighlightIds,
+  resolveNavigationTarget,
+} from "./wikiConnections";
 
 interface DocumentWikiExplorerProps {
   kbId: string;
   doc: KnowledgeDocument;
   onBack: () => void;
+  backLabel?: string;
+  hideBack?: boolean;
 }
 
-export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWikiExplorerProps) {
+export default function DocumentWikiExplorer({
+  kbId,
+  doc,
+  onBack,
+  backLabel = "← 返回文档列表",
+  hideBack = false,
+}: DocumentWikiExplorerProps) {
   const [graph, setGraph] = useState<WikiDocumentGraph | null>(null);
   const [graphLoading, setGraphLoading] = useState(true);
   const [graphError, setGraphError] = useState<string | null>(null);
@@ -44,6 +55,16 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWiki
     setNodeDetail(null);
     setNodeError(null);
   }, [loadGraph]);
+
+  const referenceLinks = useMemo(() => {
+    if (!nodeDetail || !graph) return [];
+    return buildNodeReferenceLinks(nodeDetail, graph.nodes);
+  }, [nodeDetail, graph]);
+
+  const highlightNodeIds = useMemo(
+    () => collectReferenceHighlightIds(selectedNodeId, referenceLinks),
+    [selectedNodeId, referenceLinks],
+  );
 
   const loadNodeDetail = useCallback(async (target: string) => {
     const graphNodes = graph?.nodes ?? [];
@@ -77,13 +98,15 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWiki
 
   return (
     <div className="space-y-4">
-      <button
-        type="button"
-        onClick={onBack}
-        className="text-sm text-brand-600 hover:text-brand-700"
-      >
-        ← 返回文档列表
-      </button>
+      {!hideBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-sm text-brand-600 hover:text-brand-700"
+        >
+          {backLabel}
+        </button>
+      )}
 
       <div>
         <h3 className="text-sm font-semibold text-ink-900">{doc.name}</h3>
@@ -98,6 +121,7 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWiki
         <WikiGraphView
           graph={graph}
           selectedNodeId={selectedNodeId}
+          highlightNodeIds={highlightNodeIds}
           onNodeClick={handleNodeClick}
         />
       ) : null}
@@ -108,7 +132,7 @@ export default function DocumentWikiExplorer({ kbId, doc, onBack }: DocumentWiki
           loading={nodeLoading}
           error={nodeError}
           graphNodes={graph?.nodes ?? []}
-          graphEdges={graph?.edges ?? []}
+          referenceLinks={referenceLinks}
           onNavigateNode={loadNodeDetail}
           onClose={() => {
             setSelectedNodeId(null);

@@ -22,16 +22,12 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
   const {
     servers,
     loading,
-    probingAll,
     probingKeys,
     statusMap,
-    expandedToolKeys,
     errMsg,
     setErrMsg,
     load,
-    probeAll,
     probeOne,
-    toggleExpandedTools,
     saveServer,
     toggleEnabled,
     deleteServer,
@@ -85,17 +81,6 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
         </p>
       )}
 
-      <div className="flex items-center justify-end">
-        <button
-          type="button"
-          onClick={() => void probeAll()}
-          disabled={probingAll || servers.length === 0}
-          className="text-xs px-3 py-1.5 border border-sky-200 rounded-lg text-sky-700 hover:bg-sky-50 disabled:opacity-50"
-        >
-          {probingAll ? "测试中…" : "测试全部"}
-        </button>
-      </div>
-
       <McpSection
         title="系统 MCP（只读）"
         badge="系统"
@@ -103,10 +88,8 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
         items={systemServers}
         statusMap={statusMap}
         probingKeys={probingKeys}
-        expandedToolKeys={expandedToolKeys}
         canToggleEnabled={false}
         onProbe={(server) => void probeOne(server)}
-        onToggleTools={toggleExpandedTools}
       />
 
       <McpSection
@@ -116,9 +99,7 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
         items={userServers}
         statusMap={statusMap}
         probingKeys={probingKeys}
-        expandedToolKeys={expandedToolKeys}
         onProbe={(server) => void probeOne(server)}
-        onToggleTools={toggleExpandedTools}
         onToggleEnabled={(server, enabled) => void handleToggleEnabled(server, enabled)}
         onEdit={(server) => setEdit({
           name: server.name,
@@ -187,10 +168,8 @@ function McpSection({
   items,
   statusMap,
   probingKeys,
-  expandedToolKeys,
   canToggleEnabled = true,
   onProbe,
-  onToggleTools,
   onToggleEnabled,
   onEdit,
   onDelete,
@@ -201,10 +180,8 @@ function McpSection({
   items: McpServerItem[];
   statusMap: Record<string, import("../api/mcp").McpServerStatus>;
   probingKeys: Set<string>;
-  expandedToolKeys: Set<string>;
   canToggleEnabled?: boolean;
   onProbe: (server: McpServerItem) => void;
-  onToggleTools: (key: string) => void;
   onToggleEnabled?: (server: McpServerItem, enabled: boolean) => void;
   onEdit?: (server: McpServerItem) => void;
   onDelete?: (server: McpServerItem) => void;
@@ -228,12 +205,10 @@ function McpSection({
                 server={server}
                 status={statusMap[key]}
                 probing={probingKeys.has(key)}
-                toolsExpanded={expandedToolKeys.has(key)}
                 scopeBadge={scopeBadge}
                 canToggleEnabled={canToggleEnabled}
                 onToggleEnabled={onToggleEnabled ? (enabled) => onToggleEnabled(server, enabled) : undefined}
                 onProbe={() => onProbe(server)}
-                onToggleTools={() => onToggleTools(key)}
                 onEdit={onEdit ? () => onEdit(server) : undefined}
                 onDelete={onDelete ? () => onDelete(server) : undefined}
               />

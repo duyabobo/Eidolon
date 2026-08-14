@@ -96,7 +96,7 @@ async function fetchToolsList(
   host: string,
   port: number,
   userId: string,
-  toolNames: string[],
+  toolNames?: string[],
 ): Promise<CachedTool[]> {
   const body = JSON.stringify({
     jsonrpc: "2.0",
@@ -105,18 +105,22 @@ async function fetchToolsList(
   });
 
   const payload = await new Promise<string>((resolve, reject) => {
+    const headers: Record<string, string | number> = {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+      "x-user-id": userId,
+    };
+    // 有白名单才带 X-Mcp-Tools；缺省表示加载用户可见的全部 MCP 工具
+    if (toolNames && toolNames.length > 0) {
+      headers["x-mcp-tools"] = toolNames.join(",");
+    }
     const req = http.request(
       {
         hostname: host,
         port,
         path: "/mcp",
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "content-length": Buffer.byteLength(body),
-          "x-user-id": userId,
-          "x-mcp-tools": toolNames.join(","),
-        },
+        headers,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -144,6 +148,19 @@ async function fetchToolsList(
       description: tool.description,
       inputSchema: tool.inputSchema,
     }));
+}
+
+/**
+ * 拉取用户当前可见的全部 MCP 工具名（无 skill 白名单时写入 directTools）。
+ * 失败抛错，由调用方决定是否降级为仅 mcp 网关。
+ */
+export async function listAllMcpToolNames(
+  userId: string,
+  mcpProxyHost: string,
+  mcpProxyPort: number,
+): Promise<string[]> {
+  const tools = await fetchToolsList(mcpProxyHost, mcpProxyPort, userId);
+  return tools.map((t) => t.name).filter(Boolean).sort();
 }
 
 /**

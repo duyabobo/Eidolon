@@ -38,6 +38,7 @@ import {
 } from "./session-mcp-bridge";
 import { resolveMcpToolsForSkills } from "./skill-mcp";
 import { computeSkillContentFingerprint } from "./skill-reload";
+import { listAllMcpToolNames } from "./session-mcp-config";
 
 // ── 消息类型定义 ──────────────────────────────────────────────────────────────
 
@@ -161,6 +162,50 @@ async function registerSessionMcpBridgeForSkills(
 }
 
 /**
+ * 解析写入 pi-mcp-adapter 的 directTools。
+ * 无 skill 白名单时必须拉全量工具名，否则 adapter 只有 mcp 网关，
+ * 模型会误把 mcp({search}) 当成搜论文，看不到 search_papers 等具体工具。
+ */
+async function resolveDirectToolsForSession(
+  userId: string,
+  mcpToolNames: string[] | undefined,
+): Promise<string[] | undefined> {
+  if (mcpToolNames && mcpToolNames.length > 0) {
+    return mcpToolNames;
+  }
+  try {
+    const allNames = await listAllMcpToolNames(
+      userId,
+      config.mcpProxy.host,
+      config.mcpProxy.port,
+    );
+    if (allNames.length === 0) {
+      console.warn(`[worker] user=${userId}: tools/list 为空，pi 将仅有 mcp 网关工具`);
+      return undefined;
+    }
+    console.log(`[worker] user=${userId}: 无 skill 白名单，directTools 全量=${allNames.join(",")}`);
+    return allNames;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[worker] user=${userId}: 拉取全量 MCP 工具名失败，降级仅 mcp 网关: ${message}`);
+    return undefined;
+  }
+}
+
+function buildMcpDirectToolsSetup(
+  userId: string,
+  directToolNames: string[] | undefined,
+): { userId: string; toolNames: string[]; mcpProxyHost: string; mcpProxyPort: number } | undefined {
+  if (!directToolNames?.length) return undefined;
+  return {
+    userId,
+    toolNames: directToolNames,
+    mcpProxyHost: config.mcpProxy.host,
+    mcpProxyPort: config.mcpProxy.port,
+  };
+}
+
+/**
  * 启动 pi 进程、创建沙盒并注册到 runningSessions。
  * openSession（首次创建）和 handleNewMessage（自动重建）共用此函数。
  */
@@ -182,19 +227,13 @@ async function startAndRegisterSession(
   // X-Mcp-Tools：mcp-proxy 侧过滤；同时把白名单交给 startPiSession 写成
   // pi-mcp-adapter 的 directTools，否则模型工具列表里只有 mcp 网关，看不到具体工具。
   const mcpToolNames = await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
+  const directToolNames = await resolveDirectToolsForSession(userId, mcpToolNames);
 
   const piHandle = await startPiSession(
     sessionId,
     sandboxPaths,
     skillIds,
-    mcpToolNames?.length
-      ? {
-          userId,
-          toolNames: mcpToolNames,
-          mcpProxyHost: config.mcpProxy.host,
-          mcpProxyPort: config.mcpProxy.port,
-        }
-      : undefined,
+    buildMcpDirectToolsSetup(userId, directToolNames),
   );
   console.log(`[worker] session=${sessionId}: pi 进程已启动`);
 
@@ -239,20 +278,14 @@ async function restartPiForSession(
     config.llmProxy.port,
   );
   const mcpToolNames = await registerSessionMcpBridgeForSkills(sessionId, userId, skillIds);
+  const directToolNames = await resolveDirectToolsForSession(userId, mcpToolNames);
 
   const sandboxPaths = await createSandbox(userId, sessionId);
   running.piHandle = await startPiSession(
     sessionId,
     sandboxPaths,
     skillIds,
-    mcpToolNames?.length
-      ? {
-          userId,
-          toolNames: mcpToolNames,
-          mcpProxyHost: config.mcpProxy.host,
-          mcpProxyPort: config.mcpProxy.port,
-        }
-      : undefined,
+    buildMcpDirectToolsSetup(userId, directToolNames),
   );
   running.skillIds = [...skillIds];
   await refreshSkillContentFingerprint(running);

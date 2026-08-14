@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import type { McpScope, McpServerConfig, McpServerItem, McpServerStatus } from "../api/mcp";
 import { mcpApi } from "../api/mcp";
 import { configApi } from "../api/config";
-import { buildStatusMap, mergeStatus, serverStatusKey } from "./mcpManagerUtils";
+import { mergeStatus, serverStatusKey } from "./mcpManagerUtils";
 
 interface UseMcpManagerOptions {
   userId: string;
@@ -12,10 +12,8 @@ interface UseMcpManagerOptions {
 export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerOptions) {
   const [servers, setServers] = useState<McpServerItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [probingAll, setProbingAll] = useState(false);
   const [probingKeys, setProbingKeys] = useState<Set<string>>(new Set());
   const [statusMap, setStatusMap] = useState<Record<string, McpServerStatus>>({});
-  const [expandedToolKeys, setExpandedToolKeys] = useState<Set<string>>(new Set());
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -30,19 +28,6 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
     }
   }, [userId, includeDisabled]);
 
-  const probeAll = useCallback(async () => {
-    setProbingAll(true);
-    setErrMsg(null);
-    try {
-      const res = await mcpApi.getServerStatus(userId.trim() || undefined, includeDisabled);
-      setStatusMap(buildStatusMap(res.servers));
-    } catch (e) {
-      setErrMsg(e instanceof Error ? e.message : "探测失败");
-    } finally {
-      setProbingAll(false);
-    }
-  }, [userId, includeDisabled]);
-
   const probeOne = useCallback(async (server: McpServerItem) => {
     const key = serverStatusKey(server);
     setProbingKeys((prev) => new Set(prev).add(key));
@@ -54,9 +39,6 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
         server.scope,
       );
       setStatusMap((prev) => mergeStatus(prev, item));
-      if (item.available && item.tools.length > 0) {
-        setExpandedToolKeys((prev) => new Set(prev).add(key));
-      }
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "探测失败");
     } finally {
@@ -67,15 +49,6 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
       });
     }
   }, [userId]);
-
-  const toggleExpandedTools = useCallback((key: string) => {
-    setExpandedToolKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
 
   const saveServer = useCallback(async (
     scope: McpScope,
@@ -110,11 +83,6 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
         delete next[key];
         return next;
       });
-      setExpandedToolKeys((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
     }
   }, [saveServer]);
 
@@ -137,16 +105,12 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
   return {
     servers,
     loading,
-    probingAll,
     probingKeys,
     statusMap,
-    expandedToolKeys,
     errMsg,
     setErrMsg,
     load,
-    probeAll,
     probeOne,
-    toggleExpandedTools,
     saveServer,
     toggleEnabled,
     deleteServer,

@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     # ===== gateway-sse：SSE 等待新增量事件超时（秒），超时未等到则发一次心跳保活 =====
     sse_heartbeat_interval_s: float = 5.0
 
-    # ===== 知识库流水线（默认值；运行时 mineru/reranker 以 DB knowledge_pipeline 为准） =====
+    # ===== 知识库流水线（默认值；运行时 mineru 以 DB knowledge_pipeline 为准） =====
     knowledge_job_concurrency: int = 1
     knowledge_llm_max_concurrent: int = 4
     knowledge_vlm_max_concurrent: int = 2

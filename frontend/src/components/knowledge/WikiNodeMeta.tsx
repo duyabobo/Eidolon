@@ -1,4 +1,5 @@
 import type { WikiNodeItem } from "../../api/knowledge";
+import WikiInlineMarkdown from "./WikiInlineMarkdown";
 
 function pickMetaString(metadata: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
@@ -28,11 +29,19 @@ interface WikiNodeMetaProps {
   node: WikiNodeItem;
 }
 
-function MetaRow({ label, value }: { label: string; value: string }) {
+function MetaRow({ label, value, markdown = false }: { label: string; value: string; markdown?: boolean }) {
   return (
     <>
       <dt className="text-ink-500 shrink-0">{label}</dt>
-      <dd className="text-ink-900 break-words">{value || "—"}</dd>
+      <dd className="text-ink-900 break-words min-w-0">
+        {!value ? (
+          "—"
+        ) : markdown ? (
+          <WikiInlineMarkdown content={value} />
+        ) : (
+          value
+        )}
+      </dd>
     </>
   );
 }
@@ -45,15 +54,17 @@ export default function WikiNodeMeta({ node }: WikiNodeMetaProps) {
     (node.metadata ? pickMetaString(node.metadata, ["source", "source_doc_id"]) : "");
   const sourceDate =
     (node.source_date || "").trim() ||
-    (node.metadata ? pickMetaString(node.metadata, ["source_date", "source_publication_date"]) : "");
+    (node.metadata ? pickMetaString(node.metadata, ["source_date", "source_publication_date"]) : "") ||
+    (node.created_at || "").trim() ||
+    (node.metadata ? pickMetaString(node.metadata, ["created_at"]) : "");
 
   return (
     <section>
-      <h4 className="text-xs font-medium text-ink-500 mb-1.5">元数据</h4>
+      <h4 className="text-sm font-semibold text-ink-800 mb-2 tracking-wide">元数据</h4>
       <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-2 text-sm leading-relaxed">
-        <MetaRow label="名称" value={title} />
+        <MetaRow label="名称" value={title} markdown />
         <MetaRow label="类型" value={type} />
-        <MetaRow label="来源" value={source} />
+        <MetaRow label="来源" value={source} markdown />
         <MetaRow label="日期" value={sourceDate} />
       </dl>
     </section>

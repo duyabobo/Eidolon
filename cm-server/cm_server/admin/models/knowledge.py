@@ -60,25 +60,19 @@ class KnowledgeDocumentList(BaseModel):
 
 
 class KnowledgePipelineConfig(BaseModel):
-    """知识库流水线配置：mineru-api 必填，reranker 可选。"""
+    """知识库流水线配置：mineru-api 必填。"""
 
     mineru3_api_base: str = Field(default="", max_length=512)
+    mineru3_api_key: str = Field(default="", max_length=512)
     mineru3_backend: str = Field(default="pipeline", max_length=64)
     mineru3_lang: str = Field(default="ch", max_length=32)
     mineru3_parse_method: str = Field(default="auto", max_length=32)
     mineru_vlm_url: str = Field(default="", max_length=512)
-    reranker_base_url: str = Field(default="", max_length=512)
-    reranker_api_key: str = Field(default="", max_length=512)
-    reranker_model_name: str = Field(default="", max_length=128)
     updated_at: datetime | None = None
 
     @property
     def mineru_configured(self) -> bool:
         return bool(self.mineru3_api_base.strip())
-
-    @property
-    def reranker_enabled(self) -> bool:
-        return bool(self.reranker_base_url.strip())
 
     @property
     def vlm_enabled(self) -> bool:

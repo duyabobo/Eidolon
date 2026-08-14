@@ -8,7 +8,9 @@ RUN sed -i 's|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/d
  && apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+ && pip config set global.retries 5 \
+ && pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
 # 与其它 Python 服务一致：复用 pi_shared 日志（按天切割、保留 7 天）
 COPY pi-shared /pi-shared

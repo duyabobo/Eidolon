@@ -30,14 +30,17 @@
  *   PI_SANDBOX_WORKSPACE   → session 专属工作目录
  *   PI_SANDBOX_HOME        → session 专属 home
  *   PI_SANDBOX_TMP         → session 临时目录
- *   PI_SANDBOX_USER_MEMORY → 用户级长期记忆目录（MEMORY.md，跨 session）
  *   PI_SANDBOX_USER_FILES  → 用户可读写文件区（管理页上传，跨 session）
  *   PI_SANDBOX_GLOBAL_SKILLS → 系统 Skill 根目录（只读）
  *   PI_SANDBOX_USER_SKILLS  → 用户 Skill 根目录（只读）
  *   PI_SANDBOX_NETWORK_ENABLED → "true" 时允许联网（不传 --unshare-net）
- *   --unshare-net        → 禁止网络访问（PI_SANDBOX_NETWORK_ENABLED≠true 时）
- *   --unshare-pid        → 独立 PID 空间
- *   --tmpfs sandboxRoot  → 对沙盒内隐藏其他 session/user 目录
+ *   PI_OUTER_SANDBOX=1     → 已在外层隔离内：
+ *                             macOS= Seatbelt（禁 /Users 非白名单 + 断网）
+ *                             Linux= bwrap（tmpfs 藏其他 session + 可选 unshare-net）
+ *
+ * 两层模型：
+ *   层 1 代码执行：bash 继承外层内核/命名空间隔离（macOS 不可嵌套 sandbox-exec）
+ *   层 2 文件工具：guardPath 应用层 workspace jail
  */
 
 import type { BashOperations, ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -58,7 +61,6 @@ const sandboxRoot = process.env.PI_SANDBOX_ROOT ?? "/data/sandboxes";
 const sandboxWorkspace = process.env.PI_SANDBOX_WORKSPACE ?? "";
 const sandboxHome = process.env.PI_SANDBOX_HOME ?? "";
 const sandboxTmp = process.env.PI_SANDBOX_TMP ?? "";
-const sandboxUserMemory = process.env.PI_SANDBOX_USER_MEMORY ?? "";
 const sandboxUserFiles = process.env.PI_SANDBOX_USER_FILES ?? "";
 const sandboxGlobalSkills = process.env.PI_SANDBOX_GLOBAL_SKILLS ?? "";
 const sandboxUserSkills = process.env.PI_SANDBOX_USER_SKILLS ?? "";
@@ -88,7 +90,6 @@ function buildBwrapArgs(cmd: string): string[] {
     ...(sandboxTmp
       ? ["--bind", sandboxTmp, sandboxTmp, "--bind", sandboxTmp, "/tmp"]
       : ["--tmpfs", "/tmp"]),
-    ...(sandboxUserMemory ? ["--bind", sandboxUserMemory, sandboxUserMemory] : []),
     ...(sandboxUserFiles ? ["--bind", sandboxUserFiles, sandboxUserFiles] : []),
     ...(sandboxGlobalSkills ? ["--ro-bind", sandboxGlobalSkills, sandboxGlobalSkills] : []),
     ...(sandboxUserSkills ? ["--ro-bind", sandboxUserSkills, sandboxUserSkills] : []),
@@ -210,51 +211,59 @@ function createBwrapInnerOperations(): BashOperations {
 // ── 路径白名单校验 ────────────────────────────────────────────────────────────
 
 /**
- * 校验路径是否在 workspace / home / userMemory / userFiles / skills 范围内。
- * 使用 fs.realpath() 解析符号链接后再做白名单判断，防止：
- *   1. ../路径遍历（path.resolve 字符串层面已处理）
- *   2. 符号链接逃逸（workspace/link → /data/sandboxes/other-user）
- *
- * 对于尚不存在的路径（如写入新文件），逐级向上找到最近存在的父目录，
- * 对父目录做 realpath，再拼回文件名，避免误拒合法的新建文件操作。
+ * 应用层工作区 jail（两层模型层 2）：
+ * 文件工具只能访问 workspace / home / userFiles / skills。
+ * 使用 realpath 防 symlink 逃逸；新建文件对父目录做 realpath。
+ * 相对路径相对 workspace（cwd）解析。
  */
 async function guardPath(rawPath: string): Promise<{ safe: true } | { safe: false; reason: string }> {
-  const { realpath, access: fsAccess } = await import("fs/promises");
+  const { realpath } = await import("fs/promises");
   const { resolve: pathResolve, dirname, basename, join: pathJoin } = await import("path");
 
-  const tentative = pathResolve(sandboxWorkspace, rawPath);
+  const trimmed = (rawPath ?? "").trim();
+  if (!trimmed) {
+    return { safe: false, reason: "路径为空（文件工具必须提供 workspace 内相对路径，如 artifacts/out.txt）" };
+  }
+
+  const tentative = pathResolve(sandboxWorkspace, trimmed);
   const allowed = [
     sandboxWorkspace,
     sandboxHome,
-    sandboxUserMemory,
     sandboxUserFiles,
     sandboxGlobalSkills,
     sandboxUserSkills,
   ].filter(Boolean);
 
-  // 第一道：字符串检查（快速排除明显越界，如绝对路径、../遍历）
-  const tentativeOk = allowed.some((base) => tentative.startsWith(base + "/") || tentative === base);
+  const jailHint =
+    "只允许访问本会话 workspace（推荐相对路径：artifacts/xxx、uploads/xxx）、home、userFiles 和 skills；" +
+    "不要使用宿主机绝对路径（如 /Users/...）。";
+
+  const tentativeOk = allowed.some((base) => tentative === base || tentative.startsWith(`${base}/`));
   if (!tentativeOk) {
-    return { safe: false, reason: `路径越界: ${rawPath} → ${tentative}（只允许访问 workspace、home、userMemory、userFiles 和 skills）` };
+    return {
+      safe: false,
+      reason: `路径越界（应用层 jail）: ${trimmed} → ${tentative}（${jailHint}）`,
+    };
   }
 
-  // 第二道：realpath 检查（解析符号链接后再做白名单判断，防止 symlink 逃逸）
   let canonical: string;
   try {
     canonical = await realpath(tentative);
   } catch {
-    // 路径不存在（如写入新文件）：对父目录做 realpath，再拼回文件名
     try {
       const parentReal = await realpath(dirname(tentative));
       canonical = pathJoin(parentReal, basename(tentative));
     } catch {
-      canonical = tentative; // 父目录也不存在，维持原路径（访问时会自然报错）
+      canonical = tentative;
     }
   }
 
-  const canonicalOk = allowed.some((base) => canonical.startsWith(base + "/") || canonical === base);
+  const canonicalOk = allowed.some((base) => canonical === base || canonical.startsWith(`${base}/`));
   if (!canonicalOk) {
-    return { safe: false, reason: `路径越界（符号链接解析后）: ${rawPath} → ${canonical}（只允许访问 workspace、home、userMemory、userFiles 和 skills）` };
+    return {
+      safe: false,
+      reason: `路径越界（符号链接解析后）: ${trimmed} → ${canonical}（${jailHint}）`,
+    };
   }
 
   return { safe: true };
@@ -278,7 +287,7 @@ export default function (pi: ExtensionAPI) {
 
   // bash：完全替换为 bwrap 沙盒执行（LLM 调用路径）
   const bwrapBash = createBashTool(sandboxWorkspace, { operations: createBwrapBashOperations() });
-  pi.registerTool({ ...bwrapBash, label: "bash (bwrap sandbox)" });
+  pi.registerTool({ ...bwrapBash, label: "bash (sandboxed)" });
 
   // user_bash：用户在 TUI 里直接输入 shell 命令的路径（--mode rpc 下通常不触发，防御性兜底）
   pi.on("user_bash", () => ({ operations: createBwrapBashOperations() }));
@@ -334,7 +343,7 @@ export default function (pi: ExtensionAPI) {
   // pi-session.ts 依赖此文件做 fail-closed 启动校验。
   if (piCodingAgentDir) {
     writeFileSync(join(piCodingAgentDir, "bwrap.ready"), "1", { flag: "w" });
-    console.error(`[bwrap] 沙盒扩展已就绪 workspace=${sandboxWorkspace} home=${sandboxHome} memory=${sandboxUserMemory} files=${sandboxUserFiles} tmp=${sandboxTmp}`);
+    console.error(`[bwrap] 沙盒扩展已就绪 workspace=${sandboxWorkspace} home=${sandboxHome} files=${sandboxUserFiles} tmp=${sandboxTmp}`);
   } else {
     console.error("[bwrap] 警告: PI_CODING_AGENT_DIR 未设置，无法写入就绪标记文件");
   }

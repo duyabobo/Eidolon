@@ -26,7 +26,7 @@ from cm_server.admin.models.wiki import (
 from cm_server.mrag import storage
 from cm_server.mrag.doc_status import get_document_row, map_public_status
 from cm_server.mrag.pipeline.models import DocNode, DocTree
-from cm_server.mrag.pipeline.wiki_compile import safe_filename
+from cm_server.mrag.pipeline.wiki_node_files import safe_filename
 from cm_server.mrag.pipeline.wiki_markdown import parse_wiki_markdown
 
 logger = logging.getLogger(__name__)
@@ -161,8 +161,7 @@ def _tree_id_from_graph_id(node_id: str) -> str | None:
     for prefix in (_SECTION_PREFIX, _COMPILED_PREFIX, _ORIGINAL_PREFIX):
         if raw.startswith(prefix):
             return raw[len(prefix) :]
-    # 兼容旧图谱：曾用裸 tree_id 表示 section
-    return raw
+    return None
 
 
 def _detail_from_wiki(kb_id: str, doc_id: str, node_id: str) -> WikiNodeItem | None:
@@ -170,12 +169,12 @@ def _detail_from_wiki(kb_id: str, doc_id: str, node_id: str) -> WikiNodeItem | N
     if path is None and node_id.startswith(_SECTION_PREFIX):
         return None
     if path is None:
-        # 兼容传入裸 tree_id / 缺前缀的 compiled
         tree_id = _tree_id_from_graph_id(node_id)
-        if tree_id:
+        if tree_id and not node_id.startswith(_ORIGINAL_PREFIX):
+            # 图谱叶子 id 为 compiled_*：只找文档 wiki 下的 compiled，不回退 original
             path = _resolve_wiki_path(kb_id, doc_id, f"{_COMPILED_PREFIX}{tree_id}")
-            if path is None:
-                path = _resolve_wiki_path(kb_id, doc_id, f"{_ORIGINAL_PREFIX}{tree_id}")
+        elif tree_id and node_id.startswith(_ORIGINAL_PREFIX):
+            path = _resolve_wiki_path(kb_id, doc_id, f"{_ORIGINAL_PREFIX}{tree_id}")
     if path is None:
         return None
     item = _parse_wiki_markdown(path.read_text(encoding="utf-8"), node_id)
@@ -200,6 +199,9 @@ def _detail_from_section(kb_id: str, doc_id: str, node_id: str) -> WikiNodeItem 
     if found.is_leaf():
         return None
     body = tree.slice_text(found).strip()
+    if not body and found.children:
+        child_lines = [f"- {child.title}" for child in found.children if (child.title or "").strip()]
+        body = "本章包含以下小节：\n" + "\n".join(child_lines) if child_lines else ""
     graph_id = _graph_node_id(found)
     return WikiNodeItem(
         node_id=graph_id,
@@ -321,13 +323,13 @@ async def node_detail(
             kb_candidates = [p.name for p in root.iterdir() if p.is_dir()]
 
     for kb_id, candidate_doc_id in _iter_candidate_docs(kb_candidates, doc_id):
-        # 1) wiki 文件是叶子/综述的权威源
+        # 1) 文档 wiki 目录下的 compiled_*.md 是叶子/综述权威源
         item = _detail_from_wiki(kb_id, candidate_doc_id, node_id)
         if item is not None:
             took_ms = int((time.time() - started) * 1000)
             return WikiNodeDetailResponse(node=item, took_ms=took_ms)
 
-        # 2) section_* / 旧版裸 tree_id：权威源是 phase2 文档树
+        # 2) section_*：权威源是 phase2 文档树
         item = _detail_from_section(kb_id, candidate_doc_id, node_id)
         if item is not None:
             took_ms = int((time.time() - started) * 1000)

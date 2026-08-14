@@ -8,8 +8,12 @@ import { extname, join, normalize } from "path";
  * vite.config.ts 代理配置的产品前提，不改前端源码。桌面端没有 nginx，用这个本机 HTTP
  * 服务器复刻同样的路由划分：API 前缀转发给 cm-server，其余请求当静态文件 + SPA history
  * fallback（BrowserRouter 需要）。
+ *
+ * `/skills`、`/mcp`、`/config` 与 SPA 页面路径冲突：浏览器导航 Accept 含 text/html 时走
+ * SPA；前端 fetch（Accept 为通配）仍代理到 cm-server。
  */
 const API_PATH_PREFIXES = ["/sessions", "/conversations", "/skills", "/mcp", "/health", "/config"];
+const SPA_PAGE_API_PATHS = new Set(["/skills", "/mcp", "/config"]);
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -22,7 +26,14 @@ const MIME_TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-function isApiRequest(path: string): boolean {
+function isSpaPageNavigation(path: string, acceptHeader: string | undefined): boolean {
+  return SPA_PAGE_API_PATHS.has(path) && (acceptHeader?.includes("text/html") ?? false);
+}
+
+function isApiRequest(path: string, acceptHeader?: string): boolean {
+  if (isSpaPageNavigation(path, acceptHeader)) {
+    return false;
+  }
   return API_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
@@ -63,7 +74,8 @@ export function startStaticAndProxyServer(options: {
 
   const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    if (isApiRequest(url.pathname)) {
+    const accept = typeof req.headers.accept === "string" ? req.headers.accept : undefined;
+    if (isApiRequest(url.pathname, accept)) {
       proxy.web(req, res);
       return;
     }

@@ -12,20 +12,19 @@ export default function WikiConnectionList({ links, onNavigate }: WikiConnection
   return (
     <ul className="space-y-2.5">
       {links.map((link) => {
-        const target = link.nodeId || link.label;
-        const clickable = Boolean(target);
+        const clickable = Boolean(link.nodeId);
         return (
           <li key={`${link.nodeId || link.label}-${link.description}`} className="text-sm leading-relaxed">
             {clickable ? (
               <button
                 type="button"
-                onClick={() => onNavigate(target)}
+                onClick={() => onNavigate(link.nodeId)}
                 className="text-brand-600 hover:text-brand-700 underline underline-offset-2 font-medium text-left inline"
               >
                 <WikiInlineMarkdown content={link.label} />
               </button>
             ) : (
-              <WikiInlineMarkdown content={link.label} className="text-ink-800" />
+              <WikiInlineMarkdown content={link.label} className="text-ink-800 font-medium" />
             )}
             {link.description ? (
               <>

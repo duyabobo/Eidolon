@@ -5,7 +5,7 @@ import { useChatSession } from "../context/ChatSessionContext";
 export default function SkillsPage() {
   const { userId, loadSkills } = useChatSession();
   return (
-    <ManagePageLayout title="技能">
+    <ManagePageLayout title="经验">
       <SkillsPanel userId={userId} onSkillsChanged={loadSkills} />
     </ManagePageLayout>
   );

@@ -8,6 +8,10 @@ export interface WorkspaceEntry {
   size: number;
   mtime: string | null;
   readonly: boolean;
+  doc_id?: string | null;
+  kb_id?: string | null;
+  wiki_compiled?: boolean;
+  knowledge_status?: string | null;
 }
 
 export interface WorkspaceListResponse {

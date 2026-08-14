@@ -13,6 +13,8 @@ import {
 interface WikiGraphViewProps {
   graph: WikiDocumentGraph;
   selectedNodeId: string | null;
+  /** 与详情「引用」对齐的高亮节点；未传时回退为树邻接 */
+  highlightNodeIds?: Set<string>;
   onNodeClick: (node: WikiGraphNode) => void;
 }
 
@@ -68,7 +70,12 @@ function EdgeDescriptionLabel({
   );
 }
 
-export default function WikiGraphView({ graph, selectedNodeId, onNodeClick }: WikiGraphViewProps) {
+export default function WikiGraphView({
+  graph,
+  selectedNodeId,
+  highlightNodeIds,
+  onNodeClick,
+}: WikiGraphViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
 
@@ -93,10 +100,12 @@ export default function WikiGraphView({ graph, selectedNodeId, onNodeClick }: Wi
     [layoutNodes],
   );
 
-  const relatedNodeIds = useMemo(
-    () => collectRelatedNodeIds(selectedNodeId, graph.edges),
-    [selectedNodeId, graph.edges],
-  );
+  const relatedNodeIds = useMemo(() => {
+    if (highlightNodeIds && highlightNodeIds.size > 0) {
+      return highlightNodeIds;
+    }
+    return collectRelatedNodeIds(selectedNodeId, graph.edges);
+  }, [highlightNodeIds, selectedNodeId, graph.edges]);
 
   const hasSelection = Boolean(selectedNodeId);
 
@@ -116,7 +125,7 @@ export default function WikiGraphView({ graph, selectedNodeId, onNodeClick }: Wi
         </span>
         <span className="text-[11px] text-ink-400">
           {hasSelection
-            ? "蓝色为选中节点及其 Connections 出边（不含入边）"
+            ? "蓝色为选中节点及其引用目标"
             : "点击节点查看详情与关联关系"}
         </span>
       </div>
@@ -135,9 +144,15 @@ export default function WikiGraphView({ graph, selectedNodeId, onNodeClick }: Wi
           const target = nodeMap.get(edge.target_id);
           if (!source || !target) return null;
 
-          const active = hasSelection && selectedNodeId
-            ? isEdgeConnectedToNode(edge, selectedNodeId)
-            : false;
+          let active = false;
+          if (selectedNodeId) {
+            active = highlightNodeIds && highlightNodeIds.size > 0
+              ? (
+                (edge.source_id === selectedNodeId && relatedNodeIds.has(edge.target_id))
+                || (edge.target_id === selectedNodeId && relatedNodeIds.has(edge.source_id))
+              )
+              : isEdgeConnectedToNode(edge, selectedNodeId);
+          }
 
           return (
             <g key={`${edge.source_id}-${edge.target_id}-${edge.description}`}>

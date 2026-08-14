@@ -14,7 +14,7 @@ from cm_server.admin.models.knowledge import (
     ServiceTestResult,
 )
 from cm_server.admin.services import knowledge_pipeline_store
-from cm_server.admin.services.pipeline_probe import probe_mineru, probe_reranker
+from cm_server.admin.services.pipeline_probe import probe_mineru
 from cm_server.admin.services.knowledge_store import create_base as local_create_base
 from cm_server.admin.services.knowledge_store import delete_base as local_delete_base
 from cm_server.admin.services.knowledge_store import delete_document as local_delete_document
@@ -44,11 +44,6 @@ async def api_save_pipeline_config(body: KnowledgePipelineConfig) -> KnowledgePi
 @router.post("/service/test-mineru", response_model=ServiceTestResult)
 async def api_test_mineru(body: KnowledgePipelineConfig) -> ServiceTestResult:
     return await probe_mineru(body)
-
-
-@router.post("/service/test-reranker", response_model=ServiceTestResult)
-async def api_test_reranker(body: KnowledgePipelineConfig) -> ServiceTestResult:
-    return await probe_reranker(body)
 
 
 @router.get("/bases", response_model=KnowledgeBaseList)

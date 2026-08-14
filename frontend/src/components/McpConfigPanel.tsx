@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
 import { configApi, McpServerConfig } from "../api/config";
 import type { McpServerItem } from "../api/mcp";
-import { ConfigPrimaryBtn, ConfigToolbarBtn } from "./config/ConfigActionBtn";
 import { ScopeBadge } from "./config/ConfigListItem";
 import {
   ConfigEmptyState,
   ConfigListPagination,
-  ConfigListToolbar,
   ConfigPanelLayout,
 } from "./config/ConfigPanelLayout";
+import {
+  MarketComingSoon,
+  MineMarketToolbar,
+  type MineMarketTab,
+} from "./config/MineMarketTabs";
 import { CONFIG_PAGE_SIZE, useClientPagination } from "./config/useClientPagination";
 import { McpEditModal, McpServerRow } from "./McpServerUi";
 import { serverStatusKey } from "./mcpManagerUtils";
@@ -28,19 +31,16 @@ interface Props {
 }
 
 export default function McpConfigPanel({ userId }: Props) {
+  const [tab, setTab] = useState<MineMarketTab>("mine");
   const {
     servers,
     loading,
-    probingAll,
     probingKeys,
     statusMap,
-    expandedToolKeys,
     errMsg,
     setErrMsg,
     load,
-    probeAll,
     probeOne,
-    toggleExpandedTools,
     saveServer,
     toggleEnabled,
     deleteServer,
@@ -149,34 +149,27 @@ export default function McpConfigPanel({ userId }: Props) {
 
   return (
     <ConfigPanelLayout
-      loading={loading}
+      loading={tab === "mine" && loading}
       errMsg={errMsg}
       toolbar={(
-        <ConfigListToolbar
-          left={<p className="text-xs text-ink-500">含已禁用 Server；可用性需手动测试后刷新 tool 列表</p>}
-          right={(
-            <>
-              <ConfigToolbarBtn
-                onClick={() => void probeAll()}
-                disabled={probingAll || servers.length === 0}
-              >
-                {probingAll ? "测试中…" : "测试全部"}
-              </ConfigToolbarBtn>
-              <ConfigPrimaryBtn onClick={openUserCreate}>添加</ConfigPrimaryBtn>
-            </>
-          )}
+        <MineMarketToolbar
+          tab={tab}
+          onTabChange={setTab}
+          onAdd={openUserCreate}
         />
       )}
-      pagination={(
+      pagination={tab === "mine" ? (
         <ConfigListPagination
           page={pagination.page}
           pageSize={pagination.pageSize}
           total={pagination.total}
           onPageChange={pagination.setPage}
         />
-      )}
+      ) : undefined}
     >
-      {servers.length === 0 ? (
+      {tab === "market" ? (
+        <MarketComingSoon subtitle="工具服务市场正在规划中，敬请期待" />
+      ) : servers.length === 0 ? (
         <ConfigEmptyState message="暂无 MCP Server" />
       ) : (
         <div className="space-y-2">
@@ -188,11 +181,9 @@ export default function McpConfigPanel({ userId }: Props) {
                 server={server}
                 status={statusMap[key]}
                 probing={probingKeys.has(key)}
-                toolsExpanded={expandedToolKeys.has(key)}
                 scopeBadge={<ScopeBadge scope={server.scope} />}
                 onToggleEnabled={(enabled) => void handleToggleEnabled(server, enabled)}
                 onProbe={() => void probeOne(server)}
-                onToggleTools={() => toggleExpandedTools(key)}
                 onEdit={() => (server.scope === "system" ? void openSystemEdit(server) : openUserEdit(server))}
                 onDelete={() => void handleDelete(server)}
               />

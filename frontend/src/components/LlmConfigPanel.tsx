@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { configApi, LlmProfile, LlmProfileCreate } from "../api/config";
 import { ConfigActionBtn, ConfigPrimaryBtn } from "./config/ConfigActionBtn";
 import { ConfigListItem } from "./config/ConfigListItem";
@@ -8,6 +8,7 @@ import {
   ConfigListToolbar,
   ConfigPanelLayout,
 } from "./config/ConfigPanelLayout";
+import { ModalOverlay } from "./config/ModalOverlay";
 import { CONFIG_PAGE_SIZE, useClientPagination } from "./config/useClientPagination";
 
 const EMPTY_FORM: LlmProfileCreate = {
@@ -30,7 +31,17 @@ type ModalState =
   | { mode: "create"; form: LlmProfileCreate }
   | { mode: "edit"; profile: LlmProfile; form: LlmProfileCreate };
 
-export default function LlmConfigPanel() {
+interface LlmConfigPanelProps {
+  /** 为 true 时不在面板内渲染「添加」（由外层 Tab 行右上角统一放置） */
+  hideToolbarAdd?: boolean;
+  /** 外层递增该值以触发打开「添加」弹窗 */
+  createRequestId?: number;
+}
+
+export default function LlmConfigPanel({
+  hideToolbarAdd = false,
+  createRequestId = 0,
+}: LlmConfigPanelProps) {
   const [profiles, setProfiles] = useState<LlmProfile[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,6 +50,7 @@ export default function LlmConfigPanel() {
   const [saving, setSaving] = useState(false);
   const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const lastCreateRequestId = useRef(createRequestId);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,9 +78,18 @@ export default function LlmConfigPanel() {
     }
   };
 
-  const openCreate = () => {
-    setModal({ mode: "create", form: { ...EMPTY_FORM, name: `配置 ${profiles.length + 1}` } });
-  };
+  const openCreate = useCallback(() => {
+    setModal({
+      mode: "create",
+      form: { ...EMPTY_FORM, name: `配置 ${profiles.length + 1}` },
+    });
+  }, [profiles.length]);
+
+  useEffect(() => {
+    if (createRequestId === lastCreateRequestId.current) return;
+    lastCreateRequestId.current = createRequestId;
+    if (createRequestId > 0) openCreate();
+  }, [createRequestId, openCreate]);
 
   const openEdit = (profile: LlmProfile) => {
     setModal({
@@ -142,94 +163,99 @@ export default function LlmConfigPanel() {
   const pagination = useClientPagination(profiles, CONFIG_PAGE_SIZE);
 
   return (
-    <ConfigPanelLayout
-      loading={loading}
-      loadingText="加载 LLM 配置…"
-      errMsg={errMsg}
-      toolbar={(
-        <ConfigListToolbar
-          left={<p className="text-xs text-ink-500">选择当前生效的 LLM 配置（单选）</p>}
-          right={<ConfigPrimaryBtn onClick={openCreate}>添加</ConfigPrimaryBtn>}
-        />
-      )}
-      pagination={(
-        <ConfigListPagination
-          page={pagination.page}
-          pageSize={pagination.pageSize}
-          total={pagination.total}
-          onPageChange={pagination.setPage}
-        />
-      )}
-    >
-      {profiles.length === 0 ? (
-        <ConfigEmptyState message="暂无 LLM 配置，点击「添加」创建" />
-      ) : (
-        <div className="space-y-2">
-          {pagination.slice.map((profile) => {
-            const testing = testingIds.has(profile.id);
-            const testResult = testResults[profile.id];
-            return (
-              <ConfigListItem
-                key={profile.id}
-                leading={(
-                  <input
-                    type="radio"
-                    name="llm-profile"
-                    checked={activeId === profile.id}
-                    onChange={() => void handleSelect(profile.id)}
-                    className="accent-brand-600 mt-1"
-                  />
-                )}
-                title={profile.name}
-                meta={(
-                  <>
-                    {activeId === profile.id && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-brand-50 text-brand-700">
-                        当前生效
-                      </span>
-                    )}
-                    {testing && !testResult && (
-                      <span className="text-[10px] text-ink-400">测试中…</span>
-                    )}
-                    {testResult && (
-                      <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded-full max-w-[220px] truncate ${
-                          testResult.ok
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-rose-50 text-rose-700"
-                        }`}
-                        title={testResult.message}
-                      >
-                        {testResult.ok ? `可用 · ${testResult.message}` : "不可用"}
-                      </span>
-                    )}
-                  </>
-                )}
-                subtitle={`${profile.protocol} · ${profile.model} · ${profile.base_url}`}
-                actions={(
-                  <>
-                    <ConfigActionBtn
-                      variant="sky"
-                      disabled={testing}
-                      onClick={() => void handleTest(profile)}
-                    >
-                      {testing ? "测试中…" : "测试"}
-                    </ConfigActionBtn>
-                    <ConfigActionBtn onClick={() => openEdit(profile)}>编辑</ConfigActionBtn>
-                    <ConfigActionBtn
-                      variant="danger"
-                      disabled={profiles.length <= 1}
-                      onClick={() => void handleDelete(profile)}
-                    >
-                      删除
-                    </ConfigActionBtn>
-                  </>
-                )}
+    <>
+      <ConfigPanelLayout
+        loading={loading}
+        loadingText="加载 LLM 配置…"
+        errMsg={errMsg}
+        toolbar={
+          hideToolbarAdd
+            ? undefined
+            : (
+              <ConfigListToolbar
+                right={<ConfigPrimaryBtn onClick={openCreate}>添加</ConfigPrimaryBtn>}
               />
-            );
-          })}
-        </div>
-      )}
+            )
+        }
+        pagination={(
+          <ConfigListPagination
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            total={pagination.total}
+            onPageChange={pagination.setPage}
+          />
+        )}
+      >
+        {profiles.length === 0 ? (
+          <ConfigEmptyState message="暂无 LLM 配置，点击「添加」创建" />
+        ) : (
+          <div className="space-y-2">
+            {pagination.slice.map((profile) => {
+              const testing = testingIds.has(profile.id);
+              const testResult = testResults[profile.id];
+              return (
+                <ConfigListItem
+                  key={profile.id}
+                  leading={(
+                    <input
+                      type="radio"
+                      name="llm-profile"
+                      checked={activeId === profile.id}
+                      onChange={() => void handleSelect(profile.id)}
+                      className="accent-brand-600 mt-1"
+                    />
+                  )}
+                  title={profile.name}
+                  meta={(
+                    <>
+                      {activeId === profile.id && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-brand-50 text-brand-700">
+                          当前生效
+                        </span>
+                      )}
+                      {testing && !testResult && (
+                        <span className="text-[10px] text-ink-400">测试中…</span>
+                      )}
+                      {testResult && (
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded-full max-w-[220px] truncate ${
+                            testResult.ok
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-rose-50 text-rose-700"
+                          }`}
+                          title={testResult.message}
+                        >
+                          {testResult.ok ? `可用 · ${testResult.message}` : "不可用"}
+                        </span>
+                      )}
+                    </>
+                  )}
+                  subtitle={`${profile.protocol} · ${profile.model} · ${profile.base_url}`}
+                  actions={(
+                    <>
+                      <ConfigActionBtn
+                        variant="sky"
+                        disabled={testing}
+                        onClick={() => void handleTest(profile)}
+                      >
+                        {testing ? "测试中…" : "测试"}
+                      </ConfigActionBtn>
+                      <ConfigActionBtn onClick={() => openEdit(profile)}>编辑</ConfigActionBtn>
+                      <ConfigActionBtn
+                        variant="danger"
+                        disabled={profiles.length <= 1}
+                        onClick={() => void handleDelete(profile)}
+                      >
+                        删除
+                      </ConfigActionBtn>
+                    </>
+                  )}
+                />
+              );
+            })}
+          </div>
+        )}
+      </ConfigPanelLayout>
 
       {modal && (
         <LlmProfileModal
@@ -240,7 +266,7 @@ export default function LlmConfigPanel() {
           onCancel={() => setModal(null)}
         />
       )}
-    </ConfigPanelLayout>
+    </>
   );
 }
 
@@ -258,14 +284,18 @@ function LlmProfileModal({
   const set = (patch: Partial<LlmProfileCreate>) => onChange({ ...form, ...patch });
 
   return (
-    <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-panel w-full max-w-lg border border-ink-200/60 max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-ink-200/60">
+    <ModalOverlay onBackdropClick={onCancel}>
+      {/* 与工具 MCP 添加弹框同款：内容自适应高度，居中于视口 */}
+      <div
+        className="bg-white rounded-2xl shadow-panel w-full max-w-lg border border-ink-200/60 max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 py-4 border-b border-ink-200/60 shrink-0">
           <h2 className="font-semibold text-ink-900">
             {modal.mode === "create" ? "添加 LLM 配置" : `编辑 · ${modal.profile.name}`}
           </h2>
         </div>
-        <div className="px-6 py-4 space-y-3">
+        <div className="px-6 py-4 space-y-3 overflow-y-auto min-h-0 flex-1">
           <div className="flex gap-2 flex-wrap">
             {Object.entries(PRESETS).map(([key, preset]) => (
               <button
@@ -327,7 +357,7 @@ function LlmProfileModal({
             className="ui-field w-full"
           />
         </div>
-        <div className="px-6 py-4 border-t border-ink-200/60 flex justify-end gap-2">
+        <div className="px-6 py-4 border-t border-ink-200/60 flex justify-end gap-2 shrink-0">
           <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-ink-200 rounded-xl">
             取消
           </button>
@@ -341,6 +371,6 @@ function LlmProfileModal({
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

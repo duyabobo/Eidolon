@@ -71,6 +71,11 @@ def _resolve_result_url(base_url: str, task_id: str, result_url: str | None) -> 
     return configured
 
 
+def _auth_headers(api_key: str) -> dict[str, str]:
+    key = (api_key or "").strip()
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
 def _format_submit_error(status_code: int, body: str, file_path: Path) -> str:
     size_mb = file_path.stat().st_size / (1024 * 1024)
     if status_code == 413:
@@ -88,6 +93,7 @@ def _format_submit_error(status_code: int, body: str, file_path: Path) -> str:
 
 def _submit_and_wait_once(file_path: Path, runtime: MragRuntimeSettings) -> dict[str, Any]:
     base_url = runtime.mineru3_api_base.rstrip("/")
+    headers = _auth_headers(runtime.mineru3_api_key)
     form_data = {
         "lang_list": runtime.mineru3_lang,
         "backend": runtime.mineru3_backend,
@@ -108,12 +114,13 @@ def _submit_and_wait_once(file_path: Path, runtime: MragRuntimeSettings) -> dict
             with open(file_path, "rb") as f:
                 files = [("files", (file_path.name, f, _guess_mime(file_path)))]
                 logger.info(
-                    "[MinerU3] 开始提交: file=%s size=%d base=%s",
+                    "[MinerU3] 开始提交: file=%s size=%d base=%s has_key=%s",
                     file_path.name,
                     file_path.stat().st_size,
                     base_url,
+                    bool(headers),
                 )
-                submit_resp = client.post("/tasks", data=form_data, files=files)
+                submit_resp = client.post("/tasks", data=form_data, files=files, headers=headers)
             _raise_if_unavailable("提交任务", submit_resp.status_code, submit_resp.text)
             if submit_resp.status_code != 202:
                 raise RuntimeError(_format_submit_error(submit_resp.status_code, submit_resp.text, file_path))
@@ -136,6 +143,7 @@ def _submit_and_wait_once(file_path: Path, runtime: MragRuntimeSettings) -> dict
                 result_resp = client.get(
                     result_url,
                     timeout=runtime.mineru3_submit_timeout_seconds,
+                    headers=headers,
                 )
                 _raise_if_unavailable("查询结果", result_resp.status_code, result_resp.text)
                 if result_resp.status_code == 200:

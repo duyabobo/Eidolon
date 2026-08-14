@@ -1,8 +1,13 @@
 /**
  * 本轮 workspace 产物检测：turn 开始快照 mtime，结束时 diff 出新增/修改文件。
+ * 优先扫描 artifacts/；兼容历史遗留的 workspace 根下非分区文件。
  */
 import { readdir, stat } from "fs/promises";
 import { basename, join, relative } from "path";
+import {
+  SESSION_WORKSPACE_ZONES,
+  SESSION_ZONE_ARTIFACTS,
+} from "./session-workspace";
 
 export type WorkspaceSnapshot = Map<string, number>;
 
@@ -24,9 +29,13 @@ const SKIP_DIR_NAMES = new Set([
   "dist",
   "build",
   ".cache",
+  // 非 Agent 产物分区（含历史 memory 分区残留）
+  ...SESSION_WORKSPACE_ZONES.filter((z) => z !== SESSION_ZONE_ARTIFACTS),
+  "memory",
 ]);
 
 const MAX_WALK_DEPTH = 8;
+const ZONE_SET = new Set<string>(SESSION_WORKSPACE_ZONES);
 
 async function walkFiles(
   root: string,
@@ -63,10 +72,43 @@ async function walkFiles(
   }
 }
 
-/** 对 workspace 根目录做 mtime 快照（relPath → mtimeMs） */
+/** 兼容：workspace 根下不在已知分区内的遗留文件/目录 */
+async function walkLegacyRootEntries(
+  workspaceRoot: string,
+  out: WorkspaceSnapshot,
+): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(workspaceRoot, { withFileTypes: true });
+  } catch (err) {
+    console.warn(`[workspace-artifacts] 无法读取 workspace 根 ${workspaceRoot}:`, err);
+    return;
+  }
+
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    if (ZONE_SET.has(entry.name)) continue;
+    const abs = join(workspaceRoot, entry.name);
+    if (entry.isDirectory()) {
+      await walkFiles(workspaceRoot, abs, 1, out);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    try {
+      const info = await stat(abs);
+      out.set(entry.name, info.mtimeMs);
+    } catch (err) {
+      console.warn(`[workspace-artifacts] 无法 stat ${abs}:`, err);
+    }
+  }
+}
+
+/** 对 workspace 做 mtime 快照（relPath → mtimeMs） */
 export async function snapshotWorkspace(workspaceRoot: string): Promise<WorkspaceSnapshot> {
-  const snap: WorkspaceSnapshot = new Map();
-  await walkFiles(workspaceRoot, workspaceRoot, 0, snap);
+  const snap = new Map<string, number>();
+  const artifactsRoot = join(workspaceRoot, SESSION_ZONE_ARTIFACTS);
+  await walkFiles(workspaceRoot, artifactsRoot, 0, snap);
+  await walkLegacyRootEntries(workspaceRoot, snap);
   return snap;
 }
 
@@ -102,9 +144,4 @@ export async function diffWorkspaceArtifacts(
 
   changed.sort((a, b) => a.relPath.localeCompare(b.relPath));
   return changed;
-}
-
-/** 供 download API 使用的用户根相对路径 */
-export function artifactDownloadPath(sessionId: string, relPath: string): string {
-  return `sessions/${sessionId}/workspace/${relPath}`;
 }

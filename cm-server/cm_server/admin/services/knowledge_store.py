@@ -177,7 +177,13 @@ def document_file_path(kb_id: str, doc_id: str, filename: str) -> Path:
     return storage.resolve_original_file(kb_id, doc_id, filename)
 
 
-async def upload_document(kb_id: str, upload: UploadFile, *, process: bool = True) -> KnowledgeDocument:
+async def upload_document(
+    kb_id: str,
+    upload: UploadFile,
+    *,
+    process: bool = True,
+    owner_user_id: str | None = None,
+) -> KnowledgeDocument:
     await get_base(kb_id)
     if process:
         await knowledge_pipeline_store.require_mineru_configured()
@@ -200,27 +206,63 @@ async def upload_document(kb_id: str, upload: UploadFile, *, process: bool = Tru
 
     now = format_iso(now_china())
     doc_id = str(uuid.uuid4())
+    owner = (owner_user_id or "").strip()
     target_dir = storage.doc_dir(kb_id, doc_id)
     target_dir.mkdir(parents=True, exist_ok=True)
-    (target_dir / filename).write_bytes(content)
+    original = target_dir / filename
+    original.write_bytes(content)
+    source_file_path = str(original.resolve())
 
     initial_status = DOC_STATUS_PROCESSING if process else "uploaded"
     db = get_db()
     await db.execute(
         """
         INSERT INTO knowledge_documents
-            (id, kb_id, name, file_size, status, error_message, wiki_compiled, file_format, track_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, NULL, 0, ?, '', ?, ?)
+            (id, kb_id, name, file_size, status, error_message, wiki_compiled, file_format, track_id, owner_user_id, source_file_path, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NULL, 0, ?, '', ?, ?, ?, ?)
         """,
-        (doc_id, kb_id, filename, len(content), initial_status, suffix.lstrip("."), now, now),
+        (doc_id, kb_id, filename, len(content), initial_status, suffix.lstrip("."), owner, source_file_path, now, now),
     )
     await db.execute("UPDATE knowledge_bases SET updated_at = ? WHERE id = ?", (now, kb_id))
-    logger.info("文档已上传 kb=%s doc=%s file=%s size=%d process=%s", kb_id, doc_id, filename, len(content), process)
+    logger.info(
+        "文档已上传 kb=%s doc=%s file=%s size=%d process=%s owner=%s",
+        kb_id, doc_id, filename, len(content), process, owner or "-",
+    )
 
     if process:
         enqueue_document_processing(kb_id, doc_id)
 
     return await get_document(kb_id, doc_id)
+
+
+async def list_documents_by_source_paths(source_paths: list[str]) -> dict[str, dict]:
+    """按 source_file_path 批量查文档（会话 uploads 列表挂图谱用）。"""
+    if not source_paths:
+        return {}
+    placeholders = ",".join("?" * len(source_paths))
+    rows = await get_db().fetch_all(
+        f"SELECT * FROM knowledge_documents WHERE source_file_path IN ({placeholders})",
+        tuple(source_paths),
+    )
+    return {str(row["source_file_path"]): dict(row) for row in rows}
+
+
+async def list_documents_by_source_suffixes(rel_paths: list[str]) -> dict[str, dict]:
+    """兼容未 resolve 的旧 source_file_path：按相对路径后缀匹配。"""
+    if not rel_paths:
+        return {}
+    clauses = " OR ".join(["source_file_path LIKE ?" for _ in rel_paths])
+    rows = await get_db().fetch_all(
+        f"SELECT * FROM knowledge_documents WHERE {clauses}",
+        tuple(f"%/{rel}" for rel in rel_paths),
+    )
+    by_rel: dict[str, dict] = {}
+    for row in rows:
+        src = str(row.get("source_file_path") or "")
+        for rel in rel_paths:
+            if src.endswith(f"/{rel}") or src.endswith(rel):
+                by_rel[rel] = dict(row)
+    return by_rel
 
 
 async def delete_document(kb_id: str, doc_id: str) -> None:

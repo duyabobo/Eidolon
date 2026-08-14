@@ -41,14 +41,27 @@ async def run_understand_for_doc(
         if not tree.source_md:
             tree.source_md = phase1.read_text(encoding="utf-8")
 
-        nodes = await compile_wiki_to_files(tree, kb_id, doc_id, llm_client, runtime)
+        owner_user_id = str(row.get("owner_user_id") or "").strip() or None
+        source_name = str(row.get("name") or "")
+        source_file_path = str(row.get("source_file_path") or "").strip()
+        nodes = await compile_wiki_to_files(
+            tree,
+            kb_id,
+            doc_id,
+            llm_client,
+            runtime,
+            owner_user_id=owner_user_id,
+            source_name=source_name,
+            source_file_path=source_file_path,
+        )
         await mark_indexed(doc_id)
         elapsed = time.time() - started
         logger.info(
-            "understand 完成: doc_id=%s nodes=%s elapsed=%.1fs",
+            "understand 完成: doc_id=%s nodes=%s elapsed=%.1fs owner=%s",
             doc_id,
             len(nodes),
             elapsed,
+            owner_user_id or "-",
         )
         return {"doc_id": doc_id, "nodes": len(nodes), "elapsed": elapsed}
     except Exception as exc:

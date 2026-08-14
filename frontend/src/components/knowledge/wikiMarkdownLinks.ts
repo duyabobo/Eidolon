@@ -42,17 +42,17 @@ export function preprocessConnectionLines(content: string, graphNodes: WikiGraph
     .join("\n");
 }
 
-/** 将 [[标题]] / [[node_id|标题]] 转为可点击的 wiki 内链 */
+/** 将 [[标题]] / [[node_id|标题]] / [[标题]](文件路径) 转为可点击的 wiki 内链 */
 export function preprocessWikiMarkdown(content: string, titleIndex: Map<string, string>): string {
   let text = content;
 
   text = text.replace(
-    /\[\[([^\]|]+)\|([^\]]+)\]\]/g,
+    /\[\[([^\]|]+)\|([^\]]+)\]\](?:\([^)]*\))?/g,
     (_, nodeId: string, title: string) =>
       `[${title.trim()}](${WIKI_NODE_LINK_PREFIX}${nodeId.trim()})`,
   );
 
-  text = text.replace(/\[\[([^\]]+)\]\]/g, (match, inner: string) => {
+  text = text.replace(/\[\[([^\]]+)\]\](?:\([^)]*\))?/g, (match, inner: string) => {
     const token = inner.trim();
     if (!token) return match;
 

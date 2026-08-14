@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from pi_shared.workspace import (
@@ -15,6 +16,7 @@ from pydantic import BaseModel, Field
 from cm_server.admin.services.chat_document_service import upload_chat_document_to_knowledge
 from cm_server.gateway.config import settings
 from cm_server.gateway.services import session_store
+from cm_server.mrag.doc_status import update_document_fields
 
 logger = logging.getLogger(__name__)
 
@@ -75,11 +77,15 @@ async def session_upload(
     except WorkspaceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
+    await update_document_fields(
+        result.doc_id,
+        source_file_path=str(Path(result.stored_path).resolve()),
+    )
     event = attachment_event_payload(result, int(time.time() * 1000))
     await session_store.append_event_snapshot(session_id, event)
     logger.info(
-        "会话附件已入库 session=%s user=%s doc_id=%s file=%s",
-        session_id, uid, result.doc_id, result.filename,
+        "会话附件已入库 session=%s user=%s doc_id=%s file=%s source=%s",
+        session_id, uid, result.doc_id, result.filename, result.stored_path,
     )
     return ChatUploadResponse(
         filename=result.filename,

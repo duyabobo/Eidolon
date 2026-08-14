@@ -29,6 +29,8 @@ function AppLayout() {
           <Route path="/admin" element={<Navigate to="/skills" replace />} />
           <Route path="/admin/knowledge/bases/:kbId" element={<Navigate to="/knowledge/bases/:kbId" replace />} />
           <Route path="/admin/knowledge/bases/:kbId/documents/:docId" element={<Navigate to="/knowledge/bases/:kbId/documents/:docId" replace />} />
+          <Route path="/expert-market" element={<Navigate to="/skills" replace />} />
+          <Route path="/tool-services" element={<Navigate to="/mcp" replace />} />
         </Routes>
       </main>
     </div>

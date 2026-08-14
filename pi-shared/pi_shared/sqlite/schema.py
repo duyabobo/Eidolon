@@ -116,6 +116,8 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
     wiki_compiled INTEGER NOT NULL DEFAULT 0,
     file_format TEXT NOT NULL DEFAULT '',
     track_id TEXT NOT NULL DEFAULT '',
+    owner_user_id TEXT NOT NULL DEFAULT '',
+    source_file_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

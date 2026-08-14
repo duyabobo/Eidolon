@@ -6,7 +6,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from pi_shared.workspace.fs import WorkspaceError, save_session_workspace_upload
+from pi_shared.workspace.errors import WorkspaceError
+from pi_shared.workspace.ops import save_session_workspace_upload
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ async def persist_chat_attachment(
     upload_to_knowledge: KnowledgeUploader,
 ) -> ChatAttachmentResult:
     """
-    先知识库入库，再落盘到 session workspace，避免半成功。
+    先知识库入库，再落盘到 session workspace/uploads，避免半成功。
     upload_to_knowledge 由调用方注入（admin 本地实现 / gateway HTTP 调 admin）。
     """
     knowledge = await upload_to_knowledge()

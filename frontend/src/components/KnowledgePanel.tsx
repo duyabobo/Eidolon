@@ -4,10 +4,10 @@ import {
   knowledgeApi,
   KnowledgeBase,
   KnowledgeDocument,
-  formatFileSize,
   docStatusLabel,
 } from "../api/knowledge";
 import { formatChinaDateTime } from "../utils/datetime";
+import { formatFileSize } from "../utils/formatFileSize";
 import { ConfigActionBtn, ConfigPrimaryBtn, ConfigToolbarBtn } from "./config/ConfigActionBtn";
 import { ConfigListItem } from "./config/ConfigListItem";
 import {

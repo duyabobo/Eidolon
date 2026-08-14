@@ -51,7 +51,7 @@ async def upload_chat_document_to_knowledge(
     """将对话上传文件写入本地 knowledge，并入队解析。"""
     upload = _upload_file_from_bytes(filename, content, content_type)
     kb_id = await _ensure_local_chat_kb()
-    doc = await local_upload_document(kb_id, upload, process=True)
+    doc = await local_upload_document(kb_id, upload, process=True, owner_user_id=user_id)
     logger.info(
         "对话附件已上传本地知识库 user=%s kb_id=%s doc_id=%s file=%s",
         user_id,

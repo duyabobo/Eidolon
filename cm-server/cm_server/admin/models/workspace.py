@@ -11,6 +11,10 @@ class WorkspaceEntry(BaseModel):
     size: int = 0
     mtime: datetime | None = None
     readonly: bool = True
+    doc_id: str | None = None
+    kb_id: str | None = None
+    wiki_compiled: bool = False
+    knowledge_status: str | None = None
 
 
 class WorkspaceListResponse(BaseModel):
@@ -27,7 +31,7 @@ class ChatUploadResponse(BaseModel):
     """会话附件上传结果：落盘到 session workspace，并同步入库 knowledge。"""
 
     filename: str
-    relative_path: str = Field(description="相对目标目录的路径，如 report.pdf")
+    relative_path: str = Field(description="相对 session workspace 的路径，如 uploads/report.pdf")
     stored_path: str = Field(description="落盘绝对路径")
     size: int
     doc_id: str = Field(description="knowledge / mRAG 返回的文档 ID")

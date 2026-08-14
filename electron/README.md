@@ -13,6 +13,7 @@ Electron 主进程（本目录 src/main.ts）
   ├─ 拉起 cm-server 可执行程序（PyInstaller 产物），把 arxiv-mcp 的本机地址通过
   │  ARXIV_MCP_URL 环境变量传给它，用来刷新内置系统 MCP 记录（见下方"内置 MCP"一节）
   ├─ 拉起 pi-runtime（Electron 内置 Node 运行 dist/worker.js，ELECTRON_RUN_AS_NODE=1）
+  ├─ ProcessSupervisor 监听子进程退出并自动重启（关机时禁用）
   ├─ 起一个本机静态文件 + API 反向代理服务器（src/static-server.ts，取代容器部署里的 nginx）
   └─ 创建 BrowserWindow，加载上面那个本机服务器的地址
 ```
@@ -36,11 +37,12 @@ electron/
   package.json       # electron-builder 配置在 package.json 的 "build" 字段里
   tsconfig.json
   src/
-    main.ts           # 入口：编排启动顺序、创建窗口、退出时清理子进程
-    paths.ts           # 开发/打包两种模式下的资源路径 + 本地数据目录（app.getPath('userData')）
-    ports.ts            # 本机空闲端口分配
-    process-manager.ts   # 拉起/健康检查/优雅关闭 cm-server / pi-runtime / arxiv-mcp 三个子进程
-    static-server.ts     # 本机静态文件服务器 + API 反向代理（取代 nginx）
+    main.ts               # 入口：编排启动顺序、创建窗口、退出时清理子进程
+    paths.ts              # 开发/打包两种模式下的资源路径 + 本地数据目录（app.getPath('userData')）
+    ports.ts              # 本机空闲端口分配
+    process-manager.ts    # 拉起/健康检查/优雅关闭 cm-server / pi-runtime / 内置 MCP
+    process-supervisor.ts # 子进程意外退出后的指数退避自动重启
+    static-server.ts      # 本机静态文件服务器 + API 反向代理（取代 nginx）
 ```
 
 ## 内置 MCP（arxiv）
@@ -95,17 +97,18 @@ bash ../deploy.sh --package
 
 必须在 **Apple Silicon Mac** 上运行：PyInstaller 不支持交叉编译。
 
-`pi` CLI（`@earendil-works/pi-coding-agent@0.79.9`）与 `pi-mcp-adapter` / `bwrap` 扩展会由
-`scripts/build-pi-cli.sh` 打进 `Resources/pi-cli/`，启动时通过 `PI_BIN` / `PI_EXTENSIONS_DIR` /
-`NODE_BIN`（指向 Electron 内置 Node）注入，**不再要求用户本机全局安装 pi**。
+`pi` CLI（`@earendil-works/pi-coding-agent@0.79.9`）与 `pi-mcp-adapter` / `bwrap` 扩展、
+以及 find/grep 所需的 `fd` / `rg` 会由 `scripts/build-pi-cli.sh` 打进 `Resources/pi-cli/`，
+启动时通过 `PI_BIN` / `PI_EXTENSIONS_DIR` / `NODE_BIN`（指向 Electron 内置 Node）注入，
+**不再要求用户本机全局安装 pi**。沙盒默认禁网，不能依赖 pi 运行时从 GitHub 下载这两个工具。
 
 ## 已知限制（后续独立任务）
 
 - **未做代码签名**：`package.json` 里 `hardenedRuntime: true` 但没有配置 Apple Developer 证书，
   当前产物是未签名的 `.app`，用户首次打开会被 Gatekeeper 拦截，需要右键"打开"绕过或后续接入签名
   + notarize 流程。
-- **崩溃后不自动重启**：`process-manager.ts` 目前只负责启动时的健康检查和退出时的优雅关闭，
-  cm-server / pi-runtime / arxiv-mcp 运行期间意外退出不会自动重启，需要用户手动重开应用。
+- **子进程自动重启已实现**：`process-supervisor.ts` 在意外退出后指数退避重启（最多连续 5 次）；
+  持续健康超过 60s 后失败计数清零。关机（`stopAll`）期间不重启。连续失败达上限会弹窗并退出应用。
 
 ## 安装包说明
 

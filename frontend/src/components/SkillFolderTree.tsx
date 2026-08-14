@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SkillTreeEntry } from "../api/skills";
 import { canPreviewFile } from "../utils/filePreview";
+import { formatFileSize } from "../utils/formatFileSize";
 
 interface TreeNode {
   name: string;
@@ -56,12 +57,6 @@ function buildTree(entries: SkillTreeEntry[]): TreeNode[] {
   };
   sortNodes(root);
   return root;
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 interface Props {
@@ -150,7 +145,7 @@ export default function SkillFolderTree({
             >
               <span className="text-ink-300 w-3 shrink-0 font-mono">·</span>
               <span className="truncate flex-1 min-w-0">{node.name}</span>
-              <span className="text-[10px] text-ink-400 shrink-0">{formatSize(node.size)}</span>
+              <span className="text-[10px] text-ink-400 shrink-0">{formatFileSize(node.size)}</span>
             </button>
           </li>
         );

@@ -1,8 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
 import { createInterface } from "readline";
-import { mkdir, writeFile, rm, access as fsAccess } from "fs/promises";
-import { existsSync } from "fs";
-import { join } from "path";
+import { mkdir, writeFile, rm, access as fsAccess, symlink } from "fs/promises";
+import { dirname, join } from "path";
 import { homedir } from "os";
 import { SandboxPaths, buildOuterSandboxArgs } from "./sandbox";
 import { buildMacosSandboxArgs } from "./sandbox-macos";
@@ -21,12 +20,11 @@ import {
   planSessionResourceLimits,
 } from "./session-cgroup";
 import {
-  artifactDownloadPath,
   diffWorkspaceArtifacts,
   snapshotWorkspace,
   type WorkspaceSnapshot,
 } from "./workspace-artifacts";
-
+import { artifactDownloadPath } from "./session-workspace";
 // ── Pi RPC 协议类型 ───────────────────────────────────────────────────────────
 
 interface PiPromptCommand {
@@ -118,9 +116,57 @@ interface ActiveTurn {
   textBuffer: string;
   /** 本轮开始时 workspace 文件 mtime 快照，用于检测产物 */
   workspaceSnapshot: WorkspaceSnapshot;
+  /** 用户本轮输入 */
+  userMessage: string;
 }
 
-// ── pi config 目录管理 ────────────────────────────────────────────────────────
+// ── 桌面安装包内置搜索工具（fd / rg）──────────────────────────────────────────
+
+const BUNDLED_SEARCH_TOOLS = ["fd", "rg"] as const;
+
+/** 安装包内 pi CLI 与 fd/rg 同目录（build/pi-cli/bin）；容器未设 PI_BIN 时为空 */
+function bundledToolsBinDir(): string {
+  const piBin = (process.env.PI_BIN ?? "").trim();
+  return piBin ? dirname(piBin) : "";
+}
+
+/**
+ * 把安装包内的 fd/rg 链到 PI_CODING_AGENT_DIR/bin。
+ * pi 的 find/grep 会先查这个目录；找不到就会在沙盒里访问 GitHub（默认禁网，必然失败）。
+ */
+async function linkBundledSearchTools(piConfigDir: string, sessionId: string): Promise<void> {
+  const toolsDir = bundledToolsBinDir();
+  if (!toolsDir) return;
+
+  const destDir = join(piConfigDir, "bin");
+  await mkdir(destDir, { recursive: true });
+  const linked: string[] = [];
+  for (const name of BUNDLED_SEARCH_TOOLS) {
+    const src = join(toolsDir, name);
+    try {
+      await fsAccess(src);
+      await symlink(src, join(destDir, name));
+      linked.push(name);
+    } catch {
+      // 开发态未跑 build-pi-cli.sh 时没有这些二进制，跳过
+    }
+  }
+  if (linked.length > 0) {
+    console.log(`[pi-session] session=${sessionId}: 已链接搜索工具 ${linked.join(", ")} -> ${destDir}`);
+  } else {
+    console.warn(`[pi-session] session=${sessionId}: ${toolsDir} 下未找到 fd/rg，find/grep 可能因沙盒禁网下载失败`);
+  }
+}
+
+/** 沙盒 Python + 安装包 bin（含 fd/rg）放在 PATH 最前，不依赖本机环境 */
+function buildPiPath(): string {
+  const basePath = process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin";
+  const prefixes = [
+    (process.env.SANDBOX_PYTHON_BIN_DIR ?? "").trim(),
+    bundledToolsBinDir(),
+  ].filter(Boolean);
+  return prefixes.length > 0 ? `${prefixes.join(":")}:${basePath}` : basePath;
+}
 
 /**
  * 为 session 创建独立的 pi config 目录，写入 mcp.json（指向沙盒内 mcp-proxy 桥）、
@@ -208,6 +254,8 @@ async function setupPiConfigDir(
   });
   console.log(`[pi-session] session=${sessionId}: 已链接 ${extensionEntries.length} 个扩展，bwrap 已就绪`);
 
+  await linkBundledSearchTools(piConfigDir, sessionId);
+
   for (const [srcRoot, prefix] of [[globalSkillsRoot, "g"], [userSkillsRoot, "u"]] as const) {
     const entries = await readdir(srcRoot, { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
@@ -244,76 +292,11 @@ function buildSkillArgs(skillIds: string[], globalSkillsRoot: string, userSkills
 }
 
 /**
- * 用户已明确选定的 Skill：把 SKILL.md 全量追加进 system prompt。
- *
- * 背景：2026-06-21 起改为仅 --skill（渐进披露），模型常跳过 read 直接乱调工具。
- * 对「下拉已选」的 Skill，应跳过渐进披露，直接注入正文（与早期 buildSystemPrompt 语义一致）。
- * 使用 --append-system-prompt <文件路径>，由 pi 读入文件内容，可多次追加。
- */
-function buildSelectedSkillPromptArgs(
-  skillIds: string[],
-  globalSkillsRoot: string,
-  userSkillsRoot: string,
-): string[] {
-  if (skillIds.length === 0) return [];
-
-  const skillFiles: string[] = [];
-  for (const id of skillIds) {
-    const { scope, name } = parseSkillRef(id);
-    const candidates: string[] = [];
-    if (scope === "global" || scope === "both") {
-      candidates.push(join(globalSkillsRoot, name, "SKILL.md"));
-    }
-    if (scope === "user" || scope === "both") {
-      candidates.push(join(userSkillsRoot, name, "SKILL.md"));
-    }
-    for (const filePath of candidates) {
-      if (existsSync(filePath)) skillFiles.push(filePath);
-    }
-  }
-  if (skillFiles.length === 0) {
-    console.warn(`[pi-session] 选定 skill 无可用 SKILL.md: ${skillIds.join(", ")}`);
-    return [];
-  }
-
-  const preface = [
-    "The user explicitly selected the following skill(s) for this session.",
-    "Treat the skill body below as mandatory SOP: follow its steps in order,",
-    "do not skip intent analysis / query rewrite / primary retrieval,",
-    "and do not jump to fallback tools (e.g. web search) before the skill's primary path has been attempted.",
-  ].join(" ");
-
-  const args: string[] = ["--append-system-prompt", preface];
-  for (const filePath of skillFiles) {
-    args.push("--append-system-prompt", filePath);
-  }
-  console.log(`[pi-session] 已注入选定 skill 正文: ${skillFiles.join(", ")}`);
-  return args;
-}
-
-/**
- * 构建跨 session 长期记忆的 --append-system-prompt 参数。
- *
- * pi 通过它自己的 read/write 工具读写 MEMORY.md，无需平台层介入。
- * 记忆目录在沙盒内可读写，跨 session 永久保留，不随 session 关闭销毁。
- */
-function buildMemoryArgs(userMemoryDir: string): string[] {
-  const memoryFilePath = join(userMemoryDir, "MEMORY.md");
-  const instruction = [
-    `You have access to a persistent memory file at: ${memoryFilePath}`,
-    "This file preserves important context across different chat sessions.",
-    "At the start of a session: read the file to recall previous context (use the read tool).",
-    "During and after tasks: update the file with key decisions, findings, and context worth remembering.",
-    "Keep entries concise and structured. If the file doesn't exist yet, create it when you have something worth recording.",
-  ].join("\n");
-  return ["--append-system-prompt", instruction];
-}
-
-/**
  * 构建 pi JSONL 会话持久化参数。
  *
- * pi 将对话历史（含 compaction 摘要）保存到 userPiSessionsDir/{sessionId}.jsonl。
- * 进程重启后加载同一文件，完整恢复 messages[]，实现短期记忆跨重启保留。
+ * pi 将对话历史（含 compaction 摘要）保存为
+ * userPiSessionsDir/{timestamp}_{sessionId}.jsonl（由 pi SessionManager 命名）。
+ * 进程重启后加载同一 session-id，恢复 messages[]，实现会话级记忆。
  */
 function buildSessionArgs(userPiSessionsDir: string, sessionId: string): string[] {
   // --session-id：不存在时自动创建；--session 仅加载已有会话，首条消息会失败
@@ -348,22 +331,15 @@ export async function startPiSession(
     mcpDirectTools,
   );
 
-  const basePath = process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin";
-  // 桌面安装包：把内置 Python（含科学栈）放在 PATH 最前，agent 执行 python3 时不依赖本机环境
   const sandboxPythonBinDir = (process.env.SANDBOX_PYTHON_BIN_DIR ?? "").trim();
-  const pathWithSandboxPython = sandboxPythonBinDir
-    ? `${sandboxPythonBinDir}:${basePath}`
-    : basePath;
-
   const piEnv: Record<string, string> = {
-    PATH: pathWithSandboxPython,
+    PATH: buildPiPath(),
     HOME: sandboxPaths.home,
     TERM: process.env.TERM ?? "xterm",
     PI_SANDBOX_ROOT: process.env.SANDBOX_ROOT ?? "/data/sandboxes",
     PI_SANDBOX_WORKSPACE: sandboxPaths.workspace,
     PI_SANDBOX_HOME: sandboxPaths.home,
     PI_SANDBOX_TMP: sandboxPaths.sessionTmp,
-    PI_SANDBOX_USER_MEMORY: sandboxPaths.userMemory,
     PI_SANDBOX_USER_FILES: sandboxPaths.userFiles,
     USER_FILES: sandboxPaths.userFiles,
     PI_SANDBOX_GLOBAL_SKILLS: sandboxPaths.globalSkills,
@@ -395,12 +371,6 @@ export async function startPiSession(
   }
 
   const skillArgs = buildSkillArgs(skillIds, sandboxPaths.globalSkills, sandboxPaths.userSkills);
-  const selectedSkillPromptArgs = buildSelectedSkillPromptArgs(
-    skillIds,
-    sandboxPaths.globalSkills,
-    sandboxPaths.userSkills,
-  );
-  const memoryArgs = buildMemoryArgs(sandboxPaths.userMemory);
   const sessionArgs = buildSessionArgs(sandboxPaths.userPiSessions, sessionId);
   const piArgs = [
     "--mode", "rpc",
@@ -408,8 +378,6 @@ export async function startPiSession(
     "--model", "default",
     ...sessionArgs,
     ...skillArgs,
-    ...selectedSkillPromptArgs,
-    ...memoryArgs,
   ];
 
   // sandbox-init.sh 负责：启用 loopback（Linux）、启动 TCP↔Unix socket 桥、exec pi
@@ -649,6 +617,7 @@ export async function startPiSession(
           bwrapChecked: false,
           textBuffer: "",
           workspaceSnapshot,
+          userMessage: message,
         };
 
         const promptPayload: PiPromptCommand = { type: "prompt", message };

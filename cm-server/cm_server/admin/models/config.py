@@ -43,7 +43,7 @@ class SkillMeta(BaseModel):
       （见 pi-runtime/src/skill-mcp.ts、mcp-proxy/services/mcp_cache_manager.py）。
       Skill 只描述工具名，不记录工具来自哪个业务 MCP Server（Agent 侧看不到 Server 名，记了没用）。
 
-    source：来源标记。空=对话创建；github=从 GitHub 导入（不可对话编辑）。
+    source：来源标记。空=对话创建/已归自己；github=从 GitHub 导入（可继续编辑，发布后清空）。
     """
     name: str
     description: str

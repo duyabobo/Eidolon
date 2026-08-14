@@ -79,10 +79,6 @@ async def start_session(
     欢迎语使用静态文本，不调用 LLM，保证即开即用。
     """
     if skill_name:
-        meta = await skill_meta_store.get_skill_meta(skill_name, user_id)
-        if meta and meta.source == "github":
-            raise ValueError("从 GitHub 导入的 Skill 不支持对话编辑，请直接查看目录文件")
-
         existing = await skill_creator_store.get_session_by_skill_name(user_id, skill_name)
         if existing:
             logger.info("复用 skill-creator 会话（编辑模式）: %s skill=%s", existing.id, skill_name)

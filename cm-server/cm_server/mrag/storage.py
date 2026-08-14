@@ -5,6 +5,8 @@ import logging
 import shutil
 from pathlib import Path
 
+from pi_shared.workspace.paths import user_files_wiki_dir
+
 from cm_server.admin.config import settings
 from cm_server.admin.constants.knowledge import PHASE1_MD_NAME, PHASE2_TREE_NAME
 
@@ -31,6 +33,11 @@ def result_dir(kb_id: str, doc_id: str) -> Path:
 
 def wiki_dir(kb_id: str, doc_id: str) -> Path:
     return result_dir(kb_id, doc_id) / "wiki"
+
+
+def user_wiki_dir(user_id: str) -> Path:
+    """会话附件 wiki 的权威落盘：users/{uid}/files/wiki。"""
+    return user_files_wiki_dir(settings.sandbox_root, user_id)
 
 
 def log_dir(kb_id: str, doc_id: str) -> Path:

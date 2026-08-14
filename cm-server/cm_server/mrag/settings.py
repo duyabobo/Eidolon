@@ -10,13 +10,11 @@ from cm_server.config import settings
 @dataclass(frozen=True)
 class MragRuntimeSettings:
     mineru3_api_base: str
+    mineru3_api_key: str
     mineru3_backend: str
     mineru3_lang: str
     mineru3_parse_method: str
     mineru_vlm_url: str
-    reranker_base_url: str
-    reranker_api_key: str
-    reranker_model_name: str
     llm_max_concurrent: int
     vlm_max_concurrent: int
     fixed_chunk_chars: int
@@ -33,23 +31,17 @@ class MragRuntimeSettings:
     def vlm_enabled(self) -> bool:
         return bool(self.mineru_vlm_url.strip())
 
-    @property
-    def reranker_enabled(self) -> bool:
-        return bool(self.reranker_base_url.strip())
-
 
 def build_runtime_settings(pipeline: KnowledgePipelineConfig) -> MragRuntimeSettings:
     from cm_server.admin.constants.knowledge import PHASE1_MD_NAME, PHASE2_TREE_NAME
 
     return MragRuntimeSettings(
         mineru3_api_base=pipeline.mineru3_api_base.strip(),
+        mineru3_api_key=(pipeline.mineru3_api_key or "").strip(),
         mineru3_backend=pipeline.mineru3_backend or "pipeline",
         mineru3_lang=pipeline.mineru3_lang or "ch",
         mineru3_parse_method=pipeline.mineru3_parse_method or "auto",
         mineru_vlm_url=pipeline.mineru_vlm_url.strip(),
-        reranker_base_url=pipeline.reranker_base_url.strip(),
-        reranker_api_key=pipeline.reranker_api_key,
-        reranker_model_name=pipeline.reranker_model_name or "reranker",
         llm_max_concurrent=settings.knowledge_llm_max_concurrent,
         vlm_max_concurrent=settings.knowledge_vlm_max_concurrent,
         fixed_chunk_chars=settings.knowledge_fixed_chunk_chars,

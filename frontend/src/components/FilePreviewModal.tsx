@@ -3,7 +3,9 @@ import { skillCreatorApi } from "../api/skillCreator";
 import { skillsApi } from "../api/skills";
 import { workspaceApi } from "../api/workspace";
 import { detectFilePreviewKind, type FilePreviewKind } from "../utils/filePreview";
+import { formatFileSize } from "../utils/formatFileSize";
 import ChatMarkdown from "./chat/ChatMarkdown";
+import { ModalOverlay } from "./config/ModalOverlay";
 
 export type FilePreviewSource =
   | { type: "workspace"; userId: string; path: string; filename: string }
@@ -14,12 +16,6 @@ interface Props {
   source: FilePreviewSource;
   subtitle?: string;
   onClose: () => void;
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function sourceKey(source: FilePreviewSource): string {
@@ -131,23 +127,20 @@ export default function FilePreviewModal({ source, subtitle, onClose }: Props) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-ink-900/30 backdrop-blur-sm p-4"
-      onClick={onClose}
-      role="presentation"
-    >
+    <ModalOverlay zClass="z-[60]" onBackdropClick={onClose}>
+      {/* 与经验 SkillCreator 一致：max-w-4xl + h-[90vh]，正文区内滚动 */}
       <div
-        className="bg-white rounded-2xl shadow-panel w-full max-w-4xl border border-ink-200/60 max-h-[90vh] flex flex-col"
+        className="bg-white rounded-2xl shadow-panel w-full max-w-4xl h-[90vh] border border-ink-200/60 flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={source.filename}
       >
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-ink-200/60 shrink-0">
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-ink-200/60 shrink-0">
           <div className="min-w-0">
             <h2 className="font-semibold text-ink-900 truncate">{source.filename}</h2>
             <p className="text-[11px] text-ink-400 mt-0.5 truncate">
-              {[subtitle, blobSize != null ? formatBytes(blobSize) : null].filter(Boolean).join(" · ")}
+              {[subtitle, blobSize != null ? formatFileSize(blobSize) : null].filter(Boolean).join(" · ")}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -169,7 +162,7 @@ export default function FilePreviewModal({ source, subtitle, onClose }: Props) {
           </div>
         </div>
 
-        <div className="px-5 py-4 overflow-y-auto scrollbar-thin flex-1 min-h-0">
+        <div className="px-5 py-4 overflow-y-auto overscroll-contain scrollbar-thin flex-1 min-h-0 flex flex-col">
           {loading && <p className="text-sm text-ink-400 animate-pulse">加载预览…</p>}
           {error && (
             <p className="text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700">{error}</p>
@@ -180,16 +173,16 @@ export default function FilePreviewModal({ source, subtitle, onClose }: Props) {
             </div>
           )}
           {!loading && !error && kind === "text" && text != null && (
-            <pre className="text-xs text-ink-800 bg-ink-50 rounded-xl p-4 overflow-auto whitespace-pre-wrap break-words leading-relaxed border border-ink-200/60 font-mono">
+            <pre className="text-xs text-ink-800 bg-ink-50 rounded-xl p-4 overflow-x-auto whitespace-pre-wrap break-words leading-relaxed border border-ink-200/60 font-mono">
               {text}
             </pre>
           )}
           {!loading && !error && kind === "image" && objectUrl && (
-            <div className="flex justify-center">
+            <div className="flex-1 min-h-0 flex items-center justify-center">
               <img
                 src={objectUrl}
                 alt={source.filename}
-                className="max-w-full max-h-[70vh] object-contain rounded-lg border border-ink-100"
+                className="max-w-full max-h-full object-contain rounded-lg border border-ink-100"
               />
             </div>
           )}
@@ -197,7 +190,7 @@ export default function FilePreviewModal({ source, subtitle, onClose }: Props) {
             <iframe
               title={source.filename}
               src={objectUrl}
-              className="w-full h-[70vh] rounded-lg border border-ink-200"
+              className="w-full flex-1 min-h-0 rounded-lg border border-ink-200"
             />
           )}
           {!loading && kind === "unsupported" && (
@@ -215,6 +208,6 @@ export default function FilePreviewModal({ source, subtitle, onClose }: Props) {
           )}
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

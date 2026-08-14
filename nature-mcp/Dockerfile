@@ -7,7 +7,9 @@ RUN sed -i 's|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/d
  && apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+ && pip config set global.retries 5 \
+ && pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
 COPY pi-shared /pi-shared
 COPY nature-mcp /tmp/nature-mcp

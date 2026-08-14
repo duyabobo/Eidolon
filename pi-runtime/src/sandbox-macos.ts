@@ -43,6 +43,90 @@ async function safeRealpath(rawPath: string): Promise<string> {
 }
 
 /**
+ * Node.js fs.realpath 会自顶向下 lstat 每一级父目录。
+ * Seatbelt 若 deny 了 SANDBOX_ROOT 整树、只放行叶子（workspace 等），则
+ * lstat(SANDBOX_ROOT) 本身会 EPERM，导致沙盒内 write/read 全部失败。
+ * 这里收集「从 sandboxRoot 到各白名单叶子」的祖先目录，以 literal 放行
+ * （只允许访问目录 inode，不开放其下其他 session/用户文件）。
+ */
+export function collectSandboxReadAncestors(
+  sandboxRoot: string,
+  allowedLeaves: string[],
+): string[] {
+  const root = sandboxRoot.replace(/\/+$/, "") || sandboxRoot;
+  const ancestors = new Set<string>();
+
+  for (const leaf of allowedLeaves) {
+    if (leaf !== root && !leaf.startsWith(`${root}/`)) {
+      continue;
+    }
+    let current = dirname(leaf);
+    while (true) {
+      if (current === root || current.startsWith(`${root}/`)) {
+        ancestors.add(current);
+      }
+      if (current === root) {
+        break;
+      }
+      const parent = dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  }
+
+  return [...ancestors].sort();
+}
+
+/**
+ * 收集叶子路径直到文件系统根的全部祖先（用于 deny /Users 时放行 getcwd/realpath）。
+ * 只允许访问目录 inode（literal），不开放同级其他文件。
+ */
+export function collectAllPathAncestors(leaves: string[]): string[] {
+  const ancestors = new Set<string>();
+  for (const leaf of leaves) {
+    let current = dirname(leaf);
+    while (true) {
+      ancestors.add(current);
+      const parent = dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  }
+  return [...ancestors].sort();
+}
+
+function formatAncestorReadExceptions(ancestors: string[]): string {
+  if (ancestors.length === 0) {
+    return "";
+  }
+  return ancestors
+    .map((path) => `    (require-not (literal "${path}"))`)
+    .join("\n");
+}
+
+/** 开发态/打包态可能落在 /Users 下的额外可读路径（python 解释器、pi 二进制等） */
+function collectExtraHostReadLeaves(): string[] {
+  const candidates = [
+    process.env.SANDBOX_PYTHON_BIN_DIR,
+    process.env.PI_BIN,
+    process.env.NODE_BIN,
+  ];
+  const leaves: string[] = [];
+  for (const raw of candidates) {
+    const value = (raw ?? "").trim();
+    if (!value) continue;
+    // 文件路径取父目录作为可读叶子（目录本身用 subpath 放行）
+    leaves.push(dirname(value) === value ? value : dirname(value));
+    leaves.push(value);
+  }
+  return leaves;
+}
+
+/**
  * 网络放行规则分三段：
  *   1. network-bind：bridge.js 绑定监听两个 TCP 桥接端口
  *   2. network-inbound：pi 进程作为客户端连接 bridge.js 时，Seatbelt 在 bridge.js
@@ -87,13 +171,12 @@ async function renderProfile(
   const template = await readFile(TEMPLATE_PATH, "utf-8");
 
   const [
-    workspace, home, sessionTmp, userMemory, userPiSessions, userFiles,
+    workspace, home, sessionTmp, userPiSessions, userFiles,
     piConfigDirReal, globalSkills, userSkills, sandboxRoot, llmSockPath, mcpSockPath,
   ] = await Promise.all([
     safeRealpath(paths.workspace),
     safeRealpath(paths.home),
     safeRealpath(paths.sessionTmp),
-    safeRealpath(paths.userMemory),
     safeRealpath(paths.userPiSessions),
     safeRealpath(paths.userFiles),
     safeRealpath(piConfigDir),
@@ -106,17 +189,47 @@ async function renderProfile(
 
   const { comment: networkComment, rules: networkRules } = buildNetworkRules(ports, llmSockPath, mcpSockPath);
 
+  const sessionLeaves = [
+    workspace,
+    home,
+    sessionTmp,
+    userPiSessions,
+    userFiles,
+    globalSkills,
+    userSkills,
+    piConfigDirReal,
+  ];
+
+  const extraHostLeaves = await Promise.all(
+    collectExtraHostReadLeaves().map((p) => safeRealpath(p)),
+  );
+  const hostUserLeaves = [...sessionLeaves, ...extraHostLeaves].filter(
+    (p) => p.startsWith("/Users/") || p.startsWith("/Volumes/"),
+  );
+
+  const readAncestors = collectSandboxReadAncestors(sandboxRoot, sessionLeaves);
+  const hostUserAncestors = collectAllPathAncestors(hostUserLeaves);
+
+  const hostUserLeafExceptions = hostUserLeaves
+    .map((path) => `    (require-not (subpath "${path}"))`)
+    .join("\n");
+  const hostUserAncestorExceptions = formatAncestorReadExceptions(hostUserAncestors);
+  const hostUserReadExceptions = [hostUserLeafExceptions, hostUserAncestorExceptions]
+    .filter(Boolean)
+    .join("\n");
+
   const substitutions: Record<string, string> = {
     WORKSPACE: workspace,
     HOME: home,
     SESSION_TMP: sessionTmp,
-    USER_MEMORY: userMemory,
     USER_PI_SESSIONS: userPiSessions,
     USER_FILES: userFiles,
     PI_CONFIG_DIR: piConfigDirReal,
     GLOBAL_SKILLS: globalSkills,
     USER_SKILLS: userSkills,
     SANDBOX_ROOT: sandboxRoot,
+    SANDBOX_READ_ANCESTOR_EXCEPTIONS: formatAncestorReadExceptions(readAncestors),
+    HOST_USER_READ_EXCEPTIONS: hostUserReadExceptions,
     NETWORK_MODE_COMMENT: networkComment,
     NETWORK_RULES: networkRules,
   };
