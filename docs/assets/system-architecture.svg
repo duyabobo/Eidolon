@@ -1,37 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 360" role="img" aria-label="Eidolon 1��,:��">
-  <defs>
-    <linearGradient id="clientFill" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#eef2ff"/>
-      <stop offset="100%" stop-color="#e0e7ff"/>
-    </linearGradient>
-    <linearGradient id="serverFill" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#ecfdf5"/>
-      <stop offset="100%" stop-color="#d1fae5"/>
-    </linearGradient>
-  </defs>
-
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="360" viewBox="0 0 880 360">
   <rect width="880" height="360" rx="20" fill="#f8fafc"/>
-
-  <text x="440" y="42" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="18" font-weight="600" fill="#0f172a">�(`�5
-</text>
-  <text x="440" y="68" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="13" fill="#64748b">��#���\,:�#���</text>
-
-  <rect x="56" y="104" width="300" height="196" rx="20" fill="url(#clientFill)" stroke="#6366f1" stroke-width="1.5"/>
-  <text x="206" y="148" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="20" font-weight="700" fill="#312e81">��</text>
-  <text x="206" y="180" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="14" fill="#4338ca">`0�Lb</text>
-  <text x="206" y="216" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="14" fill="#334155">J)</text>
-  <text x="206" y="242" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="14" fill="#334155">ό � �w � ��</text>
-  <text x="206" y="268" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="14" fill="#334155">!��n</text>
-
-  <line x1="372" y1="202" x2="508" y2="202" stroke="#94a3b8" stroke-width="2.5"/>
-  <polygon points="508,202 492,194 492,210" fill="#94a3b8"/>
-  <polygon points="372,202 388,194 388,210" fill="#94a3b8"/>
-  <text x="440" y="188" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="12" fill="#64748b">�� / �</text>
-
-  <rect x="524" y="104" width="300" height="196" rx="20" fill="url(#serverFill)" stroke="#059669" stroke-width="1.5"/>
-  <text x="674" y="148" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="20" font-weight="700" fill="#065f46">,:�</text>
-  <text x="674" y="180" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="14" fill="#047857">.`r;��</text>
-  <text x="674" y="216" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="14" fill="#334155">�T</text>
-  <text x="674" y="242" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="14" fill="#334155">�O�݌��</text>
-  <text x="674" y="268" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif" font-size="14" fill="#334155">�h0(�w</text>
+  <text x="440" y="42" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="18" font-weight="600" fill="#0f172a">都在你自己的电脑上</text>
+  <text x="440" y="68" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="13" fill="#64748b">一边是窗口，一边是本机服务</text>
+  <rect x="56" y="100" width="300" height="196" rx="20" fill="#eef2ff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="206" y="148" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="20" font-weight="700" fill="#312e81">窗口</text>
+  <text x="206" y="180" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="14" fill="#4338ca">你看到、点得到的界面</text>
+  <text x="206" y="216" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="14" fill="#334155">聊天</text>
+  <text x="206" y="242" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="14" fill="#334155">经验 · 工具 · 知识</text>
+  <text x="206" y="268" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="14" fill="#334155">你的个人分身</text>
+  <line x1="372" y1="198" x2="508" y2="198" stroke="#94a3b8" stroke-width="2.5"/>
+  <polygon points="508,198 492,190 492,206" fill="#94a3b8"/>
+  <polygon points="372,198 388,190 388,206" fill="#94a3b8"/>
+  <text x="440" y="184" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="12" fill="#64748b">你说 / 它回</text>
+  <rect x="524" y="100" width="300" height="196" rx="20" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+  <text x="674" y="148" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="20" font-weight="700" fill="#065f46">本机服务</text>
+  <text x="674" y="180" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="14" fill="#047857">在后台帮你做事</text>
+  <text x="674" y="216" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="14" fill="#334155">思考与记忆</text>
+  <text x="674" y="242" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="14" fill="#334155">查阅资料</text>
+  <text x="674" y="268" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="14" fill="#334155">安全地使用工具</text>
 </svg>
