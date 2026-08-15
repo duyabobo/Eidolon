@@ -10,6 +10,7 @@
  */
 import http, { IncomingMessage, ServerResponse } from "http";
 import { config } from "./config";
+import { TurnPolicy, parseTurnPolicy } from "./turn-policy";
 
 export interface TaskPayload {
   taskId: string;
@@ -19,6 +20,7 @@ export interface TaskPayload {
   request: string;
   turnId: string;
   skillIds: string[];
+  turnPolicy: TurnPolicy | null;
 }
 
 export interface HttpServerHandlers {
@@ -72,6 +74,7 @@ function parseTaskPayload(body: Record<string, unknown>): TaskPayload {
     request: String(request),
     turnId: String(turn_id),
     skillIds: Array.isArray(skill_ids) ? skill_ids.map(String) : [],
+    turnPolicy: parseTurnPolicy(body.turn_policy),
   };
 }
 

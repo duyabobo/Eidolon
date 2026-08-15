@@ -6,8 +6,8 @@ interface Props {
 }
 
 /**
- * 模型配置改到对话页内直接打开，不再是独立导航页面；面板本身（含 profile 增删改 +
- * 「当前生效」单选）完全复用 LlmConfigPanel，这里只包一层弹窗外壳。
+ * 模型配置改到对话页内直接打开，不再是独立导航页面；面板本身（含 profile 增删改、
+ * 「当前生效」单选、意图识别小模型）完全复用 LlmConfigPanel，这里只包一层弹窗外壳。
  */
 export default function ModelConfigModal({ open, onClose }: Props) {
   if (!open) return null;

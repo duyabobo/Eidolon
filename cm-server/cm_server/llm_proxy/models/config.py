@@ -37,6 +37,11 @@ class LlmProfileUpdate(BaseModel):
 class LlmProfileListResponse(BaseModel):
     items: list[LlmProfile]
     active_id: str | None = None
+    intent_id: str | None = None
+
+
+class LlmIntentAssign(BaseModel):
+    profile_id: str | None = None
 
 
 class ServiceTestResult(BaseModel):

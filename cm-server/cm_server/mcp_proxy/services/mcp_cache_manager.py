@@ -83,7 +83,7 @@ class McpServerCacheManager:
     async def get_tools(self, user_id: str | None, tool_names: list[str] | None = None) -> McpToolsView:
         """
         读取指定用户在给定工具白名单下可用的工具视图。
-        tool_names 为空表示不过滤，返回该用户已启用的全部 Server 的全部工具（系统 + 个人）。
+        tool_names is None 表示不过滤；[] 表示明确 0 个工具。
 
         始终加载该用户全部已启用 Server（不按 tool_names 反查该连哪个 Server），
         因为这些 Server 早已被全局预热覆盖，命中缓存的合并开销可忽略；
@@ -92,7 +92,7 @@ class McpServerCacheManager:
         entries = await read_mcp_servers(user_id)
         caches = [self._get_or_create(user_id, entry) for entry in entries]
         await asyncio.gather(*(cache.refresh_if_stale() for cache in caches))
-        allowed = set(tool_names) if tool_names else None
+        allowed = None if tool_names is None else set(tool_names)
         return McpToolsView(caches, allowed_tool_names=allowed)
 
     async def force_refresh(self, user_id: str | None) -> None:

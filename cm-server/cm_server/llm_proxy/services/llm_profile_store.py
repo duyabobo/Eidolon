@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 _LEGACY_CONFIG_KEY = "llm"
 _ACTIVE_PROFILE_KEY = "llm_active_profile_id"
+_INTENT_PROFILE_KEY = "llm_intent_profile_id"
 
 
 def _to_profile(row: dict) -> LlmProfile:
@@ -34,12 +35,37 @@ async def get_legacy_llm_config() -> LlmConfig | None:
     return LlmConfig(**loads(row["value"]))
 
 
-async def list_llm_profiles() -> tuple[list[LlmProfile], str | None]:
+async def _read_profile_id(key: str) -> str | None:
+    state = await get_db().fetch_one("SELECT value FROM app_config WHERE key = ?", (key,))
+    value = str(state["value"]).strip() if state and state.get("value") else ""
+    return value or None
+
+
+async def _write_profile_id(key: str, profile_id: str | None) -> None:
+    if profile_id:
+        await get_db().execute(
+            """
+            INSERT INTO app_config (key, value, updated_at) VALUES (:key, :value, :now)
+            ON CONFLICT (key) DO UPDATE SET value = :value, updated_at = :now
+            """,
+            {"key": key, "value": profile_id, "now": format_iso(now_china())},
+        )
+        return
+    await get_db().execute("DELETE FROM app_config WHERE key = ?", (key,))
+
+
+async def list_llm_profiles() -> tuple[list[LlmProfile], str | None, str | None]:
     rows = await get_db().fetch_all("SELECT * FROM llm_profiles ORDER BY name ASC")
     items = [_to_profile(row) for row in rows]
-    state = await get_db().fetch_one("SELECT value FROM app_config WHERE key = ?", (_ACTIVE_PROFILE_KEY,))
-    active_id = state["value"] if state else None
-    return items, active_id
+    known = {item.id for item in items}
+    active_id = await _read_profile_id(_ACTIVE_PROFILE_KEY)
+    intent_id = await _read_profile_id(_INTENT_PROFILE_KEY)
+    if active_id and active_id not in known:
+        active_id = None
+    if intent_id and intent_id not in known:
+        intent_id = None
+        await _write_profile_id(_INTENT_PROFILE_KEY, None)
+    return items, active_id, intent_id
 
 
 async def get_llm_profile(profile_id: str) -> LlmProfile | None:
@@ -84,25 +110,36 @@ async def delete_llm_profile(profile_id: str) -> bool:
 
 
 async def set_active_llm_profile(profile_id: str) -> None:
-    await get_db().execute(
-        """
-        INSERT INTO app_config (key, value, updated_at) VALUES (:key, :value, :now)
-        ON CONFLICT (key) DO UPDATE SET value = :value, updated_at = :now
-        """,
-        {"key": _ACTIVE_PROFILE_KEY, "value": profile_id, "now": format_iso(now_china())},
-    )
+    await _write_profile_id(_ACTIVE_PROFILE_KEY, profile_id)
     logger.info("LLM 当前选中配置 id=%s", profile_id)
 
 
+async def set_intent_llm_profile(profile_id: str | None) -> None:
+    profile_id = (profile_id or "").strip() or None
+    if profile_id:
+        profile = await get_llm_profile(profile_id)
+        if profile is None:
+            raise ValueError("LLM 配置不存在")
+    await _write_profile_id(_INTENT_PROFILE_KEY, profile_id)
+    logger.info("意图识别模型 id=%s", profile_id or "-")
+
+
 async def get_active_llm_profile() -> LlmProfile | None:
-    _, active_id = await list_llm_profiles()
+    _, active_id, _intent_id = await list_llm_profiles()
     if not active_id:
         return None
     return await get_llm_profile(active_id)
 
 
+async def get_intent_llm_profile() -> LlmProfile | None:
+    _items, _active_id, intent_id = await list_llm_profiles()
+    if not intent_id:
+        return None
+    return await get_llm_profile(intent_id)
+
+
 async def migrate_legacy_llm_config() -> None:
-    items, _ = await list_llm_profiles()
+    items, _active_id, _intent_id = await list_llm_profiles()
     if items:
         return
     legacy = await get_legacy_llm_config()

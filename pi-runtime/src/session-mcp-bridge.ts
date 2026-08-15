@@ -11,46 +11,75 @@
  * 只能在建立连接时注入一次 header，后续复用连接的请求（如 tools/list）会
  * 丢失 X-User-Id，导致 mcp-proxy 以 user=null 处理并返回 0 工具。
  * http.createServer 在应用层处理每条 HTTP 请求，确保每次都注入正确的 header。
+ *
+ * 每轮意图可改写 X-Mcp-Tools：all=不带头，none=*none*，allow=具体工具名。
  */
 import fs from "fs";
 import http from "http";
 import path from "path";
 
 import { sessionSocksDir } from "./socket-bridge";
+import type { McpMode } from "./turn-policy";
 
 interface SessionMcpBridgeState {
   server: http.Server;
 }
 
+export interface McpTurnFilter {
+  mode: McpMode;
+  names: string[];
+}
+
 const sessionBridges = new Map<string, SessionMcpBridgeState>();
+const sessionFilters = new Map<string, McpTurnFilter>();
 
 function sessionMcpSockPath(sessionId: string): string {
   return path.join(sessionSocksDir(sessionId), "mcp.sock");
 }
 
+export function setSessionMcpTurnFilter(sessionId: string, filter: McpTurnFilter): void {
+  sessionFilters.set(sessionId, filter);
+  const hint =
+    filter.mode === "allow"
+      ? filter.names.join(",") || "-"
+      : filter.mode;
+  console.log(`[session-mcp-bridge] session=${sessionId}: 本轮 MCP 过滤 mode=${hint}`);
+}
+
+function currentFilter(sessionId: string): McpTurnFilter {
+  return sessionFilters.get(sessionId) ?? { mode: "all", names: [] };
+}
+
+function mcpToolsHeaderValue(filter: McpTurnFilter): string | undefined {
+  if (filter.mode === "all") return undefined;
+  if (filter.mode === "none") return "*none*";
+  if (filter.names.length === 0) return "*none*";
+  return filter.names.join(",");
+}
+
 function buildSessionHeaders(
   incoming: http.IncomingHttpHeaders,
   userId: string,
-  mcpToolNames: string[] | undefined,
+  filter: McpTurnFilter,
 ): http.IncomingHttpHeaders {
   const headers = { ...incoming };
-  // 覆盖 session 相关 header，防止客户端伪造
   headers["x-user-id"] = userId;
   delete headers["x-mcp-tools"];
-  if (mcpToolNames && mcpToolNames.length > 0) {
-    headers["x-mcp-tools"] = mcpToolNames.join(",");
+  const value = mcpToolsHeaderValue(filter);
+  if (value) {
+    headers["x-mcp-tools"] = value;
   }
   return headers;
 }
 
 function createProxyHandler(
+  sessionId: string,
   userId: string,
-  mcpToolNames: string[] | undefined,
   targetHost: string,
   targetPort: number,
 ): http.RequestListener {
   return (req, res) => {
-    const headers = buildSessionHeaders(req.headers, userId, mcpToolNames);
+    const headers = buildSessionHeaders(req.headers, userId, currentFilter(sessionId));
 
     const proxyReq = http.request(
       {
@@ -89,7 +118,13 @@ export function registerSessionMcpBridge(
   fs.mkdirSync(path.dirname(sockPath), { recursive: true });
   try { fs.unlinkSync(sockPath); } catch { /* ignore */ }
 
-  const handler = createProxyHandler(userId, mcpToolNames, targetHost, targetPort);
+  if (mcpToolNames && mcpToolNames.length > 0) {
+    sessionFilters.set(sessionId, { mode: "allow", names: mcpToolNames });
+  } else {
+    sessionFilters.set(sessionId, { mode: "all", names: [] });
+  }
+
+  const handler = createProxyHandler(sessionId, userId, targetHost, targetPort);
   const server = http.createServer(handler);
 
   server.on("error", (err) => {
@@ -97,10 +132,11 @@ export function registerSessionMcpBridge(
   });
 
   server.listen(sockPath, () => {
+    const filter = currentFilter(sessionId);
     const filterHint =
-      mcpToolNames && mcpToolNames.length > 0
-        ? ` mcp_tools=${mcpToolNames.join(",")}`
-        : " mcp_tools=ALL";
+      filter.mode === "allow"
+        ? ` mcp_tools=${filter.names.join(",")}`
+        : ` mcp_tools=${filter.mode.toUpperCase()}`;
     console.log(
       `[session-mcp-bridge] session=${sessionId} user=${userId}:${filterHint} ${sockPath} → ${targetHost}:${targetPort}`,
     );
@@ -114,6 +150,7 @@ export function unregisterSessionMcpBridge(sessionId: string): void {
   if (!state) return;
   state.server.close();
   sessionBridges.delete(sessionId);
+  sessionFilters.delete(sessionId);
   try { fs.unlinkSync(sessionMcpSockPath(sessionId)); } catch { /* ignore */ }
   console.log(`[session-mcp-bridge] session=${sessionId}: bridge 已关闭`);
 }

@@ -53,7 +53,7 @@ import {
   createReadTool,
   createWriteTool,
 } from "@earendil-works/pi-coding-agent";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -297,6 +297,24 @@ function makeErrorResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+function isBuiltinAllowedThisTurn(toolName: string): boolean {
+  if (!piCodingAgentDir) return true;
+  try {
+    const raw = readFileSync(join(piCodingAgentDir, "turn-policy.json"), "utf8");
+    const parsed = JSON.parse(raw) as { allow_builtin?: string[] | null };
+    if (!Array.isArray(parsed.allow_builtin)) return true;
+    return parsed.allow_builtin.includes(toolName);
+  } catch {
+    return true;
+  }
+}
+
+function denyIfRoutedOff(toolName: string) {
+  if (isBuiltinAllowedThisTurn(toolName)) return null;
+  console.error(`[bwrap] 本轮意图拦截 tool=${toolName}`);
+  return makeErrorResult("本轮路由禁止使用该工具，请直接用文字回答，不要再尝试调用工具。");
+}
+
 // ── 扩展入口 ─────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -311,7 +329,15 @@ export default function (pi: ExtensionAPI) {
 
   // bash：完全替换为 bwrap 沙盒执行（LLM 调用路径）
   const bwrapBash = createBashTool(sandboxWorkspace, { operations: createBwrapBashOperations() });
-  pi.registerTool({ ...bwrapBash, label: "bash (sandboxed)" });
+  pi.registerTool({
+    ...bwrapBash,
+    label: "bash (sandboxed)",
+    execute: async (id, params, signal, onUpdate, ctx) => {
+      const denied = denyIfRoutedOff("bash");
+      if (denied) return denied;
+      return bwrapBash.execute(id, params, signal, onUpdate, ctx);
+    },
+  });
 
   // user_bash：用户在 TUI 里直接输入 shell 命令的路径（--mode rpc 下通常不触发，防御性兜底）
   pi.on("user_bash", () => ({ operations: createBwrapBashOperations() }));
@@ -326,6 +352,8 @@ export default function (pi: ExtensionAPI) {
     pi.registerTool({
       ...defaultTool,
       execute: async (id, params, signal, onUpdate, ctx) => {
+        const denied = denyIfRoutedOff(toolName);
+        if (denied) return denied;
         const rawPath = ((params as Record<string, unknown>)["path"] ?? "") as string;
         if (rawPath) {
           const check = await guardPath(rawPath);
@@ -349,6 +377,8 @@ export default function (pi: ExtensionAPI) {
     pi.registerTool({
       ...defaultTool,
       execute: async (id, params, signal, onUpdate, ctx) => {
+        const denied = denyIfRoutedOff(toolName);
+        if (denied) return denied;
         const rawPath = ((params as Record<string, unknown>)["path"] ?? "") as string;
         if (rawPath) {
           const check = await guardPath(rawPath);

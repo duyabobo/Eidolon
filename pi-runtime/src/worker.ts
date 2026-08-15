@@ -25,7 +25,7 @@ import { updateSessionStatus } from "./gateway-client";
 import { SessionOutputStream } from "./output-stream";
 import { HttpServerHandlers, TaskPayload, startHttpServer } from "./http-server";
 import { createSandbox, destroySandbox } from "./sandbox";
-import { startPiSession, PiSessionHandle } from "./pi-session";
+import { startPiSession, PiSessionHandle, piConfigDirFor } from "./pi-session";
 import { startSocketBridge } from "./socket-bridge";
 import {
   registerSessionLlmBridge,
@@ -34,8 +34,10 @@ import {
 } from "./session-llm-bridge";
 import {
   registerSessionMcpBridge,
+  setSessionMcpTurnFilter,
   unregisterSessionMcpBridge,
 } from "./session-mcp-bridge";
+import { writeTurnPolicyFile, type TurnPolicy } from "./turn-policy";
 import { resolveMcpToolsForSkills } from "./skill-mcp";
 import { computeSkillContentFingerprint } from "./skill-reload";
 import { listAllMcpToolNames } from "./session-mcp-config";
@@ -48,6 +50,7 @@ interface NewSessionPayload {
   request: string;      // 第一条消息
   turn_id: string;      // 第一个轮次 ID
   skill_ids: string[];
+  turnPolicy: TurnPolicy | null;
 }
 
 interface NewMessagePayload {
@@ -56,6 +59,7 @@ interface NewMessagePayload {
   request: string;
   turn_id: string;      // 本轮次 ID（gateway 生成，用于 SSE stream key）
   skill_ids: string[];
+  turnPolicy: TurnPolicy | null;
 }
 
 // ── 运行中的 session 状态 ─────────────────────────────────────────────────────
@@ -315,13 +319,27 @@ async function ensureSessionStarted(
   return gate;
 }
 
+async function applyTurnPolicy(sessionId: string, policy: TurnPolicy | null): Promise<void> {
+  if (policy) {
+    setSessionMcpTurnFilter(sessionId, {
+      mode: policy.mcpMode,
+      names: policy.allowMcp,
+    });
+  }
+  await writeTurnPolicyFile(piConfigDirFor(sessionId), policy);
+  console.log(
+    `[worker] session=${sessionId}: 本轮意图=${policy?.intent || "unrestricted"} ` +
+      `builtin=${policy?.allowBuiltin?.join(",") ?? "ALL"} mcp=${policy?.mcpMode || "all"}`,
+  );
+}
+
 async function openSession(payload: NewSessionPayload): Promise<void> {
   const { session_id, user_id, request, turn_id, skill_ids = [] } = payload;
 
   console.log(`[worker] 创建 session: session=${session_id} user=${user_id} turn=${turn_id}`);
   const running = await ensureSessionStarted(session_id, user_id, skill_ids);
 
-  await sendTurnToSession(running, turn_id, request);
+  await sendTurnToSession(running, turn_id, request, payload.turnPolicy);
 }
 
 // ── 处理新消息（追加轮次到已有 session）──────────────────────────────────────
@@ -347,7 +365,7 @@ async function handleNewMessage(payload: NewMessagePayload): Promise<void> {
   }
 
   resetInactivityTimer(running);
-  await sendTurnToSession(running, turn_id, request);
+  await sendTurnToSession(running, turn_id, request, payload.turnPolicy);
 }
 
 /** 返回 true 表示中断已升级为强制终止 pi 进程（调用方需在继续发送前重建） */
@@ -357,7 +375,12 @@ async function clearActiveTurnState(running: RunningSession): Promise<boolean> {
   return hardKilled;
 }
 
-async function sendTurnToSession(running: RunningSession, turnId: string, request: string): Promise<void> {
+async function sendTurnToSession(
+  running: RunningSession,
+  turnId: string,
+  request: string,
+  turnPolicy: TurnPolicy | null,
+): Promise<void> {
   const run = async (): Promise<void> => {
     const { sessionId } = running;
 
@@ -377,6 +400,7 @@ async function sendTurnToSession(running: RunningSession, turnId: string, reques
     const startAt = Date.now();
 
     running.activeTurnId = turnId;
+    await applyTurnPolicy(sessionId, turnPolicy);
 
     console.log(`[worker] session=${sessionId} turn=${turnId}: 开始执行，request='${request.slice(0, 80).replace(/\n/g, " ")}'`);
 
@@ -442,6 +466,7 @@ function handleIncomingTask(task: TaskPayload): void {
           request: task.request,
           turn_id: task.turnId,
           skill_ids: task.skillIds,
+          turnPolicy: task.turnPolicy,
         });
       } else {
         await handleNewMessage({
@@ -450,6 +475,7 @@ function handleIncomingTask(task: TaskPayload): void {
           request: task.request,
           turn_id: task.turnId,
           skill_ids: task.skillIds,
+          turnPolicy: task.turnPolicy,
         });
       }
     } catch (error) {

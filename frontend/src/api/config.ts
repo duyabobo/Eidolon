@@ -34,6 +34,7 @@ export interface LlmProfileUpdate {
 export interface LlmProfileListResponse {
   items: LlmProfile[];
   active_id: string | null;
+  intent_id: string | null;
 }
 
 export interface ServiceTestResult {
@@ -82,6 +83,12 @@ export const configApi = {
 
   activateLlmProfile: (id: string) =>
     request<LlmConfig>(`/config/llm/profiles/${encodeURIComponent(id)}/activate`, { method: "PUT" }),
+
+  assignIntentLlmProfile: (profileId: string | null) =>
+    request<LlmProfileListResponse>("/config/llm/intent", {
+      method: "PUT",
+      body: JSON.stringify({ profile_id: profileId }),
+    }),
 
   testLlmProfile: (id: string) =>
     request<ServiceTestResult>(`/config/llm/profiles/${encodeURIComponent(id)}/test`, { method: "POST" }),

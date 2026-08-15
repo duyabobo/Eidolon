@@ -70,26 +70,31 @@ async def _dispatch_task(
     request: str,
     turn_id: str,
     skill_ids: list[str] | None,
+    turn_policy: dict | None = None,
 ) -> None:
     task_id = f"{session_id}:{turn_id}"
     if not await _try_acquire_dedupe(task_id):
         logger.info("重复任务已抑制: task_id=%s type=%s", task_id, task_type)
         return
 
-    await _call_pi_runtime(
-        "POST",
-        "/tasks",
-        json={
-            "task_id": task_id,
-            "task_type": task_type,
-            "session_id": session_id,
-            "user_id": user_id,
-            "request": request,
-            "turn_id": turn_id,
-            "skill_ids": skill_ids or [],
-        },
+    payload = {
+        "task_id": task_id,
+        "task_type": task_type,
+        "session_id": session_id,
+        "user_id": user_id,
+        "request": request,
+        "turn_id": turn_id,
+        "skill_ids": skill_ids or [],
+    }
+    if turn_policy:
+        payload["turn_policy"] = turn_policy
+    await _call_pi_runtime("POST", "/tasks", json=payload)
+    logger.info(
+        "任务已派发: task_id=%s type=%s intent=%s",
+        task_id,
+        task_type,
+        (turn_policy or {}).get("intent") or "-",
     )
-    logger.info("任务已派发: task_id=%s type=%s", task_id, task_type)
 
 
 async def publish_task(
@@ -98,6 +103,7 @@ async def publish_task(
     request: str,
     turn_id: str,
     skill_ids: list[str] | None = None,
+    turn_policy: dict | None = None,
 ) -> None:
     """创建/重建沙盒并发送第一条消息。"""
     await _dispatch_task(
@@ -107,6 +113,7 @@ async def publish_task(
         request=request,
         turn_id=turn_id,
         skill_ids=skill_ids,
+        turn_policy=turn_policy,
     )
 
 
@@ -116,6 +123,7 @@ async def publish_message(
     request: str,
     turn_id: str,
     skill_ids: list[str] | None = None,
+    turn_policy: dict | None = None,
 ) -> None:
     """向已有 session 发送新轮次。"""
     await _dispatch_task(
@@ -125,6 +133,7 @@ async def publish_message(
         request=request,
         turn_id=turn_id,
         skill_ids=skill_ids,
+        turn_policy=turn_policy,
     )
 
 

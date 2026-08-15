@@ -186,6 +186,10 @@ function buildPiPath(): string {
  * （见 sandbox-ports.ts 顶部说明——没有网络命名空间，固定端口会跟真实服务/其他并发
  * session 冲突）。
  */
+export function piConfigDirFor(sessionId: string): string {
+  return `/tmp/pi-config/${sessionId}`;
+}
+
 async function setupPiConfigDir(
   sessionId: string,
   globalSkillsRoot: string,
@@ -193,7 +197,7 @@ async function setupPiConfigDir(
   bridgePorts: SessionBridgePorts,
   mcpDirectTools?: McpDirectToolsSetup,
 ): Promise<string> {
-  const piConfigDir = `/tmp/pi-config/${sessionId}`;
+  const piConfigDir = piConfigDirFor(sessionId);
   await mkdir(piConfigDir, { recursive: true });
 
   await writeSessionMcpAdapterConfig(piConfigDir, mcpDirectTools, bridgePorts.mcpPort);

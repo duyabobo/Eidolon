@@ -9,10 +9,25 @@ from cm_server.gateway.models.session import (
     SendMessageResponse, SessionDocument, SessionStatus, SessionSummary,
 )
 from cm_server.gateway.services import session_store, task_dispatch
+from cm_server.gateway.services.intent_router import apply_route_prefix, route_intent
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["session"])
+
+
+async def _routed_agent_request(
+    user_text: str,
+    agent_text: str,
+    *,
+    user_id: str,
+    skill_ids: list[str] | None,
+    recent_events: list[dict] | None = None,
+) -> tuple[str, dict]:
+    policy = await route_intent(
+        user_text, user_id=user_id, skill_ids=skill_ids, recent_events=recent_events,
+    )
+    return apply_route_prefix(agent_text, policy), policy.to_payload()
 
 
 @router.post("", response_model=CreateSessionResponse, status_code=status.HTTP_200_OK)
@@ -38,8 +53,12 @@ async def create_session(body: CreateSessionRequest) -> CreateSessionResponse:
         skip_initial_user_message=body.defer_start,
     )
     if not body.defer_start:
+        routed, turn_policy = await _routed_agent_request(
+            body.request, body.request, user_id=body.user_id, skill_ids=body.skill_ids,
+        )
         await task_dispatch.publish_task(
-            session_id, body.user_id, body.request, body.turn_id, body.skill_ids,
+            session_id, body.user_id, routed, body.turn_id, body.skill_ids,
+            turn_policy=turn_policy,
         )
 
     return CreateSessionResponse(
@@ -71,22 +90,29 @@ async def send_message(session_id: str, body: SendMessageRequest) -> SendMessage
         display_request[:80].replace("\n", " "), len(agent_request),
     )
 
-    # 用户消息持久化到 events_snapshot，与第一条消息保持一致
-    # 必须在 publish 之前写入，确保 AI 响应事件追加时用户消息已在前
+    # 先用追加前的快照做意图消歧，再写入本轮用户消息
+    routed, turn_policy = await _routed_agent_request(
+        display_request,
+        agent_request,
+        user_id=session.user_id,
+        skill_ids=body.skill_ids,
+        recent_events=session.events_snapshot,
+    )
     await session_store.append_event_snapshot(
         session_id,
         {"event_type": "user_message", "content": display_request, "ts": int(time.time() * 1000)},
     )
-
     if session.status in (SessionStatus.IDLE, SessionStatus.COMPLETED, SessionStatus.FAILED):
         # 沙盒已回收或 session 已关闭：通过 publish_task 重新拉起沙盒，视觉历史由 events_snapshot 保留
         logger.info("session 沙盒不存在（status=%s），重新拉起沙盒: session_id=%s", session.status, session_id)
         await task_dispatch.publish_task(
-            session_id, session.user_id, agent_request, body.turn_id, body.skill_ids,
+            session_id, session.user_id, routed, body.turn_id, body.skill_ids,
+            turn_policy=turn_policy,
         )
     else:
         await task_dispatch.publish_message(
-            session_id, session.user_id, agent_request, body.turn_id, body.skill_ids,
+            session_id, session.user_id, routed, body.turn_id, body.skill_ids,
+            turn_policy=turn_policy,
         )
 
     return SendMessageResponse(turn_id=body.turn_id, session_id=session_id)
