@@ -1,6 +1,6 @@
 # Eidolon
 
-多租户 Agent 执行平台（对外品牌 **Eidolon**），支持会话管理、SSE 流式输出、bwrap 沙盒隔离、MCP 工具扩展、Skill 渐进式披露、本地知识库管理。
+装在你电脑上的个人分身：能对话、能查资料、能用工具，并把你的经验和知识攒下来，越用越像你。
 
 ---
 
@@ -13,75 +13,30 @@
 1. **专业工具**：提供垂直领域的外部工具 / MCP，接入真实世界能力  
 2. **经验与知识积累**：辅助用户沉淀、复用与分享 Skill / 经验（含私有知识），形成可复用的领域资产  
 
-**基座负责「会思考、能记住、能检索」且可替换；产品价值在「专业工具」与「帮用户攒经验、攒知识」。** 这才是我们认同的 Agent 开发范式，也是本项目的产品与工程取舍准则。
+**基座负责「会思考、能记住、能检索」且可升级；产品价值在「专业工具」与「帮用户攒经验、攒知识」。** 这才是我们认同的 Agent 开发范式，也是本项目的产品与工程取舍准则。
 
 ---
 
 ## 整体架构
 
-### 图 1 系统总体架构
+Eidolon 装在你自己的电脑上：一边是窗口，一边是本机服务。
 
-![系统总体架构](docs/assets/system-architecture.png)
+![系统总体架构](docs/assets/system-architecture.svg)
 
-系统分为知识构建与检索层、Agent 服务层、运行交互层。知识构建与检索层将多模态文档转化为可检索知识节点；Agent 服务层通过 MCP 调用检索工具并按 Skill 控制工具范围；运行交互层负责会话、沙盒执行和流式结果呈现。
-
-### 图 2 Agentic RAG 协作时序
-
-![Agentic RAG 协作时序](docs/assets/agentic-rag-sequence.png)
-
-用户发送问题后，Gateway 创建会话并以本机 HTTP 直连派发任务给 pi-runtime；pi-runtime 在沙盒中运行 Agent，任务完成后以 HTTP 回写 session 状态。Agent 通过 MRAG 系统的 MCP 调用组合检索或图谱检索；Token、工具调用和工具结果以 HTTP 实时推送给 Gateway-SSE，落本地 SQLite `turn_events` 表并以 SSE 推送至前端，支持断线续传与历史回放。
-
----
-
-| 服务 | 端口 | 技术栈 | 职责 |
-|------|------|--------|------|
-| **frontend** | 3000 | React + Vite + Tailwind | 对话界面（含模型配置、会话级文件管理入口）、Skill / MCP / 知识库配置管理页 |
-| **cm-server** | 8000 | Python FastAPI（单进程） | 合并原 gateway/gateway-sse/admin/llm-proxy/mcp-proxy：会话 CRUD、任务派发、SSE 流式输出、MCP/Skill/知识库配置、LLM 代理 |
-| **arxiv-mcp** | 8081（仅内网） | arxiv-mcp-server | 平台内置 arXiv MCP（Streamable HTTP），经 cm-server 内的 mcp-proxy 模块暴露 |
-| **nature-mcp** | 8082（仅内网） | 自研 nature-mcp | 平台内置 Nature/Science 检索（OpenAlex/S2/Crossref/Unpaywall），仅元数据+合法 OA |
-| **pi-runtime** | 8090 | Node.js 执行引擎 | Agent 任务执行、bwrap 沙盒隔离、Unix socket 网络白名单 |
-
-CM 桌面架构下单机单用户场景不再需要按 QPS/并发连接数/下游调用量分别独立扩容，原 5 个
-Python 服务已合并为 `cm-server` 单进程（内部仍按原服务边界分模块，见
-[cm-server/README.md](cm-server/README.md)）。会话、LLM/MCP 配置、Skill 元数据统一存于
-本地 SQLite 单文件库（`data/local.db`），任务派发/增量事件通过服务间直连 HTTP 完成，
-不再依赖外部 Redis/MongoDB。
+你在窗口里聊天、管理经验、工具和知识；本机服务负责思考、记住对话、查阅资料，并安全地使用工具。  
 
 ---
 
 ## 快速开始
 
 ```bash
-# 一键部署（首次运行自动创建 .env）
+# 本机启动（首次自动创建 .env）
+# 前端 http://localhost:3000 ，CM Server http://localhost:8000/docs
 bash deploy.sh
 
-# 访问
-# 前端        → http://localhost:3000
-# CM Server   → http://localhost:8000/docs
-
-# 启动后在前端管理页面配置 LLM Provider（base_url / api_key / model）
-```
-
-CM 桌面架构下 `cm-server` 与 `pi-runtime` 均基于本机内存态调度单实例 session，
-不支持多实例水平扩展，`docker-compose.yml` 仅用于 Electron 打包前的本机调试，
-不再提供生产集群 override（详见 [cm-server/README.md](cm-server/README.md)、
-[pi-runtime/README.md](pi-runtime/README.md)）。
-
----
-
-## 打包 mac 桌面客户端
-
-```bash
-# 一键打 mac arm64 安装包（.dmg，需 Apple Silicon Mac；不依赖 Docker）
+# 打 mac arm64 安装包（.dmg）
 bash deploy.sh --package
 ```
-
-产物：`electron/release/Eidolon-1.0.0-arm64.dmg`（约 200MB+，双击后拖到 Applications 安装）。
-同目录的 `.dmg.blockmap` 只是增量更新索引，不是安装包。
-
-桌面端不再用 Docker/nginx；Electron 主进程拉起 `cm-server`、`pi-runtime`，并把
-`pi` CLI + 扩展打进安装包。本地数据在 `~/Library/Application Support/onenew-desktop`。
-详见 [electron/README.md](electron/README.md)。
 
 ---
 
@@ -102,13 +57,3 @@ eidolon-platform/
 ├── electron/              # Electron 主进程：拉起 cm-server/pi-runtime 子进程 + 本机静态代理
 └── scripts/               # 打包构建脚本（build-frontend/build-pi-runtime/build-cm-server/package-mac）
 ```
-
----
-
-## 文档
-
-| 文档 | 说明 |
-|------|------|
-| [docs/agent-system-architecture.md](docs/agent-system-architecture.md) | 系统架构设计 |
-| [docs/pi-internal-flow.md](docs/pi-internal-flow.md) | Pi 内部执行流程 |
-| [docs/sandbox-cgroup-delegation.md](docs/sandbox-cgroup-delegation.md) | 沙盒 session cgroup 宿主机委托配置 |
