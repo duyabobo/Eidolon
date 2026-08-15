@@ -5,6 +5,18 @@ import re
 from dataclasses import dataclass, field
 
 _FENCE_RE = re.compile(r"^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$", re.IGNORECASE)
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
+
+
+def detect_wiki_language(text: str) -> str:
+    """只要出现中文→中文；无中文有英文→英文；否则中文。"""
+    sample = text or ""
+    if _CJK_RE.search(sample):
+        return "zh"
+    if _LATIN_RE.search(sample):
+        return "en"
+    return "zh"
 _META_LINE_RE = re.compile(r"^-\s*([A-Za-z0-9_\u4e00-\u9fff]+)\s*:\s*(.*)\s*$")
 _H1_RE = re.compile(r"^#\s+(.+?)\s*$")
 _H2_RE = re.compile(r"^##\s+(.+?)\s*$")

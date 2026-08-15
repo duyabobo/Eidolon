@@ -14,6 +14,7 @@ from cm_server.mrag.llm.client import LlmClient
 from cm_server.mrag.pipeline.models import DocNode, DocTree, WikiNode
 from cm_server.mrag.pipeline.wiki_markdown import (
     WikiNodeDocument,
+    detect_wiki_language,
     extract_structured_wiki,
     extract_structured_wiki_many,
 )
@@ -32,8 +33,6 @@ _MIN_LEAF_CHARS = 80
 _MAX_NODES_PER_EXTRACT = 8
 _FALLBACK_OVERVIEW_CHARS = 240
 _FALLBACK_BODY_CHARS = 2400
-_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
-_LATIN_RE = re.compile(r"[A-Za-z]")
 _EMPTY_TEXT = frozenset({"", "无", "（无）", "-", "None", "none"})
 
 _SYSTEM_PROMPT = (
@@ -47,26 +46,9 @@ _PRINCIPLES_BLOCK = """【提取知识四原则】
 3. 完整性：本层抽出的知识从不同视角描述，合在一起应能覆盖本层原文信息，不丢关键命题。
 4. 推导性：更复杂的知识用更基础的知识来说明，通过引用组织关系；引用必须是真实知识名。"""
 
-_OUTPUT_FORMAT = """【输出】连续输出多条，两条之间单独一行 --- ；每条结构固定：
-# <知识短名>
-
-## 元数据
-- type: <concept|method|fact|entity|process|synthesis|other 之一>
-
-## 摘要
-<2-4 句核心命题>
-
-## 详情
-<不限语言文字的组织格式；层次分明、详略得当、逻辑清晰地解释当前知识>
-
-## 引用
-- [[知识名]] — 关系
-（先写知识名即可；系统落盘时回填被引用知识 md 的相对路径，形如 [[id|知识名]](wiki/xxx.md)，供 pi 直接 read）
-"""
-
 _LEAF_PROMPT_TEMPLATE = """从下面「原文片段」抽取若干条可独立阅读的知识节点。一章可以对应多条知识，不要把整章压成一条综述。
 
-【语种】全文使用{lang_name}。
+【语种】原文语种为{lang_name}。知识名、摘要、详情、以及「引用」破折号后的关系说明，必须全部使用{lang_name}，禁止中英混写。
 
 {principles}
 
@@ -78,9 +60,10 @@ _LEAF_PROMPT_TEMPLATE = """从下面「原文片段」抽取若干条可独立�
 【硬约束】
 1. 一级标题用知识自身的准确短名，不要照抄章节名（除非该节确实只有这一个知识点）。
 2. 「摘要」「详情」必须有实质内容，禁止写「无」或留空。
-3. 「引用」写本知识依赖的其它知识点，格式 [[名称]] — 关系。可引用本片段内其它条目。
-4. 禁止论文题名、外部百科概念、自引用。没有可引时写：无
-5. 系统会丢弃无法对应到已入库节点的引用，宁缺毋滥。
+3. 「引用」写本知识依赖的其它知识点，格式 [[名称]] — 关系说明。可引用本片段内其它条目。
+4. 关系说明必须用{lang_name}（英文原文写 primary evaluation dataset，不要写「该基准是主要评估数据集」）。
+5. 禁止论文题名、外部百科概念、自引用。没有可引时写：{empty_ref}
+6. 系统会丢弃无法对应到已入库节点的引用，宁缺毋滥。
 
 {output_format}
 
@@ -92,7 +75,7 @@ _LEAF_PROMPT_TEMPLATE = """从下面「原文片段」抽取若干条可独立�
 
 _PARENT_PROMPT_TEMPLATE = """这是文档树的上层节点。子树知识已抽出；请按四原则再做一层更全局的抽取，补齐跨节知识、并强化同名知识。
 
-【语种】全文使用{lang_name}。
+【语种】原文语种为{lang_name}。知识名、摘要、详情、以及「引用」破折号后的关系说明，必须全部使用{lang_name}，禁止中英混写。
 
 {principles}
 
@@ -108,8 +91,8 @@ _PARENT_PROMPT_TEMPLATE = """这是文档树的上层节点。子树知识已抽
 【硬约束】
 1. 一级标题用知识短名；同名强化必须与子树知识名逐字一致。
 2. 「摘要」「详情」必须有实质内容，禁止写「无」或留空。
-3. 引用指向更基础的已有或本层知识，格式 [[名称]] — 关系。没有可引时写：无
-4. 禁止论文题名、外部百科概念、自引用。
+3. 引用指向更基础的已有或本层知识，格式 [[名称]] — 关系说明。关系说明必须用{lang_name}。
+4. 禁止论文题名、外部百科概念、自引用。没有可引时写：{empty_ref}
 
 {output_format}
 
@@ -123,18 +106,40 @@ _PARENT_PROMPT_TEMPLATE = """这是文档树的上层节点。子树知识已抽
 """
 
 
-def detect_wiki_language(text: str) -> str:
-    """只要出现中文→中文；无中文有英文→英文；否则中文。"""
-    sample = text or ""
-    if _CJK_RE.search(sample):
-        return "zh"
-    if _LATIN_RE.search(sample):
-        return "en"
-    return "zh"
-
-
 def _lang_name(lang: str) -> str:
     return "中文" if lang == "zh" else "English"
+
+
+def empty_ref_label(lang: str) -> str:
+    return "无" if lang == "zh" else "None"
+
+
+def _output_format(lang: str) -> str:
+    if lang == "zh":
+        ref_example = "- [[知识名]] — 与本条的关系，用中文写"
+        ref_empty = "没有可引时写：无"
+    else:
+        ref_example = "- [[Knowledge name]] — primary evaluation dataset for this method"
+        ref_empty = "If none, write: None"
+    return (
+        "【输出】连续输出多条，两条之间单独一行 --- ；每条结构固定：\n"
+        "# <知识短名>\n"
+        "\n"
+        "## 元数据\n"
+        "- type: <concept|method|fact|entity|process|synthesis|other 之一>\n"
+        "\n"
+        "## 摘要\n"
+        "<2-4 句核心命题>\n"
+        "\n"
+        "## 详情\n"
+        "<不限组织格式；层次分明、详略得当、逻辑清晰地解释当前知识>\n"
+        "\n"
+        "## 引用\n"
+        f"{ref_example}\n"
+        "（先写知识名即可；系统落盘时回填被引用知识 md 的相对路径，"
+        "形如 [[id|知识名]](wiki/xxx.md)，供 pi 直接 read）\n"
+        f"{ref_empty}\n"
+    )
 
 
 def _node_range_for_text(text_len: int) -> str:
@@ -214,6 +219,7 @@ def _persist_compiled_nodes(
     source_file_path: str,
     owner_user_id: str | None,
     extra_title_aliases: dict[str, str] | None = None,
+    lang: str = "zh",
 ) -> None:
     """文档 wiki 权威落盘；有 owner 时镜像到 USER_FILES/wiki，并双写 pi 相对路径。"""
     doc_wiki = storage.wiki_dir(kb_id, doc_id)
@@ -237,6 +243,7 @@ def _persist_compiled_nodes(
         pi_link_paths=user_paths or doc_paths,
         sandbox_root=settings.sandbox_root,
         extra_title_aliases=extra_title_aliases,
+        empty_ref_label=empty_ref_label(lang),
     )
     write_wiki_nodes(nodes, doc_paths)
     if user_paths is not None:
@@ -409,7 +416,7 @@ def _empty_fallback(lang: str, source_file_path: str, doc_id: str, created_at: s
         node_type="compiled",
         overview=empty_body,
         body=empty_body,
-        references="无" if lang == "zh" else "None",
+        references=empty_ref_label(lang),
         source=source_file_path or doc_id,
         created_at=created_at,
     )
@@ -441,10 +448,11 @@ async def compile_wiki_to_files(
         clipped = text[: runtime.wiki_leaf_max_chars]
         prompt = _LEAF_PROMPT_TEMPLATE.format(
             lang_name=lang_name,
+            empty_ref=empty_ref_label(lang),
             principles=_PRINCIPLES_BLOCK,
             text_chars=len(text),
             node_range=_node_range_for_text(len(text)),
-            output_format=_OUTPUT_FORMAT,
+            output_format=_output_format(lang),
             section_title=section,
             text=clipped,
         )
@@ -473,12 +481,13 @@ async def compile_wiki_to_files(
         child_knowledge = _format_nodes_by_type(
             child_nodes, max_chars=_PARENT_CONTEXT_MAX_CHARS,
         )
-        exclusive_clipped = (exclusive or "（无）")[: runtime.wiki_leaf_max_chars]
+        exclusive_clipped = (exclusive or empty_ref_label(lang))[: runtime.wiki_leaf_max_chars]
         prompt = _PARENT_PROMPT_TEMPLATE.format(
             lang_name=lang_name,
+            empty_ref=empty_ref_label(lang),
             principles=_PRINCIPLES_BLOCK,
             node_range=_node_range_for_parent(len(node.children), len(exclusive)),
-            output_format=_OUTPUT_FORMAT,
+            output_format=_output_format(lang),
             section_title=section,
             child_knowledge=child_knowledge,
             exclusive_text=exclusive_clipped,
@@ -538,6 +547,7 @@ async def compile_wiki_to_files(
             source_name=source_name,
             source_file_path=source_file_path,
             owner_user_id=owner_user_id,
+            lang=lang,
         )
         logger.warning("Wiki 编译跳过：无正文 doc_id=%s", doc_id)
         return [fallback]
@@ -577,6 +587,7 @@ async def compile_wiki_to_files(
         source_file_path=source_file_path,
         owner_user_id=owner_user_id,
         extra_title_aliases=aliases,
+        lang=lang,
     )
 
     log_path = storage.log_dir(kb_id, doc_id) / "phase3_log.txt"

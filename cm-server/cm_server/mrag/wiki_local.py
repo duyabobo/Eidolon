@@ -26,8 +26,12 @@ from cm_server.admin.models.wiki import (
 from cm_server.mrag import storage
 from cm_server.mrag.doc_status import get_document_row, map_public_status
 from cm_server.mrag.pipeline.models import DocNode, DocTree
+from cm_server.mrag.pipeline.wiki_markdown import (
+    WikiNodeDocument,
+    detect_wiki_language,
+    parse_wiki_markdown,
+)
 from cm_server.mrag.pipeline.wiki_node_files import iter_wiki_refs, safe_filename
-from cm_server.mrag.pipeline.wiki_markdown import parse_wiki_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +136,11 @@ def _load_compiled_graph_nodes(
     return nodes
 
 
+def _fallback_ref_description(node: WikiGraphNode, doc: WikiNodeDocument) -> str:
+    sample = f"{node.title}\n{doc.overview}\n{doc.body}"
+    return "引用" if detect_wiki_language(sample) == "zh" else "cites"
+
+
 def _append_reference_edges(
     kb_id: str,
     doc_id: str,
@@ -166,7 +175,7 @@ def _append_reference_edges(
                 WikiGraphEdge(
                     source_id=nid,
                     target_id=target_id,
-                    description=description or "引用",
+                    description=description or _fallback_ref_description(node, doc),
                     source_doc_id=doc_id,
                 )
             )

@@ -206,14 +206,16 @@ def rewrite_wiki_references(
     *,
     node_id_to_title: dict[str, str] | None = None,
     exclude_node_id: str = "",
+    empty_label: str = "无",
 ) -> str:
     """硬校验引用：只保留能落到本批 node_id 的条目，双写 [[id|标题]](相对路径)。
 
     未命中的 [[名称]] / 纯文本引用一律丢弃，保证落盘引用与图谱可跳转集合一致。
     """
+    empty = empty_label if empty_label in _EMPTY_REFS else "无"
     raw = (text or "").strip()
     if raw in _EMPTY_REFS:
-        return "无"
+        return empty
 
     known_ids = {node_id for node_id in title_to_node_id.values()}
     id_to_title = node_id_to_title or {}
@@ -310,7 +312,7 @@ def rewrite_wiki_references(
             len(dropped),
             dropped[:8],
         )
-    return "\n".join(kept) if kept else "无"
+    return "\n".join(kept) if kept else empty
 
 
 def attach_source_and_refs(
@@ -321,6 +323,7 @@ def attach_source_and_refs(
     pi_link_paths: list[Path] | None = None,
     sandbox_root: str | Path,
     extra_title_aliases: dict[str, str] | None = None,
+    empty_ref_label: str = "无",
 ) -> None:
     """回填 source（pi 相对路径优先），引用硬校验后双写 node_id + 相对路径。"""
     title_to_id = build_title_node_id_index(nodes, extra_aliases=extra_title_aliases)
@@ -361,6 +364,7 @@ def attach_source_and_refs(
             node_id_to_rel,
             node_id_to_title=node_id_to_title,
             exclude_node_id=node.node_id,
+            empty_label=empty_ref_label,
         )
         if node.references != before:
             rewritten_nodes += 1
