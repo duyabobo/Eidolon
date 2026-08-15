@@ -196,3 +196,49 @@ def extract_structured_wiki(llm_text: str, *, fallback_title: str, fallback_id: 
         cleaned = _strip_fence(llm_text).strip()
         doc.body = cleaned or "（编译结果为空）"
     return doc
+
+
+def _split_by_h1(text: str) -> list[str]:
+    lines = (text or "").splitlines()
+    starts = [i for i, line in enumerate(lines) if _H1_RE.match(line.strip())]
+    if len(starts) <= 1:
+        return [text.strip()] if text.strip() else []
+    parts: list[str] = []
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(lines)
+        part = "\n".join(lines[start:end]).strip()
+        if part:
+            parts.append(part)
+    return parts
+
+
+def split_wiki_llm_output(text: str) -> list[str]:
+    """把一次 LLM 输出拆成多条 Wiki 文档（--- 或连续一级标题）。"""
+    raw = _strip_fence(text).strip()
+    if not raw:
+        return []
+    chunks = [p.strip() for p in re.split(r"^\s*---\s*$", raw, flags=re.MULTILINE) if p.strip()]
+    parts: list[str] = []
+    for chunk in chunks:
+        parts.extend(_split_by_h1(chunk) or [chunk])
+    return parts
+
+
+def extract_structured_wiki_many(
+    llm_text: str,
+    *,
+    fallback_title: str,
+    fallback_id: str,
+) -> list[WikiNodeDocument]:
+    """解析一次回复中的多条知识节点。"""
+    parts = split_wiki_llm_output(llm_text)
+    if not parts:
+        return [extract_structured_wiki(llm_text, fallback_title=fallback_title, fallback_id=fallback_id)]
+    docs: list[WikiNodeDocument] = []
+    multi = len(parts) > 1
+    for index, part in enumerate(parts, start=1):
+        node_id = f"{fallback_id}_{index}" if multi else fallback_id
+        docs.append(
+            extract_structured_wiki(part, fallback_title=fallback_title, fallback_id=node_id)
+        )
+    return docs

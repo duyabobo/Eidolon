@@ -1,11 +1,9 @@
 """Wiki node 落盘路径与引用回填。
 
-引用双写（UI + pi）：
-  [[node_id|标题]](wiki/xxx.md)  — 命中本批且有 pi 可读相对路径
-  [[node_id|标题]]               — 命中本批但无可达路径
+引用落盘格式（pi 可 read）：
+  [[node_id|标题]](wiki/xxx.md)
 
-未命中本批 node_id 的引用一律丢弃（硬过滤），保证落盘引用与图谱可跳转集合一致。
-括号内路径相对 USER_FILES（如 wiki/a.md）或相对 session workspace（如 uploads/a.pdf）。
+未命中本批 node_id 的引用一律丢弃。括号内路径相对 USER_FILES（wiki/a.md）。
 """
 from __future__ import annotations
 
@@ -15,6 +13,7 @@ from pathlib import Path
 
 from pi_shared.workspace.constants import (
     SESSION_WORKSPACE_SUBDIR,
+    USER_WIKI_SUBDIR,
     WRITABLE_ROOT,
 )
 from pi_shared.workspace.paths import user_root
@@ -122,6 +121,14 @@ def to_pi_relative_path(
     if workspace_marker in posix:
         return posix.split(workspace_marker, 1)[1]
     return ""
+
+
+def wiki_pi_rel_path(path: Path) -> str:
+    """USER_FILES 下 wiki 文件的 pi 相对路径，固定 wiki/文件名.md。"""
+    name = path.name.strip()
+    if not name:
+        return ""
+    return f"{USER_WIKI_SUBDIR}/{name}"
 
 
 def _unique_wiki_path(wiki: Path, filename: str, reserved: set[str]) -> Path:
@@ -233,7 +240,9 @@ def rewrite_wiki_references(
         seen_ids.add(node_id)
         title = (id_to_title.get(node_id) or fallback_title or node_id).strip()
         rel = (node_id_to_rel_path.get(node_id) or "").strip()
-        link = f"[[{node_id}|{title}]]({rel})" if rel else f"[[{node_id}|{title}]]"
+        if not rel:
+            rel = wiki_pi_rel_path(Path(f"{safe_filename(node_id)}.md"))
+        link = f"[[{node_id}|{title}]]({rel})"
         if description:
             kept.append(f"- {link} — {description}")
         else:
@@ -321,13 +330,16 @@ def attach_source_and_refs(
         if (n.node_id or "").strip()
     }
     node_id_to_rel: dict[str, str] = {}
-    if pi_link_paths:
-        for node, path in zip(nodes, pi_link_paths):
-            rel = to_pi_relative_path(
-                path, owner_user_id=owner_user_id, sandbox_root=sandbox_root,
-            )
-            if rel and node.node_id:
-                node_id_to_rel[node.node_id] = rel
+    for node, path in zip(nodes, pi_link_paths or []):
+        if not node.node_id:
+            continue
+        rel = to_pi_relative_path(
+            path, owner_user_id=owner_user_id, sandbox_root=sandbox_root,
+        )
+        node_id_to_rel[node.node_id] = rel or wiki_pi_rel_path(path)
+    for node in nodes:
+        if node.node_id and node.node_id not in node_id_to_rel:
+            node_id_to_rel[node.node_id] = wiki_pi_rel_path(Path(f"{safe_filename(node.node_id)}.md"))
 
     source_raw = source_file_path.strip()
     source_rel = ""
