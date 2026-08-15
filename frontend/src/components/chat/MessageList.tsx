@@ -450,7 +450,7 @@ export default function MessageList({ messages, userId, sessionId }: Props) {
             </div>
             <p className="text-ink-700 font-medium">开始与 {APP_NAME} 对话</p>
             <p className="text-sm text-ink-400 mt-2 leading-relaxed">
-              输入 / 可选择 Skill，Enter 发送
+              哎，懂了
             </p>
           </div>
         )}
