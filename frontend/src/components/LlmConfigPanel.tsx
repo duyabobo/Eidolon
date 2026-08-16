@@ -44,7 +44,6 @@ export default function LlmConfigPanel({
 }: LlmConfigPanelProps) {
   const [profiles, setProfiles] = useState<LlmProfile[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [intentId, setIntentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -59,7 +58,6 @@ export default function LlmConfigPanel({
       const res = await configApi.listLlmProfiles();
       setProfiles(res.items);
       setActiveId(res.active_id);
-      setIntentId(res.intent_id);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "加载失败");
     } finally {
@@ -77,19 +75,6 @@ export default function LlmConfigPanel({
       setActiveId(id);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "切换失败");
-    }
-  };
-
-  const handleAssignIntent = async (id: string | null) => {
-    if (id === intentId) return;
-    setErrMsg(null);
-    try {
-      const res = await configApi.assignIntentLlmProfile(id);
-      setProfiles(res.items);
-      setActiveId(res.active_id);
-      setIntentId(res.intent_id);
-    } catch (e) {
-      setErrMsg(e instanceof Error ? e.message : "意图模型设置失败");
     }
   };
 
@@ -183,22 +168,15 @@ export default function LlmConfigPanel({
         loading={loading}
         loadingText="加载 LLM 配置…"
         errMsg={errMsg}
-        toolbar={(
-          <ConfigListToolbar
-            left={(
-              <IntentModelSelect
-                profiles={profiles}
-                intentId={intentId}
-                onChange={(id) => void handleAssignIntent(id)}
+        toolbar={
+          hideToolbarAdd
+            ? undefined
+            : (
+              <ConfigListToolbar
+                right={<ConfigPrimaryBtn onClick={openCreate}>添加</ConfigPrimaryBtn>}
               />
-            )}
-            right={
-              hideToolbarAdd
-                ? undefined
-                : <ConfigPrimaryBtn onClick={openCreate}>添加</ConfigPrimaryBtn>
-            }
-          />
-        )}
+            )
+        }
         pagination={(
           <ConfigListPagination
             page={pagination.page}
@@ -233,11 +211,6 @@ export default function LlmConfigPanel({
                       {activeId === profile.id && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-brand-50 text-brand-700">
                           当前生效
-                        </span>
-                      )}
-                      {intentId === profile.id && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-sky-50 text-sky-700">
-                          意图识别
                         </span>
                       )}
                       {testing && !testResult && (
@@ -294,36 +267,6 @@ export default function LlmConfigPanel({
         />
       )}
     </>
-  );
-}
-
-function IntentModelSelect({
-  profiles,
-  intentId,
-  onChange,
-}: {
-  profiles: LlmProfile[];
-  intentId: string | null;
-  onChange: (id: string | null) => void;
-}) {
-  return (
-    <label className="flex items-center gap-2 min-w-0 w-full max-w-xl">
-      <span className="text-[11px] text-ink-500 shrink-0">意图识别小模型</span>
-      <select
-        value={intentId ?? ""}
-        disabled={profiles.length === 0}
-        onChange={(e) => onChange(e.target.value || null)}
-        className="ui-field min-w-0 flex-1 text-sm"
-        title="可选。未配置时用当前生效的聊天大模型"
-      >
-        <option value="">未配置（用当前聊天大模型）</option>
-        {profiles.map((profile) => (
-          <option key={profile.id} value={profile.id}>
-            {profile.name} · {profile.model}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 

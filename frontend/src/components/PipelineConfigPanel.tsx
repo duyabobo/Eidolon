@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { configApi, type LlmProfile } from "../api/config";
 import {
   knowledgeApi,
   type KnowledgePipelineConfig,
@@ -7,7 +8,7 @@ import { ConfigActionBtn } from "./config/ConfigActionBtn";
 import { ConfigListItem } from "./config/ConfigListItem";
 import { ConfigPanelLayout } from "./config/ConfigPanelLayout";
 
-type SmallModelId = "mineru";
+type SmallModelId = "intent" | "mineru";
 
 interface SmallModelForm {
   base_url: string;
@@ -20,8 +21,13 @@ const EMPTY_PIPELINE: KnowledgePipelineConfig = {
 };
 
 const PRESET_ITEMS: { id: SmallModelId; title: string }[] = [
-  { id: "mineru", title: "mineru" },
+  { id: "intent", title: "意图识别小模型" },
+  { id: "mineru", title: "文件解析小模型" },
 ];
+
+type EditState =
+  | { id: "intent"; profileId: string | null }
+  | { id: "mineru"; form: SmallModelForm };
 
 function formFromConfig(cfg: KnowledgePipelineConfig): SmallModelForm {
   return { base_url: cfg.mineru3_api_base, api_key: cfg.mineru3_api_key ?? "" };
@@ -31,23 +37,39 @@ function applyForm(cfg: KnowledgePipelineConfig, form: SmallModelForm): Knowledg
   return { ...cfg, mineru3_api_base: form.base_url.trim(), mineru3_api_key: form.api_key.trim() };
 }
 
-function subtitleFor(cfg: KnowledgePipelineConfig): string {
-  return cfg.mineru3_api_base.trim() || "未配置";
+function findProfile(profiles: LlmProfile[], id: string | null): LlmProfile | undefined {
+  if (!id) return undefined;
+  return profiles.find((item) => item.id === id);
 }
 
-function isConfigured(cfg: KnowledgePipelineConfig): boolean {
-  return Boolean(cfg.mineru3_api_base.trim());
+function intentSubtitle(
+  profiles: LlmProfile[],
+  intentId: string | null,
+  activeId: string | null,
+): string {
+  const selected = findProfile(profiles, intentId);
+  if (selected) return `${selected.name} · ${selected.model}`;
+  const fallback = findProfile(profiles, activeId);
+  if (fallback) return `未配置（兜底：${fallback.name}）`;
+  return "未配置（用当前聊天大模型）";
+}
+
+function mineruSubtitle(cfg: KnowledgePipelineConfig): string {
+  const url = cfg.mineru3_api_base.trim();
+  return url ? `mineru · ${url}` : "未配置";
 }
 
 /**
- * 配置页「小模型」：预设 mineru，列表交互对齐大模型。
+ * 配置页「小模型」：意图识别 + 文件解析，列表交互对齐大模型。
  */
 export default function PipelineConfigPanel() {
   const [cfg, setCfg] = useState<KnowledgePipelineConfig>(EMPTY_PIPELINE);
+  const [profiles, setProfiles] = useState<LlmProfile[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [intentId, setIntentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
-  const [editId, setEditId] = useState<SmallModelId | null>(null);
-  const [form, setForm] = useState<SmallModelForm>({ base_url: "", api_key: "" });
+  const [edit, setEdit] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
   const [testingIds, setTestingIds] = useState<Set<SmallModelId>>(new Set());
   const [testResults, setTestResults] = useState<
@@ -57,8 +79,14 @@ export default function PipelineConfigPanel() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const next = await knowledgeApi.getPipelineConfig();
-      setCfg(next);
+      const [pipeline, llm] = await Promise.all([
+        knowledgeApi.getPipelineConfig(),
+        configApi.listLlmProfiles(),
+      ]);
+      setCfg(pipeline);
+      setProfiles(llm.items);
+      setActiveId(llm.active_id);
+      setIntentId(llm.intent_id);
     } catch (e) {
       setCfg(EMPTY_PIPELINE);
       setErrMsg(e instanceof Error ? e.message : "加载失败");
@@ -73,24 +101,33 @@ export default function PipelineConfigPanel() {
 
   const openEdit = (id: SmallModelId) => {
     setErrMsg(null);
-    setForm(formFromConfig(cfg));
-    setEditId(id);
+    if (id === "intent") {
+      setEdit({ id, profileId: intentId });
+      return;
+    }
+    setEdit({ id, form: formFromConfig(cfg) });
   };
 
   const handleSave = async () => {
-    if (!editId) return;
+    if (!edit) return;
     setSaving(true);
     setErrMsg(null);
     try {
-      const next = applyForm(cfg, form);
-      const saved = await knowledgeApi.savePipelineConfig(next);
-      setCfg(saved);
-      setEditId(null);
+      if (edit.id === "intent") {
+        const res = await configApi.assignIntentLlmProfile(edit.profileId);
+        setProfiles(res.items);
+        setActiveId(res.active_id);
+        setIntentId(res.intent_id);
+      } else {
+        const saved = await knowledgeApi.savePipelineConfig(applyForm(cfg, edit.form));
+        setCfg(saved);
+      }
       setTestResults((prev) => {
         const cleared = { ...prev };
-        delete cleared[editId];
+        delete cleared[edit.id];
         return cleared;
       });
+      setEdit(null);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -102,16 +139,18 @@ export default function PipelineConfigPanel() {
     setErrMsg(null);
     setTestingIds((prev) => new Set(prev).add(id));
     try {
-      const result = await knowledgeApi.testMineru(cfg);
+      const result = id === "intent"
+        ? await testIntentProfile(intentId, activeId)
+        : await knowledgeApi.testMineru(cfg);
       const message = result.ok
         ? `${result.message}${result.latency_ms ? ` · ${result.latency_ms}ms` : ""}`
         : result.message || "测试失败";
       setTestResults((prev) => ({ ...prev, [id]: { ok: result.ok, message } }));
-      if (!result.ok) setErrMsg(`「${id}」测试失败：${message}`);
+      if (!result.ok) setErrMsg(`「${titleOf(id)}」测试失败：${message}`);
     } catch (e) {
       const message = e instanceof Error ? e.message : "测试失败";
       setTestResults((prev) => ({ ...prev, [id]: { ok: false, message } }));
-      setErrMsg(`「${id}」测试失败：${message}`);
+      setErrMsg(`「${titleOf(id)}」测试失败：${message}`);
     } finally {
       setTestingIds((prev) => {
         const next = new Set(prev);
@@ -121,7 +160,8 @@ export default function PipelineConfigPanel() {
     }
   };
 
-  const canSave = Boolean(form.base_url.trim());
+  const intentConfigured = Boolean(intentId);
+  const mineruConfigured = Boolean(cfg.mineru3_api_base.trim());
 
   return (
     <ConfigPanelLayout loading={loading} loadingText="加载小模型配置…" errMsg={errMsg}>
@@ -129,7 +169,10 @@ export default function PipelineConfigPanel() {
         {PRESET_ITEMS.map((item) => {
           const testing = testingIds.has(item.id);
           const testResult = testResults[item.id];
-          const configured = isConfigured(cfg);
+          const configured = item.id === "intent" ? intentConfigured : mineruConfigured;
+          const canTest = item.id === "intent"
+            ? Boolean(intentId || activeId)
+            : mineruConfigured;
           return (
             <ConfigListItem
               key={item.id}
@@ -162,12 +205,16 @@ export default function PipelineConfigPanel() {
                   )}
                 </>
               )}
-              subtitle={subtitleFor(cfg)}
+              subtitle={
+                item.id === "intent"
+                  ? intentSubtitle(profiles, intentId, activeId)
+                  : mineruSubtitle(cfg)
+              }
               actions={(
                 <>
                   <ConfigActionBtn
                     variant="sky"
-                    disabled={testing || !configured}
+                    disabled={testing || !canTest}
                     onClick={() => void handleTest(item.id)}
                   >
                     {testing ? "测试中…" : "测试"}
@@ -180,23 +227,79 @@ export default function PipelineConfigPanel() {
         })}
       </div>
 
-      {editId && (
-        <SmallModelModal
-          title={`编辑 · ${editId}`}
-          form={form}
+      {edit?.id === "intent" && (
+        <IntentModelModal
+          profiles={profiles}
+          profileId={edit.profileId}
           saving={saving}
-          canSave={canSave}
-          onChange={setForm}
+          onChange={(profileId) => setEdit({ id: "intent", profileId })}
           onSave={() => void handleSave()}
-          onCancel={() => setEditId(null)}
+          onCancel={() => setEdit(null)}
+        />
+      )}
+      {edit?.id === "mineru" && (
+        <MineruModelModal
+          form={edit.form}
+          saving={saving}
+          canSave={Boolean(edit.form.base_url.trim())}
+          onChange={(form) => setEdit({ id: "mineru", form })}
+          onSave={() => void handleSave()}
+          onCancel={() => setEdit(null)}
         />
       )}
     </ConfigPanelLayout>
   );
 }
 
-function SmallModelModal({
-  title,
+function titleOf(id: SmallModelId): string {
+  return PRESET_ITEMS.find((item) => item.id === id)?.title ?? id;
+}
+
+async function testIntentProfile(intentId: string | null, activeId: string | null) {
+  const target = intentId || activeId;
+  if (!target) {
+    throw new Error("请先在「大模型」添加并激活聊天大模型");
+  }
+  return configApi.testLlmProfile(target);
+}
+
+function IntentModelModal({
+  profiles,
+  profileId,
+  saving,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  profiles: LlmProfile[];
+  profileId: string | null;
+  saving: boolean;
+  onChange: (profileId: string | null) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <SmallModelDialog title="编辑 · 意图识别小模型" saving={saving} canSave onSave={onSave} onCancel={onCancel}>
+      <select
+        value={profileId ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+        className="ui-field w-full"
+      >
+        <option value="">未配置（用当前聊天大模型）</option>
+        {profiles.map((profile) => (
+          <option key={profile.id} value={profile.id}>
+            {profile.name} · {profile.model}
+          </option>
+        ))}
+      </select>
+      <p className="text-xs text-ink-400">
+        从「大模型」里选一条。不选则分流时用当前生效的聊天大模型。
+      </p>
+    </SmallModelDialog>
+  );
+}
+
+function MineruModelModal({
   form,
   saving,
   canSave,
@@ -204,7 +307,6 @@ function SmallModelModal({
   onSave,
   onCancel,
 }: {
-  title: string;
   form: SmallModelForm;
   saving: boolean;
   canSave: boolean;
@@ -216,36 +318,62 @@ function SmallModelModal({
   const set = (patch: Partial<SmallModelForm>) => onChange({ ...form, ...patch });
 
   return (
+    <SmallModelDialog
+      title="编辑 · 文件解析小模型"
+      saving={saving}
+      canSave={canSave}
+      onSave={onSave}
+      onCancel={onCancel}
+    >
+      <input
+        type="url"
+        value={form.base_url}
+        onChange={(e) => set({ base_url: e.target.value })}
+        placeholder="Base URL / API"
+        className="ui-field w-full"
+      />
+      <div className="flex gap-2">
+        <input
+          type={showKey ? "text" : "password"}
+          value={form.api_key}
+          onChange={(e) => set({ api_key: e.target.value })}
+          placeholder="API Key（可选）"
+          className="ui-field flex-1"
+        />
+        <button
+          type="button"
+          onClick={() => setShowKey((v) => !v)}
+          className="text-xs px-2 border border-ink-200 rounded-lg"
+        >
+          {showKey ? "隐藏" : "显示"}
+        </button>
+      </div>
+    </SmallModelDialog>
+  );
+}
+
+function SmallModelDialog({
+  title,
+  saving,
+  canSave,
+  onSave,
+  onCancel,
+  children,
+}: {
+  title: string;
+  saving: boolean;
+  canSave: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+  children: ReactNode;
+}) {
+  return (
     <div className="fixed inset-0 bg-ink-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-panel w-full max-w-lg border border-ink-200/60 max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-ink-200/60">
           <h2 className="font-semibold text-ink-900">{title}</h2>
         </div>
-        <div className="px-6 py-4 space-y-3">
-          <input
-            type="url"
-            value={form.base_url}
-            onChange={(e) => set({ base_url: e.target.value })}
-            placeholder="Base URL / API"
-            className="ui-field w-full"
-          />
-          <div className="flex gap-2">
-            <input
-              type={showKey ? "text" : "password"}
-              value={form.api_key}
-              onChange={(e) => set({ api_key: e.target.value })}
-              placeholder="API Key（可选）"
-              className="ui-field flex-1"
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey((v) => !v)}
-              className="text-xs px-2 border border-ink-200 rounded-lg"
-            >
-              {showKey ? "隐藏" : "显示"}
-            </button>
-          </div>
-        </div>
+        <div className="px-6 py-4 space-y-3">{children}</div>
         <div className="px-6 py-4 border-t border-ink-200/60 flex justify-end gap-2">
           <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-ink-200 rounded-xl">
             取消
