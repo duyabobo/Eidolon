@@ -34,7 +34,14 @@ export interface LlmProfileUpdate {
 export interface LlmProfileListResponse {
   items: LlmProfile[];
   active_id: string | null;
-  intent_id: string | null;
+}
+
+export interface IntentLlmConfig {
+  base_url: string;
+  api_key: string;
+  model: string;
+  timeout?: number;
+  protocol?: "openai" | "anthropic";
 }
 
 export interface ServiceTestResult {
@@ -84,10 +91,18 @@ export const configApi = {
   activateLlmProfile: (id: string) =>
     request<LlmConfig>(`/config/llm/profiles/${encodeURIComponent(id)}/activate`, { method: "PUT" }),
 
-  assignIntentLlmProfile: (profileId: string | null) =>
-    request<LlmProfileListResponse>("/config/llm/intent", {
+  getIntentLlm: () => request<IntentLlmConfig>("/config/llm/intent"),
+
+  saveIntentLlm: (cfg: IntentLlmConfig) =>
+    request<IntentLlmConfig>("/config/llm/intent", {
       method: "PUT",
-      body: JSON.stringify({ profile_id: profileId }),
+      body: JSON.stringify(cfg),
+    }),
+
+  testIntentLlm: (cfg: IntentLlmConfig) =>
+    request<ServiceTestResult>("/config/llm/intent/test", {
+      method: "POST",
+      body: JSON.stringify(cfg),
     }),
 
   testLlmProfile: (id: string) =>

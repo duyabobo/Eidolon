@@ -37,11 +37,18 @@ class LlmProfileUpdate(BaseModel):
 class LlmProfileListResponse(BaseModel):
     items: list[LlmProfile]
     active_id: str | None = None
-    intent_id: str | None = None
 
 
-class LlmIntentAssign(BaseModel):
-    profile_id: str | None = None
+class IntentLlmConfig(BaseModel):
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+    timeout: int = 12
+    protocol: Literal["openai", "anthropic"] = "openai"
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.base_url.strip() and self.model.strip())
 
 
 class ServiceTestResult(BaseModel):

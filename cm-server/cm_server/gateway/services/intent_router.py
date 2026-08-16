@@ -110,16 +110,14 @@ async def _list_mcp_catalog(user_id: str) -> list[tuple[str, str]]:
 
 async def _resolve_intent_client() -> tuple[str, str, str, float, str]:
     """返回 (base_url, api_key, model, timeout, source)。未配意图模型则用当前聊天大模型。"""
-    from cm_server.llm_proxy.services.llm_profile_store import (
-        get_active_llm_profile,
-        get_intent_llm_profile,
-    )
+    from cm_server.llm_proxy.services.intent_llm_store import get_intent_llm_config
+    from cm_server.llm_proxy.services.llm_profile_store import get_active_llm_profile
 
     active = await get_active_llm_profile()
     if active is None:
         raise RuntimeError("请先在配置页添加并激活聊天大模型")
-    intent = await get_intent_llm_profile()
-    if intent is not None:
+    intent = await get_intent_llm_config()
+    if intent.configured:
         timeout = min(float(intent.timeout or _CLASSIFY_TIMEOUT_S), _CLASSIFY_TIMEOUT_S)
         return intent.base_url.rstrip("/"), intent.api_key, intent.model, timeout, "small"
     timeout = min(float(active.timeout or _CLASSIFY_TIMEOUT_S), _CLASSIFY_TIMEOUT_S)
