@@ -71,6 +71,8 @@ def apply_route_prefix(text: str, policy: IntentPolicy) -> str:
         )
     if policy.allow_mcp:
         lines.append("本轮可用 MCP：" + "、".join(policy.allow_mcp))
+    elif policy.mcp_mode == MCP_MODE_ALL:
+        lines.append("本轮可使用已加载的 MCP 工具。")
     elif policy.mcp_mode == MCP_MODE_NONE:
         lines.append("本轮不要调用 MCP。")
     if policy.intent == INTENT_DIRECT:
@@ -105,6 +107,7 @@ async def _list_mcp_catalog(user_id: str) -> list[tuple[str, str]]:
         catalog.append((name, desc[:_DESC_CHARS]))
         if len(catalog) >= _CATALOG_LIMIT:
             break
+    logger.info("意图 MCP 目录 user=%s count=%s", user_id, len(catalog))
     return catalog
 
 
@@ -182,7 +185,10 @@ async def _classify(
 ) -> dict:
     catalog = await _list_mcp_catalog(user_id)
     catalog_names = {name for name, _desc in catalog}
-    catalog_lines = "\n".join(f"- {name}: {desc}" for name, desc in catalog) or "- （无）"
+    catalog_lines = (
+        "\n".join(f"- {name}: {desc}" for name, desc in catalog)
+        or "- （已配置，名单暂未载入；需要外部检索时 intent=tools，mcp_tools 留空）"
+    )
     skills = await list_skills_for_user(user_id)
     skill_lines = "\n".join(
         f"- {item.name}: {(item.description or '')[:80]}"
@@ -245,13 +251,27 @@ async def _classify(
     }
 
 
+def _mcp_mode_for(intent: str, mcp_tools: tuple[str, ...]) -> str:
+    if intent == INTENT_DIRECT:
+        return MCP_MODE_NONE
+    if mcp_tools:
+        return MCP_MODE_ALLOW
+    # 目录空或点名被滤掉时，不能把「要用工具」收成 0 个 MCP
+    if intent in {INTENT_TOOLS, INTENT_SKILL}:
+        return MCP_MODE_ALL
+    return MCP_MODE_NONE
+
+
 def _policy_from_decision(decision: dict) -> IntentPolicy:
+    intent = str(decision["intent"])
     mcp_tools: tuple[str, ...] = tuple(decision["mcp_tools"])
+    if intent == INTENT_DIRECT:
+        mcp_tools = ()
     return IntentPolicy(
-        intent=str(decision["intent"]),
+        intent=intent,
         reason=str(decision["reason"]),
         allow_builtin=tuple(decision["builtins"]),
-        mcp_mode=MCP_MODE_ALLOW if mcp_tools else MCP_MODE_NONE,
+        mcp_mode=_mcp_mode_for(intent, mcp_tools),
         allow_mcp=mcp_tools,
         resolved_query=str(decision["resolved_query"]),
         need_rag=bool(decision["need_rag"]),
@@ -295,10 +315,11 @@ async def route_intent(
         )
 
     logger.info(
-        "意图已分流 intent=%s rag=%s builtin=%s mcp=%s",
+        "意图已分流 intent=%s rag=%s builtin=%s mcp_mode=%s mcp=%s",
         policy.intent,
         policy.need_rag,
         ",".join(policy.allow_builtin) or "-",
+        policy.mcp_mode,
         ",".join(policy.allow_mcp) or "-",
     )
     return policy

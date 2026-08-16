@@ -93,7 +93,22 @@ class McpServerCacheManager:
         caches = [self._get_or_create(user_id, entry) for entry in entries]
         await asyncio.gather(*(cache.refresh_if_stale() for cache in caches))
         allowed = None if tool_names is None else set(tool_names)
-        return McpToolsView(caches, allowed_tool_names=allowed)
+        view = McpToolsView(caches, allowed_tool_names=allowed)
+        # 明确 0 工具（*none*）不重试；缓存失败导致空列表则立刻再拉一次
+        if (
+            entries
+            and tool_names != []
+            and not view.list_tools()
+            and any(cache.last_refresh_failed() for cache in caches)
+        ):
+            logger.warning(
+                "MCP 工具视图为空且缓存失败，强制刷新 user=%s servers=%s",
+                user_id or "-",
+                ",".join(entry.name for entry in entries),
+            )
+            await asyncio.gather(*(cache.force_refresh() for cache in caches))
+            view = McpToolsView(caches, allowed_tool_names=allowed)
+        return view
 
     async def force_refresh(self, user_id: str | None) -> None:
         """

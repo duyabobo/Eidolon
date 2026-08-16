@@ -112,6 +112,9 @@ class McpServerCache:
         finally:
             self._last_refresh_at = time.monotonic()
 
+    def last_refresh_failed(self) -> bool:
+        return self._failed_at is not None
+
     def tool_names(self) -> list[str]:
         return list(self._tools.keys())
 
