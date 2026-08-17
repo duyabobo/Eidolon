@@ -9,7 +9,6 @@ import {
 import { skillsApi, Skill, toSkillRef } from "../api/skills";
 import { workspaceApi, type ChatUploadResponse } from "../api/workspace";
 import { randomUUID } from "../utils/id";
-import { resolveUserId } from "../constants/user";
 
 export type MessageType = "text" | "thinking" | "tool_call" | "tool_result" | "file" | "final_result";
 
@@ -389,8 +388,6 @@ async function rebuildMessagesFromSession(
 }
 
 interface ChatSessionContextValue {
-  userId: string;
-  setUserId: (id: string) => void;
   messages: Message[];
   isLoading: boolean;
   error: string;
@@ -429,11 +426,6 @@ export function useChatSession() {
 }
 
 export function ChatSessionProvider({ children }: { children: ReactNode }) {
-  const [userId, setUserIdState] = useState(() => {
-    const id = resolveUserId(localStorage.getItem("pi_user_id"));
-    localStorage.setItem("pi_user_id", id);
-    return id;
-  });
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -512,7 +504,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
 
   const loadSkills = useCallback(async () => {
     try {
-      const list = await skillsApi.listForChat(userId);
+      const list = await skillsApi.listForChat();
       setSkills(list);
       // 若当前选中的 skill 已不在列表中（被删除等），清空选择
       const current = selectedSkillRefRef.current;
@@ -523,13 +515,16 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     } catch {
       setSkills([]);
     }
-  }, [userId]);
+  }, []);
 
   const loadSessions = useCallback(async () => {
-    if (!userId.trim()) { setSessions([]); return; }
-    const list = await getRecentSessions(userId);
-    setSessions(list);
-  }, [userId]);
+    try {
+      const list = await getRecentSessions();
+      setSessions(list);
+    } catch {
+      setSessions([]);
+    }
+  }, []);
 
   useEffect(() => { loadSkills(); }, [loadSkills]);
   useEffect(() => { loadSessions(); }, [loadSessions]);
@@ -632,7 +627,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     setCurrentSessionId(savedSessionId);
     localStorage.setItem(CURRENT_SESSION_STORAGE_KEY, savedSessionId);
     rememberLastSessionId(savedSessionId);
-    const detail = await getSessionDetail(savedSessionId);
+    const detail = await getSessionDetail(savedSessionId).catch(() => null);
     if (!detail) {
       localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
       sessionIdRef.current = null;
@@ -648,7 +643,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     setSelectedSkillRefState(skillRef);
     sessionRuntimeRef.current.set(savedSessionId, emptyRuntime(msgs, skillRef));
 
-    const activeTurnId = await getActiveTurn(savedSessionId);
+    const activeTurnId = await getActiveTurn(savedSessionId).catch(() => null);
     if (activeTurnId) {
       attachTurnStreamRef.current(savedSessionId, activeTurnId, "0");
     }
@@ -658,8 +653,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     if (restoredRef.current) return;
     restoredRef.current = true;
     const savedSessionId = localStorage.getItem(CURRENT_SESSION_STORAGE_KEY);
-    const savedUserId = localStorage.getItem("pi_user_id");
-    if (!savedSessionId || !savedUserId) return;
+    if (!savedSessionId) return;
     restoreSession(savedSessionId).catch(() => {
       localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
       sessionIdRef.current = null;
@@ -710,12 +704,12 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     messagesRef.current = [];
     setMessages([]);
 
-    const detail = await getSessionDetail(s.session_id);
+    const detail = await getSessionDetail(s.session_id).catch(() => null);
     const msgs = detail ? buildMessagesFromSnapshot(detail.request, detail.events_snapshot) : [];
     messagesRef.current = msgs;
     setMessages(msgs);
 
-    const activeTurnId = await getActiveTurn(s.session_id);
+    const activeTurnId = await getActiveTurn(s.session_id).catch(() => null);
     if (activeTurnId) {
       sessionRuntimeRef.current.set(s.session_id, { ...emptyRuntime(msgs), isLoading: true });
       notifyRuntimeChange();
@@ -740,19 +734,11 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const uid = userId.trim();
-    if (!uid) return;
-    const list = await getRecentSessions(uid);
+    const list = await getRecentSessions();
     setSessions(list);
     if (list.length === 0) return;
     await switchToSession(list[0]);
-  }, [restoreSession, userId, switchToSession]);
-
-  const setUserId = useCallback((newId: string) => {
-    const id = resolveUserId(newId);
-    setUserIdState(id);
-    localStorage.setItem("pi_user_id", id);
-  }, []);
+  }, [restoreSession, switchToSession]);
 
   const setSelectedSkillRef = useCallback((ref: string) => {
     setSelectedSkillRefState(ref);
@@ -813,7 +799,6 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   const send = useCallback(async (text: string, pendingFiles: File[] = []) => {
     const trimmed = text.trim();
     if (!trimmed || isLoading) return;
-    if (!userId.trim()) { setError("请先在配置页设置用户 ID"); return; }
 
     setError("");
     setIsLoading(true);
@@ -830,7 +815,6 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
         // 有挂起附件时先建 IDLE 会话，上传后再 /messages 启动首轮
         const deferStart = pendingFiles.length > 0;
         const resp = await createSession(
-          userId,
           trimmed,
           turnId,
           skillIds,
@@ -856,7 +840,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
 
         if (deferStart) {
           for (const file of pendingFiles) {
-            const res = await workspaceApi.uploadToSession(userId, sessionId, file);
+            const res = await workspaceApi.uploadToSession(sessionId, file);
             uploadedExtras.push(fileMessageFromUpload(res, Date.now()));
           }
           const piRequest = buildPiRequestWithAttachments(
@@ -902,7 +886,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
 
       // 已有 session：先传 pending（若有），再合并相邻附件发 pi
       for (const file of pendingFiles) {
-        const res = await workspaceApi.uploadToSession(userId, sessionId, file);
+        const res = await workspaceApi.uploadToSession(sessionId, file);
         uploadedExtras.push(fileMessageFromUpload(res, Date.now()));
       }
       const piRequest = buildPiRequestWithAttachments(
@@ -932,7 +916,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
       setError(e instanceof Error ? e.message : "请求失败");
       setIsLoading(false);
     }
-  }, [userId, isLoading, attachTurnStream, loadSessions]);
+  }, [isLoading, attachTurnStream, loadSessions]);
 
   const appendUploadedFile = useCallback((file: {
     filename: string;
@@ -961,8 +945,6 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   }, [updateSessionMessages]);
 
   const value: ChatSessionContextValue = {
-    userId,
-    setUserId,
     messages,
     isLoading,
     error,

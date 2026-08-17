@@ -1,6 +1,6 @@
 // ── 类型定义 ─────────────────────────────────────────────────────────────────
 
-import { apiFetch } from "./http";
+import { apiFetch, throwIfNotOk } from "./http";
 
 export interface CreateSessionResp {
   session_id: string;
@@ -36,29 +36,10 @@ export interface StreamEvent {
   id?: string;
 }
 
-// ── 工具函数 ─────────────────────────────────────────────────────────────────
-
-/** 解析 FastAPI 错误响应（detail 可能是字符串或数组） */
-function parseErrorDetail(detail: unknown): string {
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) {
-    return detail.map((d: { msg?: string }) => d.msg ?? String(d)).join("; ");
-  }
-  return String(detail);
-}
-
-async function throwIfNotOk(resp: Response): Promise<void> {
-  if (resp.ok) return;
-  const body = await resp.json().catch(() => ({}));
-  const detail = (body as { detail?: unknown }).detail;
-  throw new Error(detail ? parseErrorDetail(detail) : `HTTP ${resp.status}`);
-}
-
 // ── Session API ───────────────────────────────────────────────────────────────
 
 /** 创建新 session（打开新 chat 窗口 + 发送第一条消息） */
 export async function createSession(
-  userId: string,
   request: string,
   turnId: string,
   skillIds: string[] = [],
@@ -67,7 +48,6 @@ export async function createSession(
   const resp = await apiFetch("/sessions", {
     method: "POST",
     body: JSON.stringify({
-      user_id: userId,
       request,
       turn_id: turnId,
       skill_ids: skillIds,
@@ -116,9 +96,9 @@ export async function cancelTurn(sessionId: string, turnId: string): Promise<voi
   await throwIfNotOk(resp);
 }
 
-/** 获取用户最近的 session 列表（每条 = 一个 chat 窗口） */
-export async function getRecentSessions(userId: string, limit = 20): Promise<SessionSummary[]> {
-  const resp = await apiFetch(`/sessions?user_id=${encodeURIComponent(userId)}&limit=${limit}`);
+/** 获取本机最近的 session 列表（每条 = 一个 chat 窗口） */
+export async function getRecentSessions(limit = 20): Promise<SessionSummary[]> {
+  const resp = await apiFetch(`/sessions?limit=${limit}`);
   if (!resp.ok) return [];
   return resp.json();
 }

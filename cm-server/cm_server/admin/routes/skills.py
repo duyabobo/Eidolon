@@ -15,6 +15,7 @@ from cm_server.admin.services.skills_fs import (
     open_skill_file,
     read_skill_content,
 )
+from cm_server.shared.machine_uid import current_user_id, owner_id_for_scope
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,6 @@ _TEXT_PREVIEW_MAX_BYTES = 2 * 1024 * 1024
 
 class GithubSkillImportRequest(BaseModel):
     github_url: str = Field(..., min_length=1, max_length=1024)
-    user_id: str = Field(..., min_length=1, max_length=128)
     ref: str | None = Field(default=None, max_length=256)
     subdir: str | None = Field(default=None, max_length=512)
     overwrite: bool = False
@@ -41,7 +41,7 @@ async def list_skills() -> list[SkillMeta]:
 async def api_import_skill_from_github(body: GithubSkillImportRequest) -> dict:
     """从 GitHub 导入完整 Skill 目录（SKILL.md + scripts/references/assets 等）。"""
     return await import_skill_from_github(
-        user_id=body.user_id,
+        user_id=await current_user_id(),
         github_url=body.github_url,
         ref=body.ref,
         subdir=body.subdir,
@@ -52,10 +52,10 @@ async def api_import_skill_from_github(body: GithubSkillImportRequest) -> dict:
 @router.get("/{name}/tree")
 async def api_skill_tree(
     name: str,
-    user_id: str | None = Query(None, description="用户 ID；不传则读系统 Skill"),
+    scope: str | None = Query(None, description="user 读本机 Skill，否则读系统 Skill"),
 ) -> dict:
     """列出 Skill 文件夹树。"""
-    uid = user_id.strip() if user_id else None
+    uid = await owner_id_for_scope(scope)
     tree = list_skill_tree(name, uid)
     if tree is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"skill '{name}' 不存在")
@@ -66,12 +66,12 @@ async def api_skill_tree(
 async def api_skill_file(
     name: str,
     path: str = Query(..., description="相对 skill 根目录的文件路径"),
-    user_id: str | None = Query(None, description="用户 ID；不传则读系统 Skill"),
+    scope: str | None = Query(None, description="user 读本机 Skill，否则读系统 Skill"),
     disposition: str = Query(default="inline", description="inline|attachment"),
     as_text: bool = Query(default=False, description="强制按文本返回（预览用）"),
 ):
     """读取 Skill 目录内单个文件（预览/下载）。"""
-    uid = user_id.strip() if user_id else None
+    uid = await owner_id_for_scope(scope)
     opened = open_skill_file(name, path, uid)
     if opened is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文件不存在")
@@ -107,10 +107,10 @@ async def get_skill_content(name: str) -> dict:
 @router.delete("/{name}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_skill(
     name: str,
-    user_id: str | None = Query(None, description="用户 ID；不传则删除系统 Skill"),
+    scope: str | None = Query(None, description="user 删本机 Skill，否则删系统 Skill"),
 ) -> None:
-    """删除 skill（本地 SQLite 元数据 + NFS 文件）。user_id 有值时删用户 skill，否则删系统 skill。"""
-    uid = user_id.strip() if user_id else None
+    """删除 skill（本地 SQLite 元数据 + 文件）。scope=user 时删本机 skill，否则删系统 skill。"""
+    uid = await owner_id_for_scope(scope)
     if uid:
         fs_deleted = delete_user_skill_files(uid, name)
     else:

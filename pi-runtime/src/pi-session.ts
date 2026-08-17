@@ -25,6 +25,7 @@ import {
   type WorkspaceSnapshot,
 } from "./workspace-artifacts";
 import { artifactDownloadPath } from "./session-workspace";
+import { parseSkillRef } from "./skill-mcp";
 // ── Pi RPC 协议类型 ───────────────────────────────────────────────────────────
 
 interface PiPromptCommand {
@@ -277,12 +278,6 @@ async function cleanupPiConfigDir(sessionId: string): Promise<void> {
   await rm(`/tmp/pi-config/${sessionId}`, { recursive: true, force: true });
 }
 
-function parseSkillRef(id: string): { scope: "global" | "user" | "both"; name: string } {
-  if (id.startsWith("global:")) return { scope: "global", name: id.slice("global:".length) };
-  if (id.startsWith("user:")) return { scope: "user", name: id.slice("user:".length) };
-  return { scope: "both", name: id };
-}
-
 function buildSkillArgs(skillIds: string[], globalSkillsRoot: string, userSkillsRoot: string): string[] {
   if (skillIds.length === 0) return [];
   const args: string[] = ["--no-skills"];
@@ -311,6 +306,9 @@ function buildSessionArgs(userPiSessionsDir: string, sessionId: string): string[
 const CANCEL_ABORT_WAIT_MS = 3000;
 // close() 正常关闭（stdin 结束）后，等待 pi 自行退出的最长时间，超时后 SIGKILL 兜底
 const CLOSE_GRACEFUL_WAIT_MS = 5000;
+// hardKillProcess 发送 SIGKILL 后等待进程 close 事件的最长时间，超时视为已终止
+// （可能被孙进程占用管道导致 close 迟迟不触发），避免 close() 永久挂起
+const HARD_KILL_WAIT_MS = 5000;
 
 /**
  * 启动 pi 进程，等待扩展加载完成，返回 PiSessionHandle。
@@ -498,6 +496,14 @@ export async function startPiSession(
     if (trimmed) console.error(`[pi-session] session=${sessionId} pi stderr: ${trimmed}`);
   });
 
+  // stdin EPIPE：pi 进程在 isAlive() 检查与 write 之间退出时，写入会触发 EPIPE；
+  // 没有 error 监听器会让 Node 异步抛出未捕获异常，直接崩溃 pi-runtime。
+  piProcess.stdin!.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code !== "EPIPE") {
+      console.warn(`[pi-session] session=${sessionId}: stdin 写入失败:`, err.message);
+    }
+  });
+
   piProcess.on("close", async (code) => {
     console.log(`[pi-session] session=${sessionId}: pi 进程退出 code=${code}`);
     // 若有活跃轮次未完成，通知失败
@@ -552,7 +558,10 @@ export async function startPiSession(
     } else {
       piProcess.kill("SIGKILL");
     }
-    await piExitPromise;
+    await Promise.race([
+      piExitPromise.then(() => true),
+      new Promise<boolean>((res) => setTimeout(() => res(false), HARD_KILL_WAIT_MS)),
+    ]);
   }
 
   /** 返回 true 表示协议层 abort 未在限时内确认，已升级为强制终止整个 pi 进程 */

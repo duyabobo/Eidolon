@@ -10,6 +10,7 @@ from cm_server.gateway.models.session import (
 )
 from cm_server.gateway.services import session_store, task_dispatch
 from cm_server.gateway.services.intent_router import apply_route_prefix, route_intent
+from cm_server.shared.machine_uid import current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -40,24 +41,25 @@ async def create_session(body: CreateSessionRequest) -> CreateSessionResponse:
     defer_start=True：只建会话、不投递任务（先上传附件，再由 /messages 启动首轮）。
     """
     session_id = str(uuid.uuid4())
+    user_id = await current_user_id()
     logger.info(
         "新建 session: session_id=%s user=%s turn_id=%s skill_ids=%s defer=%s request='%s'",
-        session_id, body.user_id, body.turn_id, body.skill_ids, body.defer_start,
+        session_id, user_id, body.turn_id, body.skill_ids, body.defer_start,
         body.request[:80].replace("\n", " "),
     )
 
     initial_status = SessionStatus.IDLE if body.defer_start else SessionStatus.PENDING
     await session_store.create_session(
-        session_id, body.user_id, body.request, body.skill_ids,
+        session_id, user_id, body.request, body.skill_ids,
         status=initial_status,
         skip_initial_user_message=body.defer_start,
     )
     if not body.defer_start:
         routed, turn_policy = await _routed_agent_request(
-            body.request, body.request, user_id=body.user_id, skill_ids=body.skill_ids,
+            body.request, body.request, user_id=user_id, skill_ids=body.skill_ids,
         )
         await task_dispatch.publish_task(
-            session_id, body.user_id, routed, body.turn_id, body.skill_ids,
+            session_id, user_id, routed, body.turn_id, body.skill_ids,
             turn_policy=turn_policy,
         )
 
@@ -151,11 +153,10 @@ async def close_session(session_id: str) -> None:
 
 @router.get("", response_model=list[SessionSummary])
 async def list_sessions(
-    user_id: str = Query(..., description="用户 ID"),
     limit: int = Query(default=20, ge=1, le=100),
 ) -> list[SessionSummary]:
-    """查询用户近期 session 列表"""
-    return await session_store.get_recent_sessions(user_id, limit)
+    """查询本机近期 session 列表"""
+    return await session_store.get_recent_sessions(await current_user_id(), limit)
 
 
 @router.get("/{session_id}", response_model=SessionDocument)

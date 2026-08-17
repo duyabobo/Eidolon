@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from cm_server.gateway.models.session import ConversationSession, ConversationSummary
 from cm_server.gateway.services import session_store
+from cm_server.shared.machine_uid import current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -12,13 +13,13 @@ router = APIRouter(prefix="/conversations", tags=["conversation"])
 
 @router.get("", response_model=list[ConversationSummary])
 async def list_conversations(
-    user_id: str = Query(..., description="用户 ID"),
     limit: int = Query(default=20, ge=1, le=100),
 ) -> list[ConversationSummary]:
     """
-    获取用户最近的对话列表（按对话维度聚合）。
+    获取本机最近的对话列表（按对话维度聚合）。
     一条对话只返回一个条目，包含首条消息、最新状态、轮数等信息。
     """
+    user_id = await current_user_id()
     logger.info("查询对话列表: user=%s limit=%d", user_id, limit)
     docs = await session_store.get_recent_conversations(user_id, limit)
     return [ConversationSummary(**doc) for doc in docs]

@@ -46,12 +46,16 @@ export function MineMarketToolbar({
           );
         })}
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {extraActions}
-        <ConfigPrimaryBtn disabled={addDisabled} onClick={onAdd}>
-          添加
-        </ConfigPrimaryBtn>
-      </div>
+      {(extraActions || tab === "mine") && (
+        <div className="flex items-center gap-2 shrink-0">
+          {extraActions}
+          {tab === "mine" && (
+            <ConfigPrimaryBtn disabled={addDisabled} onClick={onAdd}>
+              添加
+            </ConfigPrimaryBtn>
+          )}
+        </div>
+      )}
     </div>
   );
 }

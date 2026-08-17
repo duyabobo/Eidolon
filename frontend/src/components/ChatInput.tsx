@@ -41,14 +41,13 @@ interface Props {
   /** 新建会话时把挂起 File 交给 send，由 gateway 先建会话再上传再投递 */
   onSend: (text: string, pendingFiles?: File[]) => void;
   onInterrupt: () => void;
-  userId: string;
   sessionId: string | null;
   onUploaded?: (file: ChatUploadResponse) => void;
 }
 
 export default function ChatInput({
   skills, selectedSkillRef, onSelectSkill, onClearSkill,
-  isLoading, onSend, onInterrupt, userId, sessionId, onUploaded,
+  isLoading, onSend, onInterrupt, sessionId, onUploaded,
 }: Props) {
   const [input, setInput] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
@@ -60,7 +59,7 @@ export default function ChatInput({
   const prevSessionIdRef = useRef<string | null>(sessionId);
 
   const { textareaRef, syncHeight } = useAutoGrowTextarea(input);
-  const canPickFile = Boolean(userId.trim()) && !isLoading && !uploading;
+  const canPickFile = !isLoading && !uploading;
 
   useEffect(() => {
     const prev = prevSessionIdRef.current;
@@ -157,8 +156,7 @@ export default function ChatInput({
   };
 
   const handleUpload = async (file: File | undefined) => {
-    if (!file || !userId.trim()) {
-      setUploadErr("请先在配置页设置用户 ID");
+    if (!file) {
       return;
     }
     setUploadErr(null);
@@ -169,7 +167,7 @@ export default function ChatInput({
     }
     setUploading(true);
     try {
-      const res = await workspaceApi.uploadToSession(userId, sessionId, file);
+      const res = await workspaceApi.uploadToSession(sessionId, file);
       onUploaded?.(res);
     } catch (e) {
       setUploadErr(e instanceof Error ? e.message : "上传失败");
@@ -266,11 +264,9 @@ export default function ChatInput({
         <button
           type="button"
           title={
-            !userId.trim()
-              ? "请先在配置页设置用户 ID"
-              : sessionId
-                ? "上传附件到当前会话"
-                : "选择附件（发送消息创建会话后自动上传）"
+            sessionId
+              ? "上传附件到当前会话"
+              : "选择附件（发送消息创建会话后自动上传）"
           }
           disabled={!canPickFile}
           onClick={() => fileInputRef.current?.click()}

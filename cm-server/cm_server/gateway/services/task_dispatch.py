@@ -5,6 +5,7 @@ Consumer Group/租约/死信队列，gateway 直接以 HTTP 调用 pi-runtime；
 本地 SQLite `task_dedupe` 表做 `INSERT OR IGNORE` 去重，语义与原 Redis `SET NX` 一致。
 """
 import logging
+import sqlite3
 
 import httpx
 from fastapi import HTTPException, status
@@ -57,7 +58,7 @@ async def _try_acquire_dedupe(task_id: str) -> bool:
             (task_id, format_iso(now_china())),
         )
         return True
-    except Exception:
+    except sqlite3.IntegrityError:
         # PRIMARY KEY 冲突：task_id 已存在，说明重复投递
         return False
 

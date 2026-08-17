@@ -21,11 +21,10 @@ function isGithubSkill(skill: Skill): boolean {
 }
 
 interface Props {
-  userId: string;
   onSkillsChanged?: () => void;
 }
 
-export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
+export default function SkillsPanel({ onSkillsChanged }: Props) {
   const [tab, setTab] = useState<MineMarketTab>("mine");
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,27 +35,26 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
 
   const load = () =>
     skillsApi
-      .listForChat(userId.trim() || undefined)
+      .listForChat()
       .then(setSkills)
       .catch(() => setSkills([]))
       .finally(() => setLoading(false));
 
   useEffect(() => {
     load();
-  }, [userId]);
+  }, []);
 
   const handleDelete = async (skill: Skill) => {
     if (!confirm(`确认删除 Skill "${skill.name}"？`)) return;
-    const uid = skill.scope === "user" ? userId.trim() : undefined;
-    await skillsApi.delete(skill.name, uid);
-    setSkills((prev) => prev.filter((s) => !(s.name === skill.name && s.scope === skill.scope)));
+    try {
+      await skillsApi.delete(skill.name, skill.scope === "user" ? "user" : undefined);
+      setSkills((prev) => prev.filter((s) => !(s.name === skill.name && s.scope === skill.scope)));
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : "删除失败");
+    }
   };
 
   const openCreator = (skillName?: string) => {
-    if (!userId.trim()) {
-      setErrMsg("请先在配置页设置用户 ID");
-      return;
-    }
     setEditSkillName(skillName);
     setShowCreator(true);
   };
@@ -147,7 +145,6 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
 
       {showCreator && (
         <SkillCreatorChat
-          userId={userId.trim()}
           scope="user"
           embedded
           editSkillName={editSkillName}
@@ -173,7 +170,7 @@ export default function SkillsPanel({ userId, onSkillsChanged }: Props) {
       {browseSkill && (
         <SkillBrowserModal
           skillName={browseSkill.name}
-          userId={browseSkill.scope === "user" ? userId.trim() : undefined}
+          scope={browseSkill.scope === "user" ? "user" : undefined}
           onClose={() => setBrowseSkill(null)}
         />
       )}

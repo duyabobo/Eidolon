@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useChatSession } from "../../context/ChatSessionContext";
 import { formatChinaDateTime } from "../../utils/datetime";
 
@@ -9,16 +9,9 @@ interface ChatHistoryDrawerProps {
 
 export default function ChatHistoryDrawer({ open, onClose }: ChatHistoryDrawerProps) {
   const {
-    userId, setUserId, sessions, currentSessionId,
-    runtimeTick, loadSessions, switchToSession, isSessionGenerating, startNewChat,
+    sessions, currentSessionId,
+    runtimeTick, switchToSession, isSessionGenerating,
   } = useChatSession();
-
-  const [editing, setEditing] = useState(false);
-  const [draftId, setDraftId] = useState(userId);
-
-  useEffect(() => {
-    if (!editing) setDraftId(userId);
-  }, [userId, editing]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -28,14 +21,6 @@ export default function ChatHistoryDrawer({ open, onClose }: ChatHistoryDrawerPr
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-
-  const saveUserId = () => {
-    const trimmed = draftId.trim();
-    if (trimmed !== userId.trim()) startNewChat();
-    setUserId(trimmed);
-    setEditing(false);
-    if (trimmed) loadSessions();
-  };
 
   const openSession = async (sessionId: string) => {
     const session = sessions.find((s) => s.session_id === sessionId);
@@ -75,45 +60,8 @@ export default function ChatHistoryDrawer({ open, onClose }: ChatHistoryDrawerPr
 
         <div className="flex-1 overflow-y-auto scrollbar-thin px-5 py-4 space-y-6">
           <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-400 mb-2">用户 ID</h3>
-            {editing ? (
-              <div className="flex gap-2">
-                <input
-                  value={draftId}
-                  onChange={(e) => setDraftId(e.target.value)}
-                  placeholder="alice"
-                  className="ui-field flex-1"
-                  autoFocus
-                  onKeyDown={(e) => { if (e.key === "Enter") saveUserId(); }}
-                />
-                <button type="button" onClick={saveUserId} className="ui-btn-primary">保存</button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-ink-200/70 bg-ink-50/50 px-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-ink-900 truncate">
-                    {userId.trim() || "尚未设置"}
-                  </p>
-                  <p className="text-[11px] text-ink-400 mt-0.5">区分个人配置与对话记录</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEditing(true)}
-                  className="ui-chip bg-white text-ink-600 border-ink-200/80 hover:bg-ink-50 shrink-0"
-                >
-                  {userId.trim() ? "修改" : "设置"}
-                </button>
-              </div>
-            )}
-          </section>
-
-          <section>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-400 mb-2">会话列表</h3>
-            {!userId.trim() ? (
-              <p className="text-sm text-ink-400 text-center py-10 rounded-xl border border-dashed border-ink-200">
-                请先设置用户 ID
-              </p>
-            ) : sessions.length === 0 ? (
+            {sessions.length === 0 ? (
               <p className="text-sm text-ink-400 text-center py-10 rounded-xl border border-dashed border-ink-200">
                 暂无历史对话
               </p>

@@ -8,7 +8,6 @@ import FilePreviewModal, { type FilePreviewSource } from "./FilePreviewModal";
 import SkillFolderTree from "./SkillFolderTree";
 
 interface Props {
-  userId?: string;
   scope: SkillScope;
   onClose: () => void;
   onPublished: (skill: {
@@ -25,7 +24,6 @@ interface Props {
 }
 
 export default function SkillCreatorChat({
-  userId,
   scope,
   onClose,
   onPublished,
@@ -58,7 +56,7 @@ export default function SkillCreatorChat({
     setError(null);
     let cancelled = false;
     skillCreatorApi
-      .openSession(userId, forceNew, skillName)
+      .openSession(scope, forceNew, skillName)
       .then((session) => {
         if (cancelled) return;
         setSessionId(session.id);
@@ -81,7 +79,7 @@ export default function SkillCreatorChat({
   useEffect(() => {
     return openSession(false, editSkillName);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, editSkillName]);
+  }, [scope, editSkillName]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -170,7 +168,7 @@ export default function SkillCreatorChat({
         tags: saved.tags ?? [],
         hidden: saved.hidden ?? false,
         scope,
-        user_id: saved.user_id ?? userId ?? null,
+        user_id: saved.user_id ?? null,
       });
       onClose();
     } catch (e) {

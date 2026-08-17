@@ -215,12 +215,10 @@ function FileChip({
 
 function AssistantTurnBlock({
   turn,
-  userId,
   sessionId,
   onPreview,
 }: {
   turn: AssistantTurn;
-  userId: string;
   sessionId: string | null;
   onPreview: (source: FilePreviewSource) => void;
 }) {
@@ -230,14 +228,13 @@ function AssistantTurnBlock({
 
   const openAttachment = useCallback((file: AssistantAttachment) => {
     const path = resolveWorkspaceDownloadPath(sessionId, file.relativePath, file.filename);
-    if (!userId.trim() || !path) return;
+    if (!path) return;
     onPreview({
       type: "workspace",
-      userId: userId.trim(),
       path,
       filename: file.filename,
     });
-  }, [userId, sessionId, onPreview]);
+  }, [sessionId, onPreview]);
 
   return (
     <div className="flex gap-3 justify-start">
@@ -309,7 +306,6 @@ function AssistantTurnBlock({
 
 interface Props {
   messages: Message[];
-  userId: string;
   sessionId: string | null;
 }
 
@@ -325,7 +321,7 @@ function scrollToBottom(container: HTMLElement, behavior: ScrollBehavior) {
   container.scrollTo({ top: container.scrollHeight, behavior });
 }
 
-export default function MessageList({ messages, userId, sessionId }: Props) {
+export default function MessageList({ messages, sessionId }: Props) {
   const displayItems = useMemo(() => groupMessages(messages), [messages]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -341,14 +337,13 @@ export default function MessageList({ messages, userId, sessionId }: Props) {
     relativePath?: string,
   ) => {
     const path = resolveWorkspaceDownloadPath(sessionId, relativePath, filename);
-    if (!userId.trim() || !path) return;
+    if (!path) return;
     setPreview({
       type: "workspace",
-      userId: userId.trim(),
       path,
       filename,
     });
-  }, [userId, sessionId]);
+  }, [sessionId]);
 
   const stickToBottomIfPinned = useCallback(() => {
     const container = scrollRef.current;
@@ -516,7 +511,6 @@ export default function MessageList({ messages, userId, sessionId }: Props) {
             <AssistantTurnBlock
               key={i}
               turn={item.turn}
-              userId={userId}
               sessionId={sessionId}
               onPreview={setPreview}
             />

@@ -17,20 +17,11 @@ from cm_server.admin.services.workspace_knowledge import (
     attach_knowledge_to_listing,
     ingest_session_upload,
 )
+from cm_server.shared.machine_uid import current_user_id
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/config/workspace", tags=["workspace"])
-
-
-def _require_user_id(user_id: str) -> str:
-    uid = user_id.strip()
-    if not uid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先在「历史」页设置用户 ID",
-        )
-    return uid
 
 
 def _http_exc(exc: WorkspaceError) -> HTTPException:
@@ -39,10 +30,9 @@ def _http_exc(exc: WorkspaceError) -> HTTPException:
 
 @router.get("/ls", response_model=WorkspaceListResponse)
 async def workspace_ls(
-    user_id: str = Query(..., description="用户 ID"),
-    path: str = Query("", description="相对用户根的路径"),
+    path: str = Query("", description="相对本机根的路径"),
 ) -> WorkspaceListResponse:
-    uid = _require_user_id(user_id)
+    uid = await current_user_id()
     try:
         session_meta = None
         norm = (path or "").strip().strip("/")
@@ -56,11 +46,8 @@ async def workspace_ls(
 
 
 @router.post("/mkdir", response_model=WorkspaceListResponse)
-async def workspace_mkdir(
-    body: WorkspaceMkdirRequest,
-    user_id: str = Query(..., description="用户 ID"),
-) -> WorkspaceListResponse:
-    uid = _require_user_id(user_id)
+async def workspace_mkdir(body: WorkspaceMkdirRequest) -> WorkspaceListResponse:
+    uid = await current_user_id()
     try:
         mkdir(uid, body.path)
         raw = list_directory(uid, body.path.rsplit("/", 1)[0] if "/" in body.path else "")
@@ -72,11 +59,10 @@ async def workspace_mkdir(
 
 @router.post("/upload", response_model=WorkspaceListResponse)
 async def workspace_upload(
-    user_id: str = Query(..., description="用户 ID"),
     path: str = Query("", description="目标目录相对路径"),
     file: UploadFile = File(...),
 ) -> WorkspaceListResponse:
-    uid = _require_user_id(user_id)
+    uid = await current_user_id()
     data = await file.read()
     try:
         dest_rel = save_upload(uid, path, file.filename or "upload.bin", data)
@@ -92,10 +78,9 @@ async def workspace_upload(
 
 @router.delete("/entry", status_code=status.HTTP_204_NO_CONTENT)
 async def workspace_delete(
-    user_id: str = Query(..., description="用户 ID"),
     path: str = Query(..., description="要删除的相对路径"),
 ) -> None:
-    uid = _require_user_id(user_id)
+    uid = await current_user_id()
     try:
         delete_entry(uid, path)
     except WorkspaceError as exc:
@@ -104,20 +89,18 @@ async def workspace_delete(
 
 @router.get("/download")
 async def workspace_download(
-    user_id: str = Query(..., description="用户 ID"),
     path: str = Query(..., description="要下载的文件相对路径"),
     disposition: str = Query(
         default="attachment",
         description="attachment=下载；inline=预览（浏览器内联）",
     ),
 ) -> FileResponse:
-    uid = _require_user_id(user_id)
+    uid = await current_user_id()
     try:
         abs_path, filename = open_download(uid, path)
         disp = (disposition or "attachment").strip().lower()
         if disp not in {"attachment", "inline"}:
             disp = "attachment"
-        # inline 时不强制 filename=（FileResponse 默认 attachment），改用 content_disposition_type
         return FileResponse(
             path=abs_path,
             filename=filename if disp == "attachment" else None,

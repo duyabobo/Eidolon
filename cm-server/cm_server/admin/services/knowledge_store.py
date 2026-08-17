@@ -189,6 +189,11 @@ async def upload_document(
         await knowledge_pipeline_store.require_mineru_configured()
 
     filename = (upload.filename or "unnamed").strip()
+    if not filename or filename in (".", "..") or "\\" in filename or Path(filename).name != filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="非法文件名",
+        )
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -196,8 +201,9 @@ async def upload_document(
             detail=f"不支持的文件类型 {suffix}，允许: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
         )
 
-    content = await upload.read()
+    # 限定单次读取字节数，避免超大文件在大小校验前就整体读入内存
     max_bytes = settings.knowledge_max_file_bytes
+    content = await upload.read(max_bytes + 1)
     if len(content) > max_bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

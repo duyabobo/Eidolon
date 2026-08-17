@@ -35,7 +35,6 @@ class SessionDocument(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
-    user_id: str
     request: str
     turn_id: str           # 第一个轮次 ID，由前端生成（UUID），用于 SSE stream key
     skill_ids: list[str] = []

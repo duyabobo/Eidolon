@@ -13,12 +13,11 @@ type EditState = {
 };
 
 interface Props {
-  userId: string;
   onClose?: () => void;
   embedded?: boolean;
 }
 
-export default function UserMcpPanel({ userId, onClose, embedded = false }: Props) {
+export default function UserMcpPanel({ onClose, embedded = false }: Props) {
   const {
     servers,
     loading,
@@ -30,7 +29,7 @@ export default function UserMcpPanel({ userId, onClose, embedded = false }: Prop
     saveServer,
     toggleEnabled,
     deleteServer,
-  } = useMcpManager({ userId, includeDisabled: true });
+  } = useMcpManager({ includeDisabled: true });
 
   const [edit, setEdit] = useState<EditState | null>(null);
 

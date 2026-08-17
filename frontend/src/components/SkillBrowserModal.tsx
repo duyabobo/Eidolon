@@ -8,7 +8,7 @@ import FilePreviewModal, { type FilePreviewSource } from "./FilePreviewModal";
 
 interface Props {
   skillName: string;
-  userId?: string;
+  scope?: "user" | "system";
   onClose: () => void;
 }
 
@@ -73,7 +73,7 @@ function listChildren(entries: SkillTreeEntry[], dir: string): DirEntry[] {
 /**
  * Skill 目录浏览弹框：进入子目录、预览/下载文件。
  */
-export default function SkillBrowserModal({ skillName, userId, onClose }: Props) {
+export default function SkillBrowserModal({ skillName, scope, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [entries, setEntries] = useState<SkillTreeEntry[]>([]);
@@ -86,7 +86,7 @@ export default function SkillBrowserModal({ skillName, userId, onClose }: Props)
     setLoading(true);
     setErrMsg(null);
     skillsApi
-      .getTree(skillName, userId)
+      .getTree(skillName, scope)
       .then((res) => {
         if (cancelled) return;
         setEntries(res.entries);
@@ -100,7 +100,7 @@ export default function SkillBrowserModal({ skillName, userId, onClose }: Props)
     return () => {
       cancelled = true;
     };
-  }, [skillName, userId]);
+  }, [skillName, scope]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -125,7 +125,7 @@ export default function SkillBrowserModal({ skillName, userId, onClose }: Props)
       skillName,
       path: entry.path,
       filename: entry.name,
-      userId,
+      scope,
     });
   };
 

@@ -1,4 +1,5 @@
-import { apiFetch, mergeTraceHeaders } from "./http";
+import { mergeTraceHeaders, request, throwIfNotOk } from "./http";
+import { downloadBlob } from "../utils/download";
 
 export type SkillScope = "system" | "user";
 
@@ -27,33 +28,18 @@ export interface SkillTreeResponse {
   entries: SkillTreeEntry[];
 }
 
-async function parseError(resp: Response): Promise<string> {
-  const err = await resp.json().catch(() => ({}));
-  const detail = (err as { detail?: string | { msg?: string }[] }).detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg;
-  return `HTTP ${resp.status}`;
-}
-
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const resp = await apiFetch(url, options);
-  if (!resp.ok) throw new Error(await parseError(resp));
-  if (resp.status === 204) return undefined as T;
-  return resp.json();
-}
-
-function skillQs(userId?: string): string {
-  return userId?.trim() ? `?user_id=${encodeURIComponent(userId.trim())}` : "";
+function skillQs(scope?: SkillScope): string {
+  return scope === "user" ? "?scope=user" : "";
 }
 
 function skillFileUrl(
   name: string,
   path: string,
-  userId?: string,
+  scope?: SkillScope,
   extra?: Record<string, string>,
 ): string {
   const qs = new URLSearchParams({ path });
-  if (userId?.trim()) qs.set("user_id", userId.trim());
+  if (scope === "user") qs.set("scope", "user");
   if (extra) {
     for (const [k, v] of Object.entries(extra)) qs.set(k, v);
   }
@@ -65,56 +51,46 @@ export function toSkillRef(scope: SkillScope, name: string): string {
 }
 
 export const skillsApi = {
-  listForChat: (userId?: string) => {
-    const qs = userId?.trim() ? `?user_id=${encodeURIComponent(userId.trim())}` : "";
-    return request<Skill[]>(`/skills${qs}`);
-  },
+  listForChat: () => request<Skill[]>("/skills"),
 
   listAdmin: () => request<Skill[]>("/config/skills"),
 
-  getContent: (name: string, userId?: string) => {
-    const qs = skillQs(userId);
-    return request<{ name: string; raw: string }>(`/skills/${encodeURIComponent(name)}/content${qs}`);
-  },
+  getContent: (name: string, scope?: SkillScope) =>
+    request<{ name: string; raw: string }>(
+      `/skills/${encodeURIComponent(name)}/content${skillQs(scope)}`,
+    ),
 
-  getTree: (name: string, userId?: string) =>
-    request<SkillTreeResponse>(`/config/skills/${encodeURIComponent(name)}/tree${skillQs(userId)}`),
+  getTree: (name: string, scope?: SkillScope) =>
+    request<SkillTreeResponse>(`/config/skills/${encodeURIComponent(name)}/tree${skillQs(scope)}`),
 
-  fetchFileText: async (name: string, path: string, userId?: string): Promise<string> => {
-    const resp = await fetch(skillFileUrl(name, path, userId, { as_text: "true", disposition: "inline" }), {
+  fetchFileText: async (name: string, path: string, scope?: SkillScope): Promise<string> => {
+    const resp = await fetch(skillFileUrl(name, path, scope, { as_text: "true", disposition: "inline" }), {
       cache: "no-store",
       headers: mergeTraceHeaders(),
     });
-    if (!resp.ok) throw new Error(await parseError(resp));
+    await throwIfNotOk(resp);
     return resp.text();
   },
 
-  fetchFileBlob: async (name: string, path: string, userId?: string): Promise<Blob> => {
-    const resp = await fetch(skillFileUrl(name, path, userId, { disposition: "inline" }), {
+  fetchFileBlob: async (name: string, path: string, scope?: SkillScope): Promise<Blob> => {
+    const resp = await fetch(skillFileUrl(name, path, scope, { disposition: "inline" }), {
       cache: "no-store",
       headers: mergeTraceHeaders(),
     });
-    if (!resp.ok) throw new Error(await parseError(resp));
+    await throwIfNotOk(resp);
     return resp.blob();
   },
 
-  downloadFile: async (name: string, path: string, filename: string, userId?: string): Promise<void> => {
-    const resp = await fetch(skillFileUrl(name, path, userId, { disposition: "attachment" }), {
+  downloadFile: async (name: string, path: string, filename: string, scope?: SkillScope): Promise<void> => {
+    const resp = await fetch(skillFileUrl(name, path, scope, { disposition: "attachment" }), {
       cache: "no-store",
       headers: mergeTraceHeaders(),
     });
-    if (!resp.ok) throw new Error(await parseError(resp));
+    await throwIfNotOk(resp);
     const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
   },
 
-  delete: (name: string, userId?: string) => {
-    const qs = skillQs(userId);
-    return request<void>(`/config/skills/${encodeURIComponent(name)}${qs}`, { method: "DELETE" });
-  },
+  delete: (name: string, scope?: SkillScope) =>
+    request<void>(`/config/skills/${encodeURIComponent(name)}${skillQs(scope)}`, { method: "DELETE" }),
 };

@@ -1,4 +1,7 @@
-import { apiFetch } from "./http";
+import { request } from "./http";
+import type { McpServerConfig, ServiceTestResult } from "./types";
+
+export type { McpServerConfig, ServiceTestResult };
 
 export interface LlmConfig {
   base_url: string;
@@ -44,34 +47,17 @@ export interface IntentLlmConfig {
   protocol?: "openai" | "anthropic";
 }
 
-export interface ServiceTestResult {
-  ok: boolean;
-  latency_ms: number;
-  message: string;
-}
-
-export interface McpServerConfig {
-  url: string;
-  description?: string;
-  enabled?: boolean;
-  api_key?: string;
-}
-
 export interface McpConfig {
   servers: Record<string, McpServerConfig>;
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const resp = await apiFetch(url, options);
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
-  }
-  if (resp.status === 204) return undefined as T;
-  return resp.json();
+export interface DeviceInfo {
+  user_id: string;
 }
 
 export const configApi = {
+  getDevice: () => request<DeviceInfo>("/config/device"),
+
   getLlm: () => request<LlmConfig>("/config/llm"),
 
   listLlmProfiles: () => request<LlmProfileListResponse>("/config/llm/profiles"),

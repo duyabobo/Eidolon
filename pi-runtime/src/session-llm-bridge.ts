@@ -14,6 +14,9 @@ import { sessionSocksDir } from "./socket-bridge";
 
 const HEADER_END = Buffer.from("\r\n\r\n");
 const CRLF = "\r\n";
+// 请求头/请求体上限：防止无 \r\n\r\n 终止符或超大声明时无限累积缓冲耗尽内存
+const MAX_HEADER_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = 50 * 1024 * 1024;
 
 interface SessionBridgeState {
   server: net.Server;
@@ -86,6 +89,9 @@ function handleClientConnection(
     buffer = Buffer.concat([buffer, chunk]);
     const sepIndex = buffer.indexOf(HEADER_END);
     if (sepIndex === -1) {
+      if (buffer.length > MAX_HEADER_BYTES) {
+        client.destroy();
+      }
       return;
     }
 
@@ -93,6 +99,11 @@ function handleClientConnection(
     const contentLength = parseContentLength(headerText);
     if (contentLength === null) {
       forwardRequest(buffer);
+      return;
+    }
+
+    if (contentLength > MAX_BODY_BYTES) {
+      client.destroy();
       return;
     }
 

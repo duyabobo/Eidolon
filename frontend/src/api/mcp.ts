@@ -1,4 +1,7 @@
-import { apiFetch } from "./http";
+import { request } from "./http";
+import type { McpServerConfig } from "./types";
+
+export type { McpServerConfig };
 
 export type McpScope = "system" | "user";
 
@@ -29,22 +32,6 @@ export interface McpServerStatusResponse {
   servers: McpServerStatus[];
 }
 
-export interface McpServerConfig {
-  url: string;
-  description?: string;
-  enabled?: boolean;
-  api_key?: string;
-}
-
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const resp = await apiFetch(url, options);
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
-  }
-  return resp.json();
-}
-
 function buildQuery(params: Record<string, string | boolean | undefined>): string {
   const q = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -57,38 +44,34 @@ function buildQuery(params: Record<string, string | boolean | undefined>): strin
 
 export const mcpApi = {
   /** 对话场景：仅返回已启用的 Server */
-  listForChat: (userId?: string) =>
-    request<McpServerItem[]>(
-      `/mcp${buildQuery({ user_id: userId?.trim(), include_disabled: false })}`,
-    ),
+  listForChat: () =>
+    request<McpServerItem[]>(`/mcp${buildQuery({ include_disabled: false })}`),
 
   /** 配置页：可选包含已禁用 Server */
-  listServers: (userId?: string, includeDisabled = true) =>
+  listServers: (includeDisabled = true) =>
     request<McpServerItem[]>(
-      `/mcp${buildQuery({ user_id: userId?.trim(), include_disabled: includeDisabled })}`,
+      `/mcp${buildQuery({ include_disabled: includeDisabled })}`,
     ),
 
-  getServerStatus: (userId?: string, includeDisabled = false) =>
+  getServerStatus: (includeDisabled = false) =>
     request<McpServerStatusResponse>(
-      `/mcp/status${buildQuery({ user_id: userId?.trim(), include_disabled: includeDisabled })}`,
+      `/mcp/status${buildQuery({ include_disabled: includeDisabled })}`,
     ),
 
-  probeServer: (userId: string | undefined, name: string, scope: McpScope) =>
+  probeServer: (name: string, scope: McpScope) =>
     request<McpServerStatus>(
-      `/mcp/servers/${encodeURIComponent(name)}/status${buildQuery({
-        user_id: userId?.trim(),
-        scope,
-      })}`,
+      `/mcp/servers/${encodeURIComponent(name)}/status${buildQuery({ scope })}`,
     ),
 
-  addUserServer: (userId: string, name: string, cfg: McpServerConfig) =>
+  addUserServer: (name: string, cfg: McpServerConfig) =>
     request<McpServerItem>(
-      `/mcp/servers/${encodeURIComponent(name)}?user_id=${encodeURIComponent(userId)}`,
+      `/mcp/servers/${encodeURIComponent(name)}`,
       { method: "POST", body: JSON.stringify(cfg) },
     ),
 
-  deleteUserServer: (userId: string, name: string) =>
-    apiFetch(`/mcp/servers/${encodeURIComponent(name)}?user_id=${encodeURIComponent(userId)}`, {
-      method: "DELETE",
-    }),
+  deleteUserServer: (name: string) =>
+    request<void>(
+      `/mcp/servers/${encodeURIComponent(name)}`,
+      { method: "DELETE" },
+    ),
 };

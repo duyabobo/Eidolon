@@ -18,6 +18,7 @@ from cm_server.admin.services.skills_fs import (
     open_creator_session_file,
     save_skill_creator_upload,
 )
+from cm_server.shared.machine_uid import owner_id_for_scope
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ _TEXT_PREVIEW_MAX_BYTES = 2 * 1024 * 1024
 
 @router.post("/sessions", response_model=SkillCreatorSession)
 async def create_session(
-    user_id: str | None = Query(None, description="用户 ID；不传则创建系统 Skill"),
+    scope: str | None = Query(None, description="user 创建本机 Skill，否则创建系统 Skill"),
     force_new: bool = Query(False, description="强制新建会话（「新建对话」按钮使用）"),
     skill_name: str | None = Query(None, description="编辑已保存的 Skill 时传入，精确加载对应会话"),
 ) -> SkillCreatorSession:
@@ -39,7 +40,7 @@ async def create_session(
     - force_new=true：强制新建
     - 默认：复用未发布草稿，无则新建
     """
-    uid = user_id.strip() if user_id else None
+    uid = await owner_id_for_scope(scope)
     sn = skill_name.strip() if skill_name else None
     try:
         return await skill_creator_service.start_session(uid, force_new=force_new, skill_name=sn)

@@ -11,7 +11,7 @@ async def list_skills_for_user(user_id: str | None) -> list[SkillListItem]:
 
 
 async def read_skill_content(name: str, user_id: str | None) -> str:
-    from services import skill_fs
+    from cm_server.gateway.services import skill_fs
 
     if user_id:
         raw = skill_fs.read_user_skill_raw(user_id, name)

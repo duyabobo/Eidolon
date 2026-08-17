@@ -8,8 +8,8 @@ import ChatMarkdown from "./chat/ChatMarkdown";
 import { ModalOverlay } from "./config/ModalOverlay";
 
 export type FilePreviewSource =
-  | { type: "workspace"; userId: string; path: string; filename: string }
-  | { type: "skill"; skillName: string; path: string; filename: string; userId?: string }
+  | { type: "workspace"; path: string; filename: string }
+  | { type: "skill"; skillName: string; path: string; filename: string; scope?: "user" | "system" }
   | { type: "skill-creator"; sessionId: string; path: string; filename: string };
 
 interface Props {
@@ -20,12 +20,12 @@ interface Props {
 
 function sourceKey(source: FilePreviewSource): string {
   if (source.type === "workspace") {
-    return `ws:${source.userId}:${source.path}`;
+    return `ws:${source.path}`;
   }
   if (source.type === "skill-creator") {
     return `sc:${source.sessionId}:${source.path}`;
   }
-  return `sk:${source.userId ?? ""}:${source.skillName}:${source.path}`;
+  return `sk:${source.scope ?? "system"}:${source.skillName}:${source.path}`;
 }
 
 export default function FilePreviewModal({ source, subtitle, onClose }: Props) {
@@ -40,11 +40,11 @@ export default function FilePreviewModal({ source, subtitle, onClose }: Props) {
 
   const loaders = useMemo(() => {
     if (source.type === "workspace") {
-      const { userId, path, filename } = source;
+      const { path, filename } = source;
       return {
-        loadText: () => workspaceApi.fetchText(userId, path),
-        loadBlob: () => workspaceApi.fetchBlob(userId, path, "inline"),
-        download: () => workspaceApi.download(userId, path, filename),
+        loadText: () => workspaceApi.fetchText(path),
+        loadBlob: () => workspaceApi.fetchBlob(path, "inline"),
+        download: () => workspaceApi.download(path, filename),
       };
     }
     if (source.type === "skill-creator") {
@@ -55,11 +55,11 @@ export default function FilePreviewModal({ source, subtitle, onClose }: Props) {
         download: () => skillCreatorApi.downloadFile(sessionId, path, filename),
       };
     }
-    const { skillName, path, filename, userId } = source;
+    const { skillName, path, filename, scope } = source;
     return {
-      loadText: () => skillsApi.fetchFileText(skillName, path, userId),
-      loadBlob: () => skillsApi.fetchFileBlob(skillName, path, userId),
-      download: () => skillsApi.downloadFile(skillName, path, filename, userId),
+      loadText: () => skillsApi.fetchFileText(skillName, path, scope),
+      loadBlob: () => skillsApi.fetchFileBlob(skillName, path, scope),
+      download: () => skillsApi.downloadFile(skillName, path, filename, scope),
     };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps -- keyed by sourceKey
 

@@ -1,4 +1,5 @@
-import { mergeTraceHeaders } from "./http";
+import { mergeTraceHeaders, request, throwIfNotOk } from "./http";
+import { downloadBlob } from "../utils/download";
 
 export interface WorkspaceEntry {
   name: string;
@@ -30,46 +31,27 @@ export interface ChatUploadResponse {
   knowledge_status: string;
 }
 
-async function parseError(resp: Response): Promise<string> {
-  const err = await resp.json().catch(() => ({}));
-  const detail = (err as { detail?: string | { msg?: string }[] }).detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg;
-  return `HTTP ${resp.status}`;
-}
-
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const resp = await fetch(url, {
-    cache: "no-store",
-    ...options,
-    headers: mergeTraceHeaders(options?.headers, { json: true }),
-  });
-  if (!resp.ok) throw new Error(await parseError(resp));
-  if (resp.status === 204) return undefined as T;
-  return resp.json();
-}
-
-function withUser(userId: string, path?: string): string {
-  const qs = new URLSearchParams({ user_id: userId.trim() });
+function withPath(path?: string): string {
+  const qs = new URLSearchParams();
   if (path !== undefined) qs.set("path", path);
   return qs.toString();
 }
 
 export const workspaceApi = {
-  ls: (userId: string, path = "") =>
-    request<WorkspaceListResponse>(`/config/workspace/ls?${withUser(userId, path)}`),
+  ls: (path = "") =>
+    request<WorkspaceListResponse>(`/config/workspace/ls?${withPath(path)}`),
 
-  mkdir: (userId: string, path: string) =>
-    request<WorkspaceListResponse>(`/config/workspace/mkdir?${withUser(userId)}`, {
+  mkdir: (path: string) =>
+    request<WorkspaceListResponse>(`/config/workspace/mkdir`, {
       method: "POST",
       body: JSON.stringify({ path }),
     }),
 
-  upload: async (userId: string, dirPath: string, file: File): Promise<WorkspaceListResponse> => {
+  upload: async (dirPath: string, file: File): Promise<WorkspaceListResponse> => {
     const form = new FormData();
     form.append("file", file);
     const resp = await fetch(
-      `/config/workspace/upload?${withUser(userId, dirPath)}`,
+      `/config/workspace/upload?${withPath(dirPath)}`,
       {
         method: "POST",
         body: form,
@@ -77,59 +59,47 @@ export const workspaceApi = {
         headers: mergeTraceHeaders(),
       },
     );
-    if (!resp.ok) throw new Error(await parseError(resp));
+    await throwIfNotOk(resp);
     return resp.json();
   },
 
-  delete: (userId: string, path: string) =>
-    request<void>(`/config/workspace/entry?${withUser(userId, path)}`, {
+  delete: (path: string) =>
+    request<void>(`/config/workspace/entry?${withPath(path)}`, {
       method: "DELETE",
     }),
 
   fetchBlob: async (
-    userId: string,
     path: string,
     disposition: "inline" | "attachment" = "inline",
   ): Promise<Blob> => {
-    const qs = new URLSearchParams({
-      user_id: userId.trim(),
-      path,
-      disposition,
-    });
+    const qs = new URLSearchParams({ path, disposition });
     const resp = await fetch(`/config/workspace/download?${qs}`, {
       cache: "no-store",
       headers: mergeTraceHeaders(),
     });
-    if (!resp.ok) throw new Error(await parseError(resp));
+    await throwIfNotOk(resp);
     return resp.blob();
   },
 
-  fetchText: async (userId: string, path: string): Promise<string> => {
-    const blob = await workspaceApi.fetchBlob(userId, path, "inline");
+  fetchText: async (path: string): Promise<string> => {
+    const blob = await workspaceApi.fetchBlob(path, "inline");
     return blob.text();
   },
 
-  download: async (userId: string, path: string, filename: string): Promise<void> => {
-    const blob = await workspaceApi.fetchBlob(userId, path, "attachment");
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+  download: async (path: string, filename: string): Promise<void> => {
+    const blob = await workspaceApi.fetchBlob(path, "attachment");
+    downloadBlob(blob, filename);
   },
 
   /** 首页会话附件 → session workspace + knowledge 入库（返回 doc_id） */
   uploadToSession: async (
-    userId: string,
     sessionId: string,
     file: File,
   ): Promise<ChatUploadResponse> => {
     const form = new FormData();
     form.append("file", file);
-    const qs = new URLSearchParams({ user_id: userId.trim() });
     const resp = await fetch(
-      `/sessions/${encodeURIComponent(sessionId)}/upload?${qs}`,
+      `/sessions/${encodeURIComponent(sessionId)}/upload`,
       {
         method: "POST",
         body: form,
@@ -137,7 +107,7 @@ export const workspaceApi = {
         headers: mergeTraceHeaders(),
       },
     );
-    if (!resp.ok) throw new Error(await parseError(resp));
+    await throwIfNotOk(resp);
     return resp.json();
   },
 };

@@ -1,4 +1,5 @@
-import { apiFetch, mergeTraceHeaders } from "./http";
+import { mergeTraceHeaders, request } from "./http";
+import { downloadBlob } from "../utils/download";
 import type { SkillTreeEntry } from "./skills";
 
 export interface SkillDraft {
@@ -48,15 +49,6 @@ export interface SkillCreatorSession {
   updated_at?: string;
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const resp = await apiFetch(url, options);
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
-  }
-  return resp.json();
-}
-
 export const skillCreatorApi = {
   /**
    * 获取或创建 skill-creator 会话。
@@ -64,9 +56,9 @@ export const skillCreatorApi = {
    * - forceNew=true：强制新建（新建对话按钮使用）
    * - 默认：复用未发布草稿，无则新建
    */
-  openSession: (userId?: string, forceNew = false, skillName?: string) => {
+  openSession: (scope?: "user" | "system", forceNew = false, skillName?: string) => {
     const params = new URLSearchParams();
-    if (userId?.trim()) params.set("user_id", userId.trim());
+    if (scope === "user") params.set("scope", "user");
     if (forceNew) params.set("force_new", "true");
     if (skillName?.trim()) params.set("skill_name", skillName.trim());
     const qs = params.toString() ? `?${params.toString()}` : "";
@@ -159,11 +151,6 @@ export const skillCreatorApi = {
       throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
     }
     const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
   },
 };

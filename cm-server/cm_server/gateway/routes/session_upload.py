@@ -11,11 +11,13 @@ from pi_shared.workspace import (
     attachment_event_payload,
     persist_chat_attachment,
 )
+from pi_shared.workspace.constants import MAX_UPLOAD_BYTES
 from pydantic import BaseModel, Field
 
 from cm_server.admin.services.chat_document_service import upload_chat_document_to_knowledge
 from cm_server.gateway.config import settings
 from cm_server.gateway.services import session_store
+from cm_server.shared.machine_uid import current_user_id
 from cm_server.mrag.doc_status import update_document_fields
 
 logger = logging.getLogger(__name__)
@@ -40,20 +42,21 @@ class ChatUploadResponse(BaseModel):
 )
 async def session_upload(
     session_id: str,
-    user_id: str = Query(..., description="用户 ID"),
     file: UploadFile = File(...),
 ) -> ChatUploadResponse:
-    uid = (user_id or "").strip()
-    if not uid:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先设置用户 ID")
-
+    uid = await current_user_id()
     session = await session_store.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
     if session.user_id != uid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该会话")
 
-    data = await file.read()
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="文件超过大小限制",
+        )
     filename = file.filename or "upload.bin"
     content_type = file.content_type
 

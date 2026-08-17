@@ -5,11 +5,10 @@ import { configApi } from "../api/config";
 import { mergeStatus, serverStatusKey } from "./mcpManagerUtils";
 
 interface UseMcpManagerOptions {
-  userId: string;
   includeDisabled?: boolean;
 }
 
-export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerOptions) {
+export function useMcpManager({ includeDisabled = true }: UseMcpManagerOptions = {}) {
   const [servers, setServers] = useState<McpServerItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [probingKeys, setProbingKeys] = useState<Set<string>>(new Set());
@@ -22,24 +21,20 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
     const silent = opts?.silent === true;
     if (!silent) setLoading(true);
     try {
-      const list = await mcpApi.listServers(
-        userId.trim() || undefined,
-        includeDisabledRef.current,
-      );
+      const list = await mcpApi.listServers(includeDisabledRef.current);
       setServers(list);
     } catch {
       setServers([]);
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [userId]);
+  }, []);
 
-  // 仅在 userId 变化时拉取；勿把 load 放进 deps，避免身份抖动导致每秒重打 /mcp
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     void mcpApi
-      .listServers(userId.trim() || undefined, includeDisabledRef.current)
+      .listServers(includeDisabledRef.current)
       .then((list) => {
         if (!cancelled) setServers(list);
       })
@@ -52,18 +47,14 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, []);
 
   const probeOne = useCallback(async (server: McpServerItem) => {
     const key = serverStatusKey(server);
     setProbingKeys((prev) => new Set(prev).add(key));
     setErrMsg(null);
     try {
-      const item = await mcpApi.probeServer(
-        server.scope === "user" ? userId.trim() : undefined,
-        server.name,
-        server.scope,
-      );
+      const item = await mcpApi.probeServer(server.name, server.scope);
       setStatusMap((prev) => mergeStatus(prev, item));
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "探测失败");
@@ -74,7 +65,7 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
         return next;
       });
     }
-  }, [userId]);
+  }, []);
 
   const saveServer = useCallback(async (
     scope: McpScope,
@@ -85,13 +76,10 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
     if (scope === "system") {
       await configApi.addServer(name, config);
     } else {
-      if (!userId.trim()) {
-        throw new Error("请先在配置页设置用户 ID");
-      }
-      await mcpApi.addUserServer(userId.trim(), name, config);
+      await mcpApi.addUserServer(name, config);
     }
     await load({ silent: true });
-  }, [userId, load]);
+  }, [load]);
 
   const toggleEnabled = useCallback(async (server: McpServerItem, enabled: boolean) => {
     setErrMsg(null);
@@ -117,7 +105,7 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
     if (server.scope === "system") {
       await configApi.deleteServer(server.name);
     } else {
-      await mcpApi.deleteUserServer(userId.trim(), server.name);
+      await mcpApi.deleteUserServer(server.name);
     }
     const key = serverStatusKey(server);
     setStatusMap((prev) => {
@@ -126,7 +114,7 @@ export function useMcpManager({ userId, includeDisabled = true }: UseMcpManagerO
       return next;
     });
     await load({ silent: true });
-  }, [userId, load]);
+  }, [load]);
 
   return {
     servers,

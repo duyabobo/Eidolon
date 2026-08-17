@@ -85,30 +85,37 @@ class McpServerCache:
             await self._do_refresh()
 
     async def _do_refresh(self) -> None:
-        old_stack = self._exit_stack
-        self._exit_stack = AsyncExitStack()
-        self._tools.clear()
-        self._invalidated = False
-        await self._close_stack_ignoring_cross_task_errors(old_stack)
+        new_stack = AsyncExitStack()
+        new_tools: dict[str, _ToolRecord] = {}
 
         try:
             session = await open_mcp_session(
-                self._exit_stack,
+                new_stack,
                 self.entry.url,
                 self.entry.api_key,
                 outbound_user=self._outbound_user,
             )
             tools_result = await session.list_tools()
             for tool in tools_result.tools:
-                self._tools[tool.name] = _ToolRecord(tool=tool, session=session)
-            self._failed_at = None
-            logger.info("server=%s: 加载 %d 个工具", self.entry.name, len(self._tools))
+                new_tools[tool.name] = _ToolRecord(tool=tool, session=session)
         except Exception as e:
+            # 失败：丢弃本次新建的连接，保留上一轮可用的连接与工具列表，
+            # 避免瞬时故障把"暂时没有工具"缓存成"确认没有工具"。
+            await self._close_stack_ignoring_cross_task_errors(new_stack)
             self._failed_at = time.monotonic()
             logger.error(
-                "连接 MCP server 失败: name=%s url=%s err=%s，%.0fs 后重试",
+                "连接 MCP server 失败: name=%s url=%s err=%s，%.0fs 后重试（沿用上次工具列表）",
                 self.entry.name, self.entry.url, e, _FAILURE_RETRY_INTERVAL_S,
             )
+        else:
+            # 成功：原子替换工具表与会话栈，再关闭上一轮连接
+            old_stack = self._exit_stack
+            self._exit_stack = new_stack
+            self._tools = new_tools
+            self._failed_at = None
+            self._invalidated = False
+            await self._close_stack_ignoring_cross_task_errors(old_stack)
+            logger.info("server=%s: 加载 %d 个工具", self.entry.name, len(self._tools))
         finally:
             self._last_refresh_at = time.monotonic()
 

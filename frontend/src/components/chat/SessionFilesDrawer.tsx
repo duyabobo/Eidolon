@@ -34,7 +34,6 @@ const DOC_POLL_INTERVAL_MS = 10_000;
 interface Props {
   open: boolean;
   onClose: () => void;
-  userId: string;
   sessionId: string | null;
 }
 
@@ -42,7 +41,7 @@ interface Props {
  * 会话级虚拟文件系统：
  * artifacts（只读）/ uploads（可写）/ session-memory（pi 会话 JSONL，只读）。
  */
-export default function SessionFilesDrawer({ open, onClose, userId, sessionId }: Props) {
+export default function SessionFilesDrawer({ open, onClose, sessionId }: Props) {
   const [zone, setZone] = useState<SessionZone>(SESSION_ZONE_UPLOADS);
   const [currentPath, setCurrentPath] = useState("");
   const [listing, setListing] = useState<WorkspaceListResponse | null>(null);
@@ -55,7 +54,6 @@ export default function SessionFilesDrawer({ open, onClose, userId, sessionId }:
   const [wikiDoc, setWikiDoc] = useState<KnowledgeDocument | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const uid = userId.trim();
   const zoneRoot = sessionId ? sessionZoneRoot(sessionId, zone) : null;
   const zoneMeta = SESSION_ZONES.find((item) => item.id === zone);
   const canWrite = Boolean(zoneMeta?.writable && listing?.writable);
@@ -67,7 +65,7 @@ export default function SessionFilesDrawer({ open, onClose, userId, sessionId }:
 
   const load = useCallback(
     async (path: string) => {
-      if (!uid || !zoneRoot || !sessionId) return;
+      if (!zoneRoot || !sessionId) return;
       setLoading(true);
       setErrMsg(null);
       try {
@@ -77,8 +75,8 @@ export default function SessionFilesDrawer({ open, onClose, userId, sessionId }:
           zone === SESSION_ZONE_ARTIFACTS && path === artifactsDir ? workspaceRoot : path;
         if (zone === SESSION_ZONE_ARTIFACTS && listPath === workspaceRoot) {
           const [rootRes, artRes] = await Promise.all([
-            workspaceApi.ls(uid, workspaceRoot),
-            workspaceApi.ls(uid, artifactsDir).catch(() => null),
+            workspaceApi.ls(workspaceRoot),
+            workspaceApi.ls(artifactsDir).catch(() => null),
           ]);
           setListing({
             ...rootRes,
@@ -87,7 +85,7 @@ export default function SessionFilesDrawer({ open, onClose, userId, sessionId }:
           setCurrentPath(workspaceRoot);
           return;
         }
-        const res = await workspaceApi.ls(uid, listPath);
+        const res = await workspaceApi.ls(listPath);
         setListing(res);
         setCurrentPath(res.path);
       } catch (e) {
@@ -96,7 +94,7 @@ export default function SessionFilesDrawer({ open, onClose, userId, sessionId }:
         setLoading(false);
       }
     },
-    [uid, zoneRoot, zone, sessionId],
+    [zoneRoot, zone, sessionId],
   );
 
   useEffect(() => {
@@ -140,7 +138,6 @@ export default function SessionFilesDrawer({ open, onClose, userId, sessionId }:
     if (!entry.is_dir) {
       setPreview({
         type: "workspace",
-        userId: uid,
         path: entry.path,
         filename: entry.name,
       });
@@ -152,7 +149,7 @@ export default function SessionFilesDrawer({ open, onClose, userId, sessionId }:
     setBusy(true);
     setErrMsg(null);
     try {
-      const res = await workspaceApi.upload(uid, currentPath, file);
+      const res = await workspaceApi.upload(currentPath, file);
       setListing(res);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "上传失败");
@@ -169,7 +166,7 @@ export default function SessionFilesDrawer({ open, onClose, userId, sessionId }:
     setErrMsg(null);
     try {
       const target = joinWorkspacePath(currentPath, name);
-      const res = await workspaceApi.mkdir(uid, target);
+      const res = await workspaceApi.mkdir(target);
       setListing(res);
       setMkdirOpen(false);
       setNewDirName("");
@@ -186,7 +183,7 @@ export default function SessionFilesDrawer({ open, onClose, userId, sessionId }:
     setBusy(true);
     setErrMsg(null);
     try {
-      await workspaceApi.delete(uid, entry.path);
+      await workspaceApi.delete(entry.path);
       await load(currentPath);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "删除失败");
@@ -200,7 +197,7 @@ export default function SessionFilesDrawer({ open, onClose, userId, sessionId }:
     setBusy(true);
     setErrMsg(null);
     try {
-      await workspaceApi.download(uid, entry.path, entry.name);
+      await workspaceApi.download(entry.path, entry.name);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "下载失败");
     } finally {
@@ -300,7 +297,7 @@ export default function SessionFilesDrawer({ open, onClose, userId, sessionId }:
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-thin px-5 py-4">
-          {!uid || !sessionId ? (
+          {!sessionId ? (
             <ConfigEmptyState message="先发一条消息开启会话，再管理本会话的文件" />
           ) : (
             <ConfigPanelLayout

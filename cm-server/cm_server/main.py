@@ -46,25 +46,21 @@ from cm_server.llm_proxy.services.llm_config_store import load_from_db as load_l
 
 from cm_server.mcp_proxy.routes import mcp as mcp_proxy_mcp
 from cm_server.mcp_proxy.services.manager import manager as mcp_manager
-from cm_server.mcp_proxy.services.mcp_server_store import list_user_ids_with_mcp
+from cm_server.shared.machine_uid import current_user_id
 
 setup_logging("cm-server")
 install_json_encoders()
 logger = logging.getLogger(__name__)
 
 
-async def _preload_all_users_mcp_background() -> None:
-    """后台并行预热所有用户的 MCP 工具列表缓存（原 mcp-proxy 启动预热逻辑，不阻塞启动）。"""
+async def _preload_local_mcp_background() -> None:
+    """后台预热本机 MCP 工具列表缓存，不阻塞启动。"""
     try:
-        user_ids = await list_user_ids_with_mcp()
-        logger.info("MCP 预热：发现 %d 个有 MCP 配置的用户", len(user_ids))
-        await asyncio.gather(
-            *(mcp_manager.force_refresh(uid) for uid in user_ids),
-            return_exceptions=True,
-        )
-        logger.info("所有用户 MCP 预热完毕")
+        uid = await current_user_id()
+        await mcp_manager.force_refresh(uid)
+        logger.info("本机 MCP 预热完毕 user=%s", uid)
     except Exception:
-        logger.exception("MCP 用户预热失败")
+        logger.exception("本机 MCP 预热失败")
 
 
 @asynccontextmanager
@@ -100,7 +96,7 @@ async def lifespan(app: FastAPI):
         # 会把真实错误包进 CancelledError 冒泡出来，不是本协程真的被取消，
         # 不代表进程正在关闭，因此在这个启动阶段吞掉它是安全的。
         logger.exception("系统级 MCP 预热失败，将在后续请求时按失败重试间隔自动重连")
-    asyncio.create_task(_preload_all_users_mcp_background())
+    asyncio.create_task(_preload_local_mcp_background())
 
     logger.info("cm-server 启动完成，监听 %s:%d", settings.cm_server_host, settings.cm_server_port)
     yield

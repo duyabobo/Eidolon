@@ -207,7 +207,7 @@ async def import_skill_from_github(
 ) -> dict:
     uid = user_id.strip()
     if not uid:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先设置用户 ID")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="本机身份无效")
 
     parsed = parse_github_skill_url(github_url)
     if ref and ref.strip():

@@ -3,10 +3,10 @@ import ManagePageLayout from "../components/layout/ManagePageLayout";
 import { useChatSession } from "../context/ChatSessionContext";
 
 export default function SkillsPage() {
-  const { userId, loadSkills } = useChatSession();
+  const { loadSkills } = useChatSession();
   return (
     <ManagePageLayout title="经验">
-      <SkillsPanel userId={userId} onSkillsChanged={loadSkills} />
+      <SkillsPanel onSkillsChanged={loadSkills} />
     </ManagePageLayout>
   );
 }

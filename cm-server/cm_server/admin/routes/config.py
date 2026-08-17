@@ -2,13 +2,25 @@ import logging
 
 from fastapi import APIRouter, HTTPException, status
 
+from pydantic import BaseModel
+
 from cm_server.admin.models.config import McpConfig, McpServerConfig
 from cm_server.admin.services.mcp_proxy_client import invalidate_cache
 from cm_server.admin.services.mcp_server_store import delete_server, list_system_config, replace_all_servers, upsert_server
+from cm_server.shared.machine_uid import get_machine_user_id
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/config", tags=["config"])
+
+
+class DeviceInfo(BaseModel):
+    user_id: str
+
+
+@router.get("/device", response_model=DeviceInfo)
+async def get_device_info() -> DeviceInfo:
+    return DeviceInfo(user_id=await get_machine_user_id())
 
 
 # ── MCP 配置（系统级，user_id 为空）──────────────────────────────────────────

@@ -193,9 +193,13 @@ function DocumentSection({
 
   const handleDelete = async (doc: KnowledgeDocument) => {
     if (!confirm(`确认删除文档「${doc.name}」？`)) return;
-    await knowledgeApi.deleteDocument(kb.id, doc.id);
-    if (wikiDoc?.id === doc.id) closeWiki();
-    void load(false, page);
+    try {
+      await knowledgeApi.deleteDocument(kb.id, doc.id);
+      if (wikiDoc?.id === doc.id) closeWiki();
+      void load(false, page);
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : "删除失败");
+    }
   };
 
   if (wikiLoading) {
@@ -295,7 +299,6 @@ export default function KnowledgePanel({
   deepLinkKbId,
   deepLinkDocId,
 }: {
-  userId?: string;
   deepLinkKbId?: string;
   deepLinkDocId?: string;
 }) {
@@ -390,9 +393,13 @@ export default function KnowledgePanel({
 
   const handleDelete = async (kb: KnowledgeBase) => {
     if (!confirm(`确认删除知识库「${kb.name}」及其全部文档？`)) return;
-    await knowledgeApi.deleteBase(kb.id);
-    if (selectedId === kb.id) setSelectedId(null);
-    void loadBases(page);
+    try {
+      await knowledgeApi.deleteBase(kb.id);
+      if (selectedId === kb.id) setSelectedId(null);
+      void loadBases(page);
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : "删除失败");
+    }
   };
 
   const openKnowledgeBase = (kbId: string) => {

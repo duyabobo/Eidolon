@@ -10,7 +10,7 @@ export default function ChatPage() {
   const {
     messages, isLoading, error, skills,
     selectedSkillRef, setSelectedSkillRef,
-    send, interrupt, userId, currentSessionId, appendUploadedFile,
+    send, interrupt, currentSessionId, appendUploadedFile,
   } = useChatSession();
 
   return (
@@ -45,7 +45,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      <MessageList messages={messages} userId={userId} sessionId={currentSessionId} />
+      <MessageList messages={messages} sessionId={currentSessionId} />
 
       <div className="shrink-0 border-t border-ink-200/40 py-4">
         <div className="page-content">
@@ -57,7 +57,6 @@ export default function ChatPage() {
             isLoading={isLoading}
             onSend={send}
             onInterrupt={interrupt}
-            userId={userId}
             sessionId={currentSessionId}
             onUploaded={appendUploadedFile}
           />
@@ -67,7 +66,6 @@ export default function ChatPage() {
       <SessionFilesDrawer
         open={filesOpen}
         onClose={() => setFilesOpen(false)}
-        userId={userId}
         sessionId={currentSessionId}
       />
     </div>

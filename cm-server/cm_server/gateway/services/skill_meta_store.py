@@ -1,10 +1,13 @@
-"""Skill 元数据读写：CM 架构下替代原 gateway/services/skill_mongo.py（Mongo → SQLite）。"""
+"""Skill 元数据读取：CM 架构下替代原 gateway/services/skill_mongo.py（Mongo → SQLite）。
+
+注：gateway 侧只读 Skill 列表（list_skills_for_user），写入/删除由 admin 侧的
+skill_meta_store 负责，故此处不再保留 save/delete 副本。
+"""
 import logging
 
-from pi_shared import format_iso, now_china
-from pi_shared.sqlite import dumps, loads
+from pi_shared.sqlite import loads
 
-from cm_server.gateway.models.skill import SkillListItem, SkillMeta, SkillScope
+from cm_server.gateway.models.skill import SkillListItem, SkillScope
 from cm_server.gateway.services.db import get_db
 
 logger = logging.getLogger(__name__)
@@ -44,68 +47,3 @@ async def list_skills_for_user(user_id: str | None) -> list[SkillListItem]:
         sum(1 for i in items if i.scope == SkillScope.USER),
     )
     return items
-
-
-async def save_skill_meta(meta: SkillMeta) -> SkillMeta:
-    """新增/更新 skill 元数据。
-
-    注：`skills` 主键是 (name, user_id)，但 SQLite 把 NULL 列视为互不相等，
-    系统级记录 `user_id IS NULL` 不会触发 `ON CONFLICT`，必须显式 SELECT 后分支写，
-    否则每次保存都会插入一条新的重复行（见 pi-runtime 迁移排查记录）。
-    """
-    db = get_db()
-    now = format_iso(now_china())
-    existing = await db.fetch_one(
-        "SELECT created_at FROM skills WHERE name = ? AND user_id IS ?",
-        (meta.name, meta.user_id),
-    )
-    created_at = existing["created_at"] if existing else (format_iso(meta.created_at) if meta.created_at else now)
-
-    if existing:
-        await db.execute(
-            """
-            UPDATE skills SET description = ?, tags = ?, mcp_tools = ?, hidden = ?, source = ?, updated_at = ?
-            WHERE name = ? AND user_id IS ?
-            """,
-            (
-                meta.description,
-                dumps(meta.tags),
-                dumps(meta.mcp_tools),
-                int(meta.hidden),
-                meta.source or "",
-                now,
-                meta.name,
-                meta.user_id,
-            ),
-        )
-    else:
-        await db.execute(
-            """
-            INSERT INTO skills (name, user_id, description, tags, mcp_tools, hidden, source, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                meta.name,
-                meta.user_id,
-                meta.description,
-                dumps(meta.tags),
-                dumps(meta.mcp_tools),
-                int(meta.hidden),
-                meta.source or "",
-                created_at,
-                now,
-            ),
-        )
-    logger.info("skill 元数据已保存 name=%s user_id=%s", meta.name, meta.user_id)
-    return meta
-
-
-async def delete_skill_meta(name: str, user_id: str | None = None) -> bool:
-    cursor = await get_db().execute(
-        "DELETE FROM skills WHERE name = ? AND user_id IS ?",
-        (name, user_id),
-    )
-    deleted = cursor.rowcount > 0
-    if deleted:
-        logger.info("skill 元数据已删除 name=%s user_id=%s", name, user_id)
-    return deleted

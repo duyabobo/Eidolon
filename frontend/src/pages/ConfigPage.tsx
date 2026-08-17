@@ -1,67 +1,17 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import LlmConfigPanel from "../components/LlmConfigPanel";
 import PipelineConfigPanel from "../components/PipelineConfigPanel";
 import UserMemoryPanel from "../components/UserMemoryPanel";
 import ManagePageLayout from "../components/layout/ManagePageLayout";
 import { ConfigPrimaryBtn } from "../components/config/ConfigActionBtn";
-import { DEFAULT_USER_ID } from "../constants/user";
-import { useChatSession } from "../context/ChatSessionContext";
 
 type ConfigTab = "llm" | "pipeline" | "user";
 
 const TABS: { id: ConfigTab; label: string }[] = [
   { id: "llm", label: "大模型" },
   { id: "pipeline", label: "小模型" },
-  { id: "user", label: "用户" },
+  { id: "user", label: "用户记忆" },
 ];
-
-function UserIdConfigSection() {
-  const { userId, setUserId, startNewChat, loadSessions } = useChatSession();
-  const [draftId, setDraftId] = useState(userId);
-  const [okMsg, setOkMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraftId(userId);
-  }, [userId]);
-
-  const handleSave = () => {
-    const next = draftId.trim() || DEFAULT_USER_ID;
-    if (next !== userId.trim()) startNewChat();
-    setUserId(next);
-    setDraftId(next);
-    loadSessions();
-    setOkMsg("已保存");
-  };
-
-  return (
-    <div className="space-y-3">
-      <label className="block space-y-1">
-        <span className="text-[11px] text-ink-500">用户 ID</span>
-        <div className="flex items-center gap-2 max-w-lg">
-          <input
-            value={draftId}
-            onChange={(e) => {
-              setOkMsg(null);
-              setDraftId(e.target.value);
-            }}
-            placeholder={DEFAULT_USER_ID}
-            className="ui-field min-w-0 flex-1 text-sm"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleSave();
-            }}
-          />
-          <ConfigPrimaryBtn className="shrink-0" onClick={handleSave}>保存</ConfigPrimaryBtn>
-          <UserMemoryPanel />
-        </div>
-      </label>
-      {okMsg && (
-        <p className="text-sm px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 max-w-lg">
-          {okMsg}
-        </p>
-      )}
-    </div>
-  );
-}
 
 export default function ConfigPage() {
   const [tab, setTab] = useState<ConfigTab>("llm");
@@ -108,7 +58,7 @@ export default function ConfigPage() {
           <LlmConfigPanel hideToolbarAdd createRequestId={llmCreateRequestId} />
         )}
         {tab === "pipeline" && <PipelineConfigPanel />}
-        {tab === "user" && <UserIdConfigSection />}
+        {tab === "user" && <UserMemoryPanel />}
       </div>
     </ManagePageLayout>
   );

@@ -1,4 +1,6 @@
-import { mergeTraceHeaders } from "./http";
+import { mergeTraceHeaders, request } from "./http";
+import type { ServiceTestResult } from "./types";
+import { downloadBlob } from "../utils/download";
 
 export interface ChunkingConfig {
   chunk_size: number;
@@ -50,12 +52,6 @@ export interface KnowledgePipelineConfig {
   mineru3_parse_method?: string;
   mineru_vlm_url?: string;
   updated_at?: string | null;
-}
-
-export interface ServiceTestResult {
-  ok: boolean;
-  latency_ms: number;
-  message: string;
 }
 
 export interface WikiGraphNode {
@@ -116,23 +112,6 @@ export interface WikiNodeDetailResponse {
 
 function jsonHeaders(): Record<string, string> {
   return { "Content-Type": "application/json" };
-}
-
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const headers = mergeTraceHeaders(
-    {
-      ...jsonHeaders(),
-      ...(options?.headers as Record<string, string> | undefined),
-    },
-    { json: true },
-  );
-  const resp = await fetch(url, { cache: "no-store", ...options, headers });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
-  }
-  if (resp.status === 204) return undefined as T;
-  return resp.json();
 }
 
 export const knowledgeApi = {
@@ -225,12 +204,7 @@ export const knowledgeApi = {
       throw new Error((err as { detail?: string }).detail ?? `HTTP ${resp.status}`);
     }
     const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
   },
 
   getWikiGraphByDoc: (docId: string, knowledgeIds?: string[]) =>

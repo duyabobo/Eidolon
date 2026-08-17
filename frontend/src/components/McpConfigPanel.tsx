@@ -26,11 +26,7 @@ type EditState = {
   isNew: boolean;
 };
 
-interface Props {
-  userId: string;
-}
-
-export default function McpConfigPanel({ userId }: Props) {
+export default function McpConfigPanel() {
   const [tab, setTab] = useState<MineMarketTab>("mine");
   const {
     servers,
@@ -43,7 +39,7 @@ export default function McpConfigPanel({ userId }: Props) {
     saveServer,
     toggleEnabled,
     deleteServer,
-  } = useMcpManager({ userId, includeDisabled: true });
+  } = useMcpManager({ includeDisabled: true });
 
   const [edit, setEdit] = useState<EditState | null>(null);
 
@@ -102,10 +98,6 @@ export default function McpConfigPanel({ userId }: Props) {
   };
 
   const openUserCreate = () => {
-    if (!userId.trim()) {
-      setErrMsg("请先在配置页设置用户 ID");
-      return;
-    }
     setEdit({
       scope: "user",
       name: "",
