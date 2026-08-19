@@ -33,6 +33,7 @@ from cm_server.gateway_sse.routes import stream as gateway_sse_stream
 
 from cm_server.admin.routes import config as admin_config
 from cm_server.admin.routes import knowledge as admin_knowledge
+from cm_server.admin.routes import plugin_creator as admin_plugin_creator
 from cm_server.admin.routes import skill_creator as admin_skill_creator
 from cm_server.admin.routes import skills as admin_skills
 from cm_server.admin.routes import wiki as admin_wiki
@@ -124,6 +125,7 @@ app.include_router(gateway_sse_internal.router)
 app.include_router(admin_config.router)
 app.include_router(admin_knowledge.router)
 app.include_router(admin_wiki.router)
+app.include_router(admin_plugin_creator.router)
 app.include_router(admin_skill_creator.router)
 app.include_router(admin_skills.router)
 app.include_router(admin_workspace.router)

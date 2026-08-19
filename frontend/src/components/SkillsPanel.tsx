@@ -83,9 +83,9 @@ export default function SkillsPanel({ onSkillsChanged }: Props) {
       ) : undefined}
     >
       {tab === "market" ? (
-        <MarketComingSoon subtitle="专家市场正在规划中，敬请期待" />
+        <MarketComingSoon subtitle="经验市场正在规划中，敬请期待" />
       ) : skills.length === 0 ? (
-        <ConfigEmptyState message="暂无 Skill" />
+        <ConfigEmptyState message="暂无经验。添加时会结合你的办事流程和已安装插件写成 Skill。" />
       ) : (
         <div className="space-y-2">
           {pagination.slice.map((s) => {

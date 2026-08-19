@@ -88,6 +88,10 @@ export function useMcpManager({ includeDisabled = true }: UseMcpManagerOptions =
       description: server.description ?? "",
       enabled,
       api_key: "",
+      transport: server.transport,
+      command: server.command,
+      args: server.args,
+      cwd: server.cwd,
     };
     await saveServer(server.scope, server.name, config);
     const key = serverStatusKey(server);

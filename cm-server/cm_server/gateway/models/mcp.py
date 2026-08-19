@@ -15,19 +15,27 @@ class McpScope(str, Enum):
 
 class McpServerItem(BaseModel):
     name: str
-    url: str
+    url: str = ""
     description: str = ""
     enabled: bool = True
     has_api_key: bool = False
     scope: McpScope
     user_id: str | None = None
+    transport: str = "http"
+    command: str = ""
+    args: list[str] = Field(default_factory=list)
+    cwd: str = ""
 
 
 class McpServerCreateRequest(BaseModel):
-    url: str
+    url: str = ""
     description: str = ""
     enabled: bool = True
     api_key: str = ""
+    transport: str = "http"
+    command: str = ""
+    args: list[str] = Field(default_factory=list)
+    cwd: str = ""
 
 
 class McpServerStatusItem(BaseModel):

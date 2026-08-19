@@ -76,6 +76,7 @@ export interface StartCmServerOptions {
   sandboxRoot: string;
   logDir: string;
   piRuntimeBaseUrl: string;
+  sandboxPythonBinDir: string;
 }
 
 export async function startCmServer(options: StartCmServerOptions): Promise<ManagedProcess> {
@@ -87,6 +88,7 @@ export async function startCmServer(options: StartCmServerOptions): Promise<Mana
       CM_SERVER_PORT: String(options.port),
       SQLITE_PATH: options.sqlitePath,
       SANDBOX_ROOT: options.sandboxRoot,
+      SANDBOX_PYTHON_BIN_DIR: options.sandboxPythonBinDir,
       LOG_DIR: options.logDir,
       PI_RUNTIME_BASE_URL: options.piRuntimeBaseUrl,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "pi-agent-internal",

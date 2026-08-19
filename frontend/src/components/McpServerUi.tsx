@@ -4,6 +4,13 @@ import { ConfigActionBtn } from "./config/ConfigActionBtn";
 import { ConfigListItem } from "./config/ConfigListItem";
 import { ModalOverlay } from "./config/ModalOverlay";
 
+function pluginListSubtitle(server: McpServerItem): string {
+  if (server.transport === "stdio" || !server.url?.trim()) {
+    return "本机插件";
+  }
+  return server.url;
+}
+
 export function mcpServerStatusKey(scope: string, name: string): string {
   return `${scope}:${name}`;
 }
@@ -39,7 +46,7 @@ export function McpServerStatusBadge({ status, probing, serverEnabled }: McpServ
     const latency = status.latency_ms ? ` · ${status.latency_ms}ms` : "";
     return (
       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-        可用 · {status.tool_count} tools{latency}
+        可用 · {status.tool_count} 个工具{latency}
       </span>
     );
   }
@@ -101,7 +108,7 @@ export function McpToolListModal({ serverName, status, onClose }: McpToolListMod
             ) : (
               <span className="text-xs px-2 py-1 rounded-lg bg-rose-50 text-rose-700">不可用</span>
             )}
-            {ok && <span className="text-xs text-ink-500">{tools.length} tools</span>}
+            {ok && <span className="text-xs text-ink-500">{tools.length} 个工具</span>}
           </div>
 
           {!ok && status.error && (
@@ -111,7 +118,7 @@ export function McpToolListModal({ serverName, status, onClose }: McpToolListMod
           )}
 
           {ok && tools.length === 0 && (
-            <p className="text-sm text-ink-400">连接成功，但未返回 tool</p>
+            <p className="text-sm text-ink-400">连接成功，但未返回工具</p>
           )}
 
           {ok && tools.length > 0 && (
@@ -183,7 +190,7 @@ export function McpServerRow({
             <McpServerStatusBadge status={status} probing={probing} serverEnabled={enabled} />
           </>
         )}
-        subtitle={server.url}
+        subtitle={pluginListSubtitle(server)}
         extra={(
           <>
             {server.description && (
@@ -198,7 +205,7 @@ export function McpServerRow({
                 className="mt-1.5 text-[11px] text-sky-700 hover:text-sky-900"
               >
                 {status.available && (status.tools?.length ?? 0) > 0
-                  ? `查看 tools (${status.tools.length})`
+                  ? `查看工具 (${status.tools.length})`
                   : "查看测试结果"}
               </button>
             )}

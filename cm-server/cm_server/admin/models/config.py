@@ -1,32 +1,33 @@
 from datetime import datetime
-from pydantic import BaseModel, model_validator
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
 from pi_shared import now_china
+
+McpTransport = Literal["http", "stdio"]
 
 
 class McpServerConfig(BaseModel):
-    """
-    MCP Server 配置。
+    """MCP / 本机插件配置。http 用 url；stdio 用 command + args + cwd。"""
 
-    只允许 HTTP/SSE 远程类型（url 字段）。
-    stdio 本地进程类型（command + args）被明确禁止：本地进程在 pi-runtime 容器内以 root 运行，
-    可访问本地文件系统等敏感资源，是不可接受的攻击面。
-    """
-    url: str
+    url: str = ""
     description: str = ""
     enabled: bool = True
     api_key: str = ""
+    transport: McpTransport = "http"
+    command: str = ""
+    args: list[str] = Field(default_factory=list)
+    cwd: str = ""
 
-    @model_validator(mode="before")
-    @classmethod
-    def reject_command_based(cls, values: dict) -> dict:
-        if values.get("command"):
-            raise ValueError(
-                "不允许配置 command 类型的 MCP Server（会在容器内启动本地进程）。"
-                "请改用 url 类型（HTTP/SSE 远程 MCP Server）。"
-            )
-        if not values.get("url"):
-            raise ValueError("MCP Server 必须提供 url 字段（HTTP/SSE 远程端点）。")
-        return values
+    @model_validator(mode="after")
+    def validate_launch(self) -> "McpServerConfig":
+        if self.transport == "stdio":
+            if not self.command.strip():
+                raise ValueError("本机插件必须提供 command")
+            return self
+        if not self.url.strip():
+            raise ValueError("远程 MCP 必须提供 url")
+        return self
 
 
 class McpConfig(BaseModel):
@@ -66,6 +67,6 @@ class SkillMeta(BaseModel):
 class SkillCreateRequest(BaseModel):
     """创建/更新 Skill 时的请求体（含 content，用于写入文件系统）"""
     description: str
-    content: str                  # 完整 SKILL.md 正文（frontmatter 由 admin 自动生成）
+    content: str
     tags: list[str] = []
     hidden: bool = False

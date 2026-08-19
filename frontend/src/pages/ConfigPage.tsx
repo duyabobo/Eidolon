@@ -13,7 +13,7 @@ const TABS: { id: ConfigTab; label: string }[] = [
 
 export default function ConfigPage() {
   const [tab, setTab] = useState<ConfigTab>("llm");
-  /** 递增后通知 LlmConfigPanel 打开「添加」弹窗（与经验/工具右上角添加一致） */
+  /** 递增后通知 LlmConfigPanel 打开「添加」弹窗（与经验/插件右上角添加一致） */
   const [llmCreateRequestId, setLlmCreateRequestId] = useState(0);
 
   return (

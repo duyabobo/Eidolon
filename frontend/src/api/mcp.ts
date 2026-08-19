@@ -13,6 +13,10 @@ export interface McpServerItem {
   has_api_key?: boolean;
   scope: McpScope;
   user_id?: string | null;
+  transport?: "http" | "stdio";
+  command?: string;
+  args?: string[];
+  cwd?: string;
 }
 
 export interface McpServerStatus {

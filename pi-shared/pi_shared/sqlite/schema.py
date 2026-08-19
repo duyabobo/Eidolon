@@ -42,14 +42,19 @@ CREATE TABLE IF NOT EXISTS skills (
     PRIMARY KEY (name, user_id)
 );
 
--- MCP Server 配置（system: user_id IS NULL；user: 个人 MCP）
+-- MCP Server / 本机插件（system: user_id IS NULL；user: 个人）
+-- transport=http 用 url；transport=stdio 用 command/args/cwd（本机安装的插件）
 CREATE TABLE IF NOT EXISTS mcp_servers (
     name TEXT NOT NULL,
     user_id TEXT,
-    url TEXT NOT NULL,
+    url TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     api_key TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
+    transport TEXT NOT NULL DEFAULT 'http',
+    command TEXT NOT NULL DEFAULT '',
+    args TEXT NOT NULL DEFAULT '[]',
+    cwd TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (name, user_id)
@@ -163,4 +168,17 @@ CREATE TABLE IF NOT EXISTS skill_creator_sessions (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_skill_creator_user_updated ON skill_creator_sessions(user_id, updated_at);
+
+-- 插件创建器对话草稿
+CREATE TABLE IF NOT EXISTS plugin_creator_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    plugin_name TEXT,
+    published INTEGER NOT NULL DEFAULT 0,
+    messages TEXT NOT NULL DEFAULT '[]',
+    draft TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plugin_creator_user_updated ON plugin_creator_sessions(user_id, updated_at);
 """

@@ -14,16 +14,14 @@ import {
 } from "./config/MineMarketTabs";
 import { CONFIG_PAGE_SIZE, useClientPagination } from "./config/useClientPagination";
 import { McpEditModal, McpServerRow } from "./McpServerUi";
-import { serverStatusKey } from "./mcpManagerUtils";
+import PluginCreatorChat from "./PluginCreatorChat";
+import { isLocalPlugin, serverStatusKey } from "./mcpManagerUtils";
 import { useMcpManager } from "./useMcpManager";
-
-const EMPTY_SERVER: McpServerConfig = { url: "", description: "", enabled: true, api_key: "" };
 
 type EditState = {
   scope: "system" | "user";
   name: string;
   config: McpServerConfig;
-  isNew: boolean;
 };
 
 export default function McpConfigPanel() {
@@ -35,17 +33,20 @@ export default function McpConfigPanel() {
     statusMap,
     errMsg,
     setErrMsg,
+    load,
     probeOne,
     saveServer,
     toggleEnabled,
     deleteServer,
   } = useMcpManager({ includeDisabled: true });
 
+  const [showCreator, setShowCreator] = useState(false);
+  const [editPluginName, setEditPluginName] = useState<string | undefined>(undefined);
   const [edit, setEdit] = useState<EditState | null>(null);
 
   const handleDelete = async (server: McpServerItem) => {
     const label = server.scope === "system" ? "系统" : "个人";
-    if (!confirm(`确认删除${label} MCP "${server.name}"？`)) return;
+    if (!confirm(`确认删除${label}插件 "${server.name}"？`)) return;
     try {
       await deleteServer(server);
     } catch (e) {
@@ -53,57 +54,42 @@ export default function McpConfigPanel() {
     }
   };
 
-  const openSystemEdit = async (server: McpServerItem) => {
+  const openCreator = (pluginName?: string) => {
+    setEditPluginName(pluginName);
+    setShowCreator(true);
+  };
+
+  const openHttpEdit = async (server: McpServerItem) => {
+    const fallback: McpServerConfig = {
+      url: server.url,
+      description: server.description ?? "",
+      enabled: server.enabled !== false,
+      api_key: "",
+      transport: "http",
+    };
+    if (server.scope !== "system") {
+      setEdit({ scope: "user", name: server.name, config: fallback });
+      return;
+    }
     try {
       const full = await configApi.getMcp();
-      const cfg = full.servers[server.name] ?? {
-        url: server.url,
-        description: server.description,
-        enabled: server.enabled,
-        api_key: "",
-      };
+      const cfg = full.servers[server.name] ?? fallback;
       setEdit({
         scope: "system",
         name: server.name,
-        isNew: false,
         config: { ...cfg, api_key: cfg.api_key ?? "" },
       });
     } catch {
-      setEdit({
-        scope: "system",
-        name: server.name,
-        isNew: false,
-        config: {
-          url: server.url,
-          description: server.description,
-          enabled: server.enabled,
-          api_key: "",
-        },
-      });
+      setEdit({ scope: "system", name: server.name, config: fallback });
     }
   };
 
-  const openUserEdit = (server: McpServerItem) => {
-    setEdit({
-      scope: "user",
-      name: server.name,
-      isNew: false,
-      config: {
-        url: server.url,
-        description: server.description ?? "",
-        enabled: server.enabled !== false,
-        api_key: "",
-      },
-    });
-  };
-
-  const openUserCreate = () => {
-    setEdit({
-      scope: "user",
-      name: "",
-      isNew: true,
-      config: { ...EMPTY_SERVER },
-    });
+  const handleEdit = (server: McpServerItem) => {
+    if (isLocalPlugin(server) && server.scope === "user") {
+      openCreator(server.name);
+      return;
+    }
+    void openHttpEdit(server);
   };
 
   const handleSaveEdit = async () => {
@@ -117,7 +103,7 @@ export default function McpConfigPanel() {
       return;
     }
     try {
-      await saveServer(edit.scope, edit.name.trim(), edit.config);
+      await saveServer(edit.scope, edit.name.trim(), { ...edit.config, transport: "http" });
       setEdit(null);
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : "保存失败");
@@ -142,7 +128,8 @@ export default function McpConfigPanel() {
         <MineMarketToolbar
           tab={tab}
           onTabChange={setTab}
-          onAdd={openUserCreate}
+          onAdd={() => openCreator()}
+          addDisabled={showCreator}
         />
       )}
       pagination={tab === "mine" ? (
@@ -155,9 +142,9 @@ export default function McpConfigPanel() {
       ) : undefined}
     >
       {tab === "market" ? (
-        <MarketComingSoon subtitle="工具服务市场正在规划中，敬请期待" />
+        <MarketComingSoon subtitle="插件市场正在规划中，敬请期待" />
       ) : servers.length === 0 ? (
-        <ConfigEmptyState message="暂无 MCP Server" />
+        <ConfigEmptyState message="暂无插件。添加时由 Agent 对话写代码，安装到本机并自动登记给 Agent 调用。" />
       ) : (
         <div className="space-y-2">
           {pagination.slice.map((server) => {
@@ -171,7 +158,11 @@ export default function McpConfigPanel() {
                 scopeBadge={<ScopeBadge scope={server.scope} />}
                 onToggleEnabled={(enabled) => void handleToggleEnabled(server, enabled)}
                 onProbe={() => void probeOne(server)}
-                onEdit={() => (server.scope === "system" ? void openSystemEdit(server) : openUserEdit(server))}
+                onEdit={
+                  isLocalPlugin(server) && server.scope !== "user"
+                    ? undefined
+                    : () => handleEdit(server)
+                }
                 onDelete={() => void handleDelete(server)}
               />
             );
@@ -179,18 +170,30 @@ export default function McpConfigPanel() {
         </div>
       )}
 
+      {showCreator && (
+        <PluginCreatorChat
+          editPluginName={editPluginName}
+          onClose={() => {
+            setShowCreator(false);
+            setEditPluginName(undefined);
+          }}
+          onPublished={() => {
+            setShowCreator(false);
+            setEditPluginName(undefined);
+            void load({ silent: true });
+          }}
+        />
+      )}
+
       {edit && (
         <McpEditModal
           title={
-            edit.isNew
-              ? "添加个人 MCP"
-              : edit.scope === "system"
-                ? `编辑系统 MCP · ${edit.name}`
-                : `编辑个人 MCP · ${edit.name}`
+            edit.scope === "system"
+              ? `编辑系统插件 · ${edit.name}`
+              : `编辑远程插件 · ${edit.name}`
           }
           name={edit.name}
-          nameReadonly={!edit.isNew}
-          onNameChange={(name) => setEdit({ ...edit, name })}
+          nameReadonly
           config={edit.config}
           onChange={(patch) => setEdit({ ...edit, config: { ...edit.config, ...patch } })}
           onSave={() => void handleSaveEdit()}

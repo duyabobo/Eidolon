@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { pluginCreatorApi } from "../api/pluginCreator";
 import { skillCreatorApi } from "../api/skillCreator";
 import { skillsApi } from "../api/skills";
 import { workspaceApi } from "../api/workspace";
@@ -10,7 +11,8 @@ import { ModalOverlay } from "./config/ModalOverlay";
 export type FilePreviewSource =
   | { type: "workspace"; path: string; filename: string }
   | { type: "skill"; skillName: string; path: string; filename: string; scope?: "user" | "system" }
-  | { type: "skill-creator"; sessionId: string; path: string; filename: string };
+  | { type: "skill-creator"; sessionId: string; path: string; filename: string }
+  | { type: "plugin-creator"; sessionId: string; path: string; filename: string };
 
 interface Props {
   source: FilePreviewSource;
@@ -24,6 +26,9 @@ function sourceKey(source: FilePreviewSource): string {
   }
   if (source.type === "skill-creator") {
     return `sc:${source.sessionId}:${source.path}`;
+  }
+  if (source.type === "plugin-creator") {
+    return `pc:${source.sessionId}:${source.path}`;
   }
   return `sk:${source.scope ?? "system"}:${source.skillName}:${source.path}`;
 }
@@ -53,6 +58,18 @@ export default function FilePreviewModal({ source, subtitle, onClose }: Props) {
         loadText: () => skillCreatorApi.fetchFileText(sessionId, path),
         loadBlob: () => skillCreatorApi.fetchFileBlob(sessionId, path),
         download: () => skillCreatorApi.downloadFile(sessionId, path, filename),
+      };
+    }
+    if (source.type === "plugin-creator") {
+      const { sessionId, path } = source;
+      return {
+        loadText: () => pluginCreatorApi.fetchFileText(sessionId, path),
+        loadBlob: () => pluginCreatorApi.fetchFileBlob(sessionId, path),
+        download: async () => {
+          const blob = await pluginCreatorApi.fetchFileBlob(sessionId, path);
+          const { downloadBlob } = await import("../utils/download");
+          downloadBlob(blob, source.filename);
+        },
       };
     }
     const { skillName, path, filename, scope } = source;

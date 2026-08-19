@@ -1,6 +1,8 @@
 """MCP Server 配置只读查询：CM 架构下替代原 mcp-proxy/services/mongo_client.py（Mongo → SQLite）。"""
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from pi_shared.sqlite import loads
 
 from cm_server.mcp_proxy.services.db import get_db
 
@@ -14,15 +16,25 @@ class McpServerEntry:
     api_key: str = ""
     scope: str = "system"
     enabled: bool = True
+    transport: str = "http"
+    command: str = ""
+    args: list[str] = field(default_factory=list)
+    cwd: str = ""
 
 
 def _row_to_entry(row: dict) -> McpServerEntry:
+    raw_args = loads(row.get("args"), [])
+    args = [str(item) for item in raw_args] if isinstance(raw_args, list) else []
     return McpServerEntry(
         name=str(row["name"]),
-        url=str(row["url"]),
+        url=str(row.get("url") or ""),
         api_key=str(row.get("api_key") or ""),
         scope="user" if row.get("user_id") else "system",
         enabled=bool(row.get("enabled", 1)),
+        transport=str(row.get("transport") or "http"),
+        command=str(row.get("command") or ""),
+        args=args,
+        cwd=str(row.get("cwd") or ""),
     )
 
 
@@ -65,7 +77,11 @@ async def read_mcp_servers(
 
     sql = f"SELECT * FROM mcp_servers WHERE {' AND '.join(clauses)}"
     rows = await db.fetch_all(sql, params)
-    result = [_row_to_entry(row) for row in rows if row.get("url")]
+    result = [
+        _row_to_entry(row)
+        for row in rows
+        if row.get("url") or str(row.get("transport") or "") == "stdio"
+    ]
 
     logger.info(
         "MCP servers user=%s count=%d include_disabled=%s name=%s names=%s scope=%s",

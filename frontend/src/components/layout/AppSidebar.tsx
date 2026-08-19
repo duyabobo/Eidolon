@@ -7,7 +7,7 @@ import NavItem from "./NavItem";
 
 const PRIMARY_NAV = [
   { to: "/skills", label: "经验" },
-  { to: "/mcp", label: "工具" },
+  { to: "/mcp", label: "插件" },
   { to: "/config", label: "配置" },
 ] as const;
 

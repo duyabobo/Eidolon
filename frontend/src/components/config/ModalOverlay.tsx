@@ -9,7 +9,7 @@ interface Props {
 }
 
 /**
- * 全屏弹层外壳：portal 到 document.body，与经验/工具添加弹框同款居中布局。
+ * 全屏弹层外壳：portal 到 document.body，与经验/插件添加弹框同款居中布局。
  * 避免挂在 ManagePageLayout（overflow + backdrop-blur）内时 fixed 相对卡片定位、顶部被裁切。
  */
 export function ModalOverlay({

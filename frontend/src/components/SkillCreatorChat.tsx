@@ -48,7 +48,7 @@ export default function SkillCreatorChat({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { textareaRef, syncHeight } = useAutoGrowTextarea(input);
 
-  const scopeLabel = scope === "user" ? "我的 Skill" : "系统 Skill";
+  const scopeLabel = scope === "user" ? "我的经验" : "系统经验";
   const isEditMode = !!editSkillName;
 
   const openSession = (forceNew = false, skillName?: string) => {
@@ -187,12 +187,12 @@ export default function SkillCreatorChat({
       <div className="px-6 py-4 border-b border-ink-200/60 flex items-center justify-between shrink-0">
         <div>
           <h2 className="font-semibold text-ink-900">
-            {isEditMode ? `编辑 Skill：${editSkillName}` : `对话创建${scopeLabel}`}
+            {isEditMode ? `编辑经验：${editSkillName}` : `对话创建${scopeLabel}`}
           </h2>
           <p className="text-xs text-ink-400 mt-0.5">
             {isEditMode
-              ? "继续对话完善已保存的 Skill，修改后重新保存"
-              : "通过对话生成 Skill；若依赖外部工具，请说明 MCP Server 名称与用途"}
+              ? "继续对话完善已保存的经验，修改后重新保存"
+              : "把你的办事流程和规则，结合本机插件或插件市场，写成经验"}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -306,7 +306,7 @@ export default function SkillCreatorChat({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="描述你想创建的 Skill…"
+              placeholder="说说你平时怎么处理这类事情…"
               disabled={loading || !sessionId}
               className="flex-1 resize-none bg-transparent border border-ink-200/80 rounded-xl px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-300 disabled:opacity-60 leading-relaxed"
             />
@@ -359,7 +359,7 @@ export default function SkillCreatorChat({
               disabled={!draft || publishing}
               className="w-full ui-btn-primary"
             >
-              {publishing ? "保存中…" : "保存 Skill"}
+              {publishing ? "保存中…" : "保存经验"}
             </button>
           </div>
         </div>

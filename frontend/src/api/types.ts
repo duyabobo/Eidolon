@@ -7,10 +7,14 @@ export interface ServiceTestResult {
   message: string;
 }
 
-/** MCP Server 配置（url 类型，仅 HTTP/SSE 远程端点）。 */
+/** MCP / 本机插件配置。http 用 url；stdio 为本机安装的插件。 */
 export interface McpServerConfig {
   url: string;
   description?: string;
   enabled?: boolean;
   api_key?: string;
+  transport?: "http" | "stdio";
+  command?: string;
+  args?: string[];
+  cwd?: string;
 }

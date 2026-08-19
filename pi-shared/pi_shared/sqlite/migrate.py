@@ -22,6 +22,13 @@ _SKILLS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("source", "TEXT NOT NULL DEFAULT ''"),
 )
 
+_MCP_SERVERS_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("transport", "TEXT NOT NULL DEFAULT 'http'"),
+    ("command", "TEXT NOT NULL DEFAULT ''"),
+    ("args", "TEXT NOT NULL DEFAULT '[]'"),
+    ("cwd", "TEXT NOT NULL DEFAULT ''"),
+)
+
 
 async def _ensure_table_columns(
     db: "Database",
@@ -42,3 +49,4 @@ async def _ensure_table_columns(
 async def ensure_schema_columns(db: "Database") -> None:
     await _ensure_table_columns(db, "knowledge_documents", _KNOWLEDGE_DOC_COLUMNS)
     await _ensure_table_columns(db, "skills", _SKILLS_COLUMNS)
+    await _ensure_table_columns(db, "mcp_servers", _MCP_SERVERS_COLUMNS)

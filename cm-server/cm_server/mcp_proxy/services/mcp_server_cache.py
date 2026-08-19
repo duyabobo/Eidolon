@@ -94,6 +94,10 @@ class McpServerCache:
                 self.entry.url,
                 self.entry.api_key,
                 outbound_user=self._outbound_user,
+                transport=self.entry.transport,
+                command=self.entry.command,
+                args=self.entry.args,
+                cwd=self.entry.cwd,
             )
             tools_result = await session.list_tools()
             for tool in tools_result.tools:

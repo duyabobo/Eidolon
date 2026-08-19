@@ -23,8 +23,10 @@ class Settings(BaseSettings):
     # 合并后只需一个连接，见 cm_server/shared/db.py
     sqlite_path: str = default_local_db_path()
 
-    # 共享文件系统根目录（workspace / global skills，与 pi-runtime 共享）
+    # 共享文件系统根目录（workspace / global skills / plugins，与 pi-runtime 共享）
     sandbox_root: str = "/data/sandboxes"
+    # 本机插件 stdio 用的 Python；空则自动解析（优先 SANDBOX_PYTHON_BIN_DIR，否则当前解释器）
+    plugin_python: str = ""
 
     # pi-runtime 仍是独立 Node 进程（沙盒需要独立于 Python 主进程），HTTP 调用不变
     pi_runtime_base_url: str = "http://pi-runtime:8090"

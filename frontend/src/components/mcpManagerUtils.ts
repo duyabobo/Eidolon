@@ -19,3 +19,14 @@ export function mergeStatus(
 export function serverStatusKey(server: McpServerItem): string {
   return mcpServerStatusKey(server.scope, server.name);
 }
+
+export function isLocalPlugin(server: Pick<McpServerItem, "transport" | "url">): boolean {
+  return server.transport === "stdio" || !server.url?.trim();
+}
+
+export function pluginListSubtitle(server: McpServerItem): string {
+  if (isLocalPlugin(server)) {
+    return "本机插件";
+  }
+  return server.url;
+}

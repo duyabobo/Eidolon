@@ -53,6 +53,7 @@ async function bootstrap(): Promise<void> {
       sandboxRoot: userDataPaths.sandboxRoot,
       logDir: userDataPaths.logDir,
       piRuntimeBaseUrl: `http://127.0.0.1:${piRuntimePort}`,
+      sandboxPythonBinDir: resourcePaths.sandboxPythonBinDir,
     }),
   );
 

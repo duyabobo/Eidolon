@@ -40,7 +40,16 @@ async def add_user_mcp_server(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="名称不能为空")
     uid = await current_user_id()
     result = await mcp_store.upsert_user_server(
-        uid, name.strip(), body.url.strip(), body.description, body.enabled, body.api_key
+        uid,
+        name.strip(),
+        body.url.strip(),
+        body.description,
+        body.enabled,
+        body.api_key,
+        transport=body.transport,
+        command=body.command,
+        args=body.args,
+        cwd=body.cwd,
     )
     await invalidate_cache(uid, name.strip())
     return result

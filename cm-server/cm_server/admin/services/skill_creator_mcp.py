@@ -169,19 +169,12 @@ def build_mcp_prompt_context(infos: list[McpServerToolsInfo]) -> str:
         return ""
 
     lines = [
-        "\n\n---\n\n## 平台注入：MCP Server 工具清单（经 mcp-proxy 按 Server 名实时拉取）\n",
-        "用户已提到 MCP Server；下列 tool list 来自 **mcp-proxy 服务接口**（按业务 Server 名过滤）。\n",
-        "你必须先基于本清单编写 Skill，再描述调用方式；禁止跳过 tool list 臆造工具名。\n",
-        "白名单是**工具粒度**，不是 Server 粒度：从下面清单里挑出这个 Skill 实际会用到的具体工具名"
-        "（不需要每个都用，只挑相关的），写入 `mcp_tools`。运行时 pi 只能看到 `mcp_tools` 里列出的工具，"
-        "看不到 Server 名，也看不到未列出的工具。Skill 不记录、也不需要记录工具来自哪个 Server。\n",
-        "Skill `content` 只描述**工具名**和调用顺序/参数/降级策略，**不要出现业务 Server 名**"
-        "（如下面清单标题里的名字）——运行时 Agent 根本看不到 Server 名，写了也没用，还会误导它去猜"
-        "`mcp({ server: \"业务名\" })`（一定会失败）。\n",
-        "**不要**在 references 中写死 tool 列表（运行时再经 mcp-proxy 拉取，也不需要 Agent 自己拉）。\n",
+        "\n\n---\n\n## 平台注入：本机已安装插件及其工具\n",
+        "经验要结合用户的办事流程，以及下面这些已安装插件。从清单里挑出真正会用到的工具名写入 `mcp_tools`。\n",
+        "正文只写业务流程和工具名，不要写插件内部实现，也不要写 mcp-proxy / Server 名。\n",
     ]
     for info in infos:
-        lines.append(f"\n### MCP Server `{info.name}` ({info.scope})\n")
+        lines.append(f"\n### 插件 `{info.name}` ({info.scope})\n")
         if not info.enabled:
             lines.append("- 状态：已禁用，暂不可用\n")
             continue
@@ -241,9 +234,13 @@ async def prepare_mcp_context_for_message(
     history_text: str,
 ) -> tuple[str, list[McpServerToolsInfo]]:
     configured = await list_configured_mcp_names(user_id)
-    server_names = resolve_mcp_server_names(user_message, history_text, configured)
+    mentioned = resolve_mcp_server_names(user_message, history_text, configured)
+    server_names = mentioned or configured
     if not server_names:
-        return "", []
-
+        return (
+            "\n\n---\n\n当前还没有已安装插件。先把用户流程写清楚；"
+            "缺能力时请用户去「插件」页对话安装，或从插件市场安装。\n",
+            [],
+        )
     infos = await fetch_mcp_tools(user_id, server_names)
     return build_mcp_prompt_context(infos), infos

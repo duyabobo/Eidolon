@@ -56,7 +56,15 @@ async def probe_mcp_server(server: McpServerEntry) -> McpServerProbeResult:
     started = time.monotonic()
     try:
         async with AsyncExitStack() as stack:
-            session = await open_mcp_session(stack, server.url, server.api_key)
+            session = await open_mcp_session(
+                stack,
+                server.url,
+                server.api_key,
+                transport=server.transport,
+                command=server.command,
+                args=server.args,
+                cwd=server.cwd,
+            )
             tools_result = await session.list_tools()
             tool_names = [tool.name for tool in tools_result.tools]
             latency_ms = int((time.monotonic() - started) * 1000)

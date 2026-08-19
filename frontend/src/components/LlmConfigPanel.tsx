@@ -285,7 +285,7 @@ function LlmProfileModal({
 
   return (
     <ModalOverlay onBackdropClick={onCancel}>
-      {/* 与工具 MCP 添加弹框同款：内容自适应高度，居中于视口 */}
+      {/* 与经验/插件添加弹框同款：内容自适应高度，居中于视口 */}
       <div
         className="bg-white rounded-2xl shadow-panel w-full max-w-lg border border-ink-200/60 max-h-[90vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}

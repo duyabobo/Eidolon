@@ -30,17 +30,12 @@ from cm_server.admin.services.skills_fs import (
 logger = logging.getLogger(__name__)
 
 _WELCOME_SYSTEM = (
-    "你好！我是 Skill 创建助手，可以帮你通过对话生成系统级 Skill。\n"
-    "请告诉我你想创建什么能力或场景的 Skill。\n"
-    "若需要调用外部工具，请一并说明依赖的 MCP Server 名称（须与 Admin 中已配置的名称一致）、用途，"
-    "以及期望用到的能力；平台会按工具名白名单注入，Skill 正文只需写业务流程。"
+    "你好！我是经验创建助手。\n"
+    "经验 = 你自己的办事流程和规则 + 本机已安装的插件（或插件市场）。\n"
+    "请先讲你平时怎么处理这类事情：步骤、判断、例外、输出长什么样。"
+    "我会结合当前可用插件写成经验；需要新能力时再去装插件。"
 )
-_WELCOME_USER = (
-    "你好！我是 Skill 创建助手，可以帮你通过对话生成私有 Skill。\n"
-    "请告诉我你想创建什么能力或场景的 Skill。\n"
-    "若需要调用外部工具，请一并说明依赖的 MCP Server 名称（须与 Admin 中已配置的名称一致）、用途，"
-    "以及期望用到的能力；平台会按工具名白名单注入，Skill 正文只需写业务流程。"
-)
+_WELCOME_USER = _WELCOME_SYSTEM
 
 
 def _persist_draft_preview(session: SkillCreatorSession, draft: SkillDraft | None) -> None:

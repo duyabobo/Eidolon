@@ -1,11 +1,13 @@
 """MCP Server 连接辅助：供聚合器与探测复用。"""
 import logging
+import os
 from contextlib import AsyncExitStack
 from typing import Literal
 
 import httpx
-from mcp import ClientSession
+from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
+from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
 
@@ -85,17 +87,39 @@ def _make_http_client_factory(outbound_user: OutboundUserIdSlot | None = None):
     return factory
 
 
+async def open_stdio_session(stack: AsyncExitStack, command: str, args: list[str], cwd: str) -> ClientSession:
+    params = StdioServerParameters(
+        command=command,
+        args=args,
+        cwd=cwd or None,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+    )
+    read, write = await stack.enter_async_context(stdio_client(params))
+    session = await stack.enter_async_context(ClientSession(read, write))
+    await session.initialize()
+    logger.info("MCP stdio 连接成功 command=%s cwd=%s", command, cwd or "-")
+    return session
+
+
 async def open_mcp_session(
     stack: AsyncExitStack,
     url: str,
     api_key: str = "",
     outbound_user: OutboundUserIdSlot | None = None,
+    *,
+    transport: str = "http",
+    command: str = "",
+    args: list[str] | None = None,
+    cwd: str = "",
 ) -> ClientSession:
-    transport = resolve_mcp_transport(url)
+    if transport == "stdio":
+        return await open_stdio_session(stack, command, args or [], cwd)
+
+    resolved = resolve_mcp_transport(url)
     headers = _build_auth_headers(api_key)
     http_client_factory = _make_http_client_factory(outbound_user)
 
-    if transport == "sse":
+    if resolved == "sse":
         # SSE：post_writer 在独立 task；须配合 OutboundUserIdSlot，勿只依赖 ContextVar。
         # 若某 Server 只认握手头，需改读后续请求头或改用 streamable-http。
         read, write = await stack.enter_async_context(
