@@ -77,6 +77,6 @@ async def require_mineru_configured() -> KnowledgePipelineConfig:
     if not cfg.mineru_configured:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先在配置页「小模型」中配置 mineru",
+            detail="文件解析能力已下放到工具市场，请先安装对应工具经验",
         )
     return cfg

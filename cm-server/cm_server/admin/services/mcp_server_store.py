@@ -1,10 +1,9 @@
 """系统级 MCP Server 配置：CM 架构下替代原 admin/services/mcp_mongo.py（Mongo → SQLite）。
 
 admin 只管理系统级 Server（`user_id IS NULL`）；用户个人 MCP 由 gateway 管理。
+内置工具（arxiv / nature 等）已下放到工具市场，底座不再登记系统级 MCP。
 """
 import logging
-import os
-from typing import Any
 
 from pi_shared import format_iso, now_china
 
@@ -13,85 +12,14 @@ from cm_server.admin.services.db import get_db
 
 logger = logging.getLogger(__name__)
 
-# Electron 桌面端把内置 MCP 当子进程拉起，每次启动分配的本机端口都不同
-# （见 electron/src/ports.ts + process-manager.ts），通过环境变量把当次真实地址传进来。
-# Docker 部署没有这些环境变量，退回下面硬编码的容器内 DNS 地址。
-_ARXIV_MCP_URL_ENV = "ARXIV_MCP_URL"
-_NATURE_MCP_URL_ENV = "NATURE_MCP_URL"
-
-# 平台内置系统级 MCP。url 默认值仅在对应 *_MCP_URL 未设置（Docker 场景）时生效；
-# 桌面端每次启动都会用环境变量里的真实端口刷新 url，但不动 enabled/api_key
-# （尊重用户在 Admin 页手动开关/改配置的操作）。
-_BUILTIN_SYSTEM_SERVERS: tuple[dict[str, Any], ...] = (
-    {
-        "name": "arxiv",
-        "url": "http://arxiv-mcp:8081/mcp",
-        "description": "平台内置 arXiv：检索、全文/PDF、LaTeX、引用图谱",
-        "enabled": True,
-        "api_key": "",
-        "url_env": _ARXIV_MCP_URL_ENV,
-    },
-    {
-        "name": "nature",
-        "url": "http://nature-mcp:8082/mcp",
-        "description": "平台内置 Nature/Science 检索：OpenAlex/S2/Crossref/Unpaywall；元数据+合法 OA",
-        "enabled": True,
-        "api_key": "",
-        "url_env": _NATURE_MCP_URL_ENV,
-    },
-)
+_RETIRED_BUILTIN_NAMES = ("arxiv", "nature")
 
 
-def _resolve_builtin_url(spec: dict[str, Any]) -> str:
-    """桌面端环境变量覆盖优先，仅对同名内置 Server 生效，避免影响其它内置项。"""
-    url_env = str(spec.get("url_env") or "")
-    if url_env:
-        override = os.environ.get(url_env)
-        if override:
-            return override
-    return str(spec["url"])
-
-
-async def _refresh_builtin_url(name: str, url: str) -> None:
-    """已存在的内置 Server 记录，仅刷新 url（不动 enabled/api_key）。"""
-    now = format_iso(now_china())
-    await get_db().execute(
-        "UPDATE mcp_servers SET url = ?, updated_at = ? WHERE name = ? AND user_id IS NULL",
-        (url, now, name),
-    )
-    logger.info("已刷新内置系统 MCP url name=%s url=%s", name, url)
-
-
-async def _insert_builtin_server(spec: dict[str, Any], url: str) -> None:
-    now = format_iso(now_china())
-    await get_db().execute(
-        """
-        INSERT INTO mcp_servers (name, user_id, url, description, api_key, enabled, created_at, updated_at)
-        VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            str(spec["name"]), url, spec.get("description", ""), spec.get("api_key", ""),
-            int(spec.get("enabled", True)), now, now,
-        ),
-    )
-    logger.info("已登记内置系统 MCP name=%s url=%s", spec["name"], url)
-
-
-async def ensure_builtin_system_servers() -> None:
-    """幂等登记平台内置 MCP Server（user_id=null）；桌面端额外刷新动态端口的 url。"""
-    for spec in _BUILTIN_SYSTEM_SERVERS:
-        name = str(spec["name"])
-        url = _resolve_builtin_url(spec)
-        url_env = str(spec.get("url_env") or "")
-        has_override = bool(url_env and os.environ.get(url_env))
-        existing = await get_db().fetch_one(
-            "SELECT 1 FROM mcp_servers WHERE name = ? AND user_id IS NULL", (name,)
-        )
-        if existing:
-            if has_override:
-                await _refresh_builtin_url(name, url)
-            continue
-        await _insert_builtin_server(spec, url)
+async def retire_builtin_system_servers() -> None:
+    """启动时清掉已下放到工具市场的系统 MCP，避免连死地址。"""
+    for name in _RETIRED_BUILTIN_NAMES:
+        if await delete_server(name):
+            logger.info("已移除下放到工具市场的系统 MCP name=%s", name)
 
 
 async def list_system_config() -> McpConfig:

@@ -39,18 +39,6 @@ class LlmProfileListResponse(BaseModel):
     active_id: str | None = None
 
 
-class IntentLlmConfig(BaseModel):
-    base_url: str = ""
-    api_key: str = ""
-    model: str = ""
-    timeout: int = 12
-    protocol: Literal["openai", "anthropic"] = "openai"
-
-    @property
-    def configured(self) -> bool:
-        return bool(self.base_url.strip() and self.model.strip())
-
-
 class ServiceTestResult(BaseModel):
     ok: bool
     latency_ms: int = 0

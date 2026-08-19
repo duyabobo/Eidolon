@@ -23,10 +23,6 @@ export interface ResourcePaths {
   piBin: string;
   /** 安装包内 pi 扩展目录（含 pi-mcp-adapter / bwrap） */
   piExtensionsDir: string;
-  /** 安装包内 arxiv-mcp 可执行程序（PyInstaller 产物，build/arxiv-mcp/arxiv-mcp） */
-  arxivMcpExecutable: string;
-  /** 安装包内 nature-mcp 可执行程序（PyInstaller 产物，build/nature-mcp/nature-mcp） */
-  natureMcpExecutable: string;
   /** 安装包内沙盒 Python 的 bin 目录（含 python3 + 科学栈） */
   sandboxPythonBinDir: string;
 }
@@ -40,8 +36,6 @@ export function resolveResourcePaths(): ResourcePaths {
     frontendDir: join(root, "frontend"),
     piBin: join(root, "pi-cli", "bin", "pi"),
     piExtensionsDir: join(root, "pi-cli", "extensions"),
-    arxivMcpExecutable: join(root, "arxiv-mcp", "arxiv-mcp"),
-    natureMcpExecutable: join(root, "nature-mcp", "nature-mcp"),
     sandboxPythonBinDir: join(root, "sandbox-python", "bin"),
   };
 }
@@ -58,8 +52,6 @@ export interface UserDataPaths {
   sqlitePath: string;
   sandboxRoot: string;
   logDir: string;
-  /** arxiv-mcp 论文缓存目录，对应容器里的 /data/arxiv-papers */
-  arxivStoragePath: string;
 }
 
 export function resolveUserDataPaths(): UserDataPaths {
@@ -69,11 +61,9 @@ export function resolveUserDataPaths(): UserDataPaths {
     sqlitePath: join(root, "data", "local.db"),
     sandboxRoot: join(root, "sandboxes"),
     logDir: join(root, "logs"),
-    arxivStoragePath: join(root, "arxiv-papers"),
   };
   mkdirSync(join(root, "data"), { recursive: true });
   mkdirSync(paths.sandboxRoot, { recursive: true });
   mkdirSync(paths.logDir, { recursive: true });
-  mkdirSync(paths.arxivStoragePath, { recursive: true });
   return paths;
 }

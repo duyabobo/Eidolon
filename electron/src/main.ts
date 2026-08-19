@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog } from "electron";
 import type { Server } from "http";
 import { allocateAppPorts } from "./ports";
 import { resolveResourcePaths, resolveUserDataPaths } from "./paths";
-import { startArxivMcp, startCmServer, startNatureMcp, startPiRuntime } from "./process-manager";
+import { startCmServer, startPiRuntime } from "./process-manager";
 import {
   ProcessSupervisor,
   showSupervisorGiveUpDialog,
@@ -36,8 +36,7 @@ if (!gotSingleInstanceLock) {
 async function bootstrap(): Promise<void> {
   const resourcePaths = resolveResourcePaths();
   const userDataPaths = resolveUserDataPaths();
-  const { cmServerPort, piRuntimePort, staticServerPort, arxivMcpPort, natureMcpPort } =
-    await allocateAppPorts();
+  const { cmServerPort, piRuntimePort, staticServerPort } = await allocateAppPorts();
 
   supervisor = new ProcessSupervisor({
     onGiveUp: (name, detail) => {
@@ -45,25 +44,6 @@ async function bootstrap(): Promise<void> {
       app.quit();
     },
   });
-
-  // 先起内置 MCP：cm-server 启动时会立刻用 *_MCP_URL 刷新内置系统 MCP 的地址
-  // （见 mcp_server_store.ensure_builtin_system_servers），必须在 cm-server 之前拿到端口。
-  await supervisor.start("arxiv-mcp", () =>
-    startArxivMcp({
-      executablePath: resourcePaths.arxivMcpExecutable,
-      port: arxivMcpPort,
-      storagePath: userDataPaths.arxivStoragePath,
-      logDir: userDataPaths.logDir,
-    }),
-  );
-
-  await supervisor.start("nature-mcp", () =>
-    startNatureMcp({
-      executablePath: resourcePaths.natureMcpExecutable,
-      port: natureMcpPort,
-      logDir: userDataPaths.logDir,
-    }),
-  );
 
   await supervisor.start("cm-server", () =>
     startCmServer({
@@ -73,8 +53,6 @@ async function bootstrap(): Promise<void> {
       sandboxRoot: userDataPaths.sandboxRoot,
       logDir: userDataPaths.logDir,
       piRuntimeBaseUrl: `http://127.0.0.1:${piRuntimePort}`,
-      arxivMcpUrl: `http://127.0.0.1:${arxivMcpPort}/mcp`,
-      natureMcpUrl: `http://127.0.0.1:${natureMcpPort}/mcp`,
     }),
   );
 

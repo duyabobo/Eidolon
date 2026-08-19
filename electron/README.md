@@ -1,24 +1,22 @@
 # Electron 桌面客户端
 
-把 `cm-server`（合并后的 Python 单进程）、`pi-runtime`（Node 执行引擎）、`arxiv-mcp`（平台内置
-工具，PyInstaller 单独打包）、`frontend`（React SPA）四个已有产物打包成 mac arm64 桌面安装包，
-本目录只放 Electron 主进程代码，不重复实现任何业务逻辑。
+把 `cm-server`（合并后的 Python 单进程）、`pi-runtime`（Node 执行引擎）、`frontend`（React SPA）
+已有产物打包成 mac arm64 桌面安装包。本目录只放 Electron 主进程代码，不重复实现任何业务逻辑。
+学术检索等工具由工具市场提供，不再作为桌面子进程内置。
 
 ## 架构
 
 ```
 Electron 主进程（本目录 src/main.ts）
-  ├─ 分配 4 个本机空闲端口（src/ports.ts）
-  ├─ 拉起 arxiv-mcp 可执行程序（PyInstaller 产物，src/process-manager.ts）
-  ├─ 拉起 cm-server 可执行程序（PyInstaller 产物），把 arxiv-mcp 的本机地址通过
-  │  ARXIV_MCP_URL 环境变量传给它，用来刷新内置系统 MCP 记录（见下方"内置 MCP"一节）
+  ├─ 分配 3 个本机空闲端口（src/ports.ts）
+  ├─ 拉起 cm-server 可执行程序（PyInstaller 产物，src/process-manager.ts）
   ├─ 拉起 pi-runtime（Electron 内置 Node 运行 dist/worker.js，ELECTRON_RUN_AS_NODE=1）
   ├─ ProcessSupervisor 监听子进程退出并自动重启（关机时禁用）
   ├─ 起一个本机静态文件 + API 反向代理服务器（src/static-server.ts，取代容器部署里的 nginx）
   └─ 创建 BrowserWindow，加载上面那个本机服务器的地址
 ```
 
-cm-server / pi-runtime / arxiv-mcp 三个子进程全部启动时都注入了 `NO_PROXY=127.0.0.1,localhost,::1`
+cm-server / pi-runtime 两个子进程启动时都注入了 `NO_PROXY=127.0.0.1,localhost,::1`
 （见 `process-manager.ts` 的 `NO_PROXY_ENV`）：如果用户机器上配置了系统级 HTTP/SOCKS 代理（常见于
 公司网络、Clash/Surge 之类工具），Python `httpx`（cm-server 连 MCP downstream 用）会通过
 `urllib.request.getproxies()` 读到 macOS 系统代理配置，但不会应用系统代理面板里
@@ -40,20 +38,10 @@ electron/
     main.ts               # 入口：编排启动顺序、创建窗口、退出时清理子进程
     paths.ts              # 开发/打包两种模式下的资源路径 + 本地数据目录（app.getPath('userData')）
     ports.ts              # 本机空闲端口分配
-    process-manager.ts    # 拉起/健康检查/优雅关闭 cm-server / pi-runtime / 内置 MCP
+    process-manager.ts    # 拉起/健康检查/优雅关闭 cm-server / pi-runtime
     process-supervisor.ts # 子进程意外退出后的指数退避自动重启
     static-server.ts      # 本机静态文件服务器 + API 反向代理（取代 nginx）
 ```
-
-## 内置 MCP（arxiv）
-
-`arxiv-mcp` 是平台内置工具，不是用户自己配置的远程 MCP Server，所以桌面端把它当第 3 个子进程
-拉起（和 cm-server / pi-runtime 同等地位），而不是要求用户自己起一个远程服务。它每次启动分配的
-本机端口都不同，`cm_server/admin/services/mcp_server_store.py` 的
-`ensure_builtin_system_servers()` 会在 `ARXIV_MCP_URL` 环境变量存在时，每次启动都用真实端口
-刷新数据库里的 `arxiv` 记录 url（但不动用户在 Admin 页手动改过的 `enabled` 开关），
-自愈式解决"重启后端口变了、旧地址还留在库里"的问题。Docker 部署没有这个环境变量，
-退回容器内 DNS 地址 `http://arxiv-mcp:8081/mcp`，行为不变。
 
 ## 本地数据目录
 
@@ -75,11 +63,10 @@ electron/
 ## 本地开发
 
 ```bash
-# 1. 依次构建产物到仓库根目录 build/（frontend / pi-runtime / cm-server / arxiv-mcp）
+# 1. 依次构建产物到仓库根目录 build/（frontend / pi-runtime / cm-server）
 bash ../scripts/build-frontend.sh
 bash ../scripts/build-pi-runtime.sh
 bash ../scripts/build-cm-server.sh   # 需已安装 python3；用独立虚拟环境跑 PyInstaller
-bash ../scripts/build-arxiv-mcp.sh   # 同上，独立虚拟环境
 
 # 2. 编译并启动 Electron（开发模式下 paths.ts 会读取上面的 build/ 目录）
 npm install

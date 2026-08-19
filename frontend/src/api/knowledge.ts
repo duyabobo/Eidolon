@@ -1,5 +1,4 @@
 import { mergeTraceHeaders, request } from "./http";
-import type { ServiceTestResult } from "./types";
 import { downloadBlob } from "../utils/download";
 
 export interface ChunkingConfig {
@@ -42,16 +41,6 @@ export interface KnowledgeDocumentList {
   total: number;
   page: number;
   page_size: number;
-}
-
-export interface KnowledgePipelineConfig {
-  mineru3_api_base: string;
-  mineru3_api_key?: string;
-  mineru3_backend?: string;
-  mineru3_lang?: string;
-  mineru3_parse_method?: string;
-  mineru_vlm_url?: string;
-  updated_at?: string | null;
 }
 
 export interface WikiGraphNode {
@@ -115,22 +104,6 @@ function jsonHeaders(): Record<string, string> {
 }
 
 export const knowledgeApi = {
-  getPipelineConfig: () => request<KnowledgePipelineConfig>("/config/knowledge/service"),
-
-  savePipelineConfig: (cfg: KnowledgePipelineConfig) =>
-    request<KnowledgePipelineConfig>("/config/knowledge/service", {
-      method: "PUT",
-      headers: jsonHeaders(),
-      body: JSON.stringify(cfg),
-    }),
-
-  testMineru: (cfg: KnowledgePipelineConfig) =>
-    request<ServiceTestResult>("/config/knowledge/service/test-mineru", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify(cfg),
-    }),
-
   listBases: (page = 1, pageSize = 20) =>
     request<KnowledgeBaseList>(`/config/knowledge/bases?page=${page}&page_size=${pageSize}`),
 

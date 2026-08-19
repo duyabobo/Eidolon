@@ -66,8 +66,3 @@ electron/build-assets/
 # build/、dist/ 规则忽略，无需重复声明）
 cm-server/.pyinstaller-venv/
 cm-server/*.spec
-arxiv-mcp/.pyinstaller-venv/
-arxiv-mcp/*.spec
-nature-mcp/.pyinstaller-venv/
-nature-mcp/.venv/
-nature-mcp/*.spec

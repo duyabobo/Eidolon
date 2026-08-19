@@ -41,7 +41,7 @@ def _build_auth_headers(api_key: str) -> dict[str, str] | None:
 
 
 def _downstream_http_timeout() -> httpx.Timeout:
-    """下游 MCP HTTP 超时（arxiv 等外网调用常超过 SDK 默认 30s）。"""
+    """下游 MCP HTTP 超时（外网调用常超过 SDK 默认 30s）。"""
     return httpx.Timeout(
         connect=settings.mcp_downstream_connect_timeout_s,
         read=settings.mcp_downstream_read_timeout_s,

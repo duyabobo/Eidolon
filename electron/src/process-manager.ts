@@ -2,7 +2,6 @@ import { ChildProcess, spawn } from "child_process";
 import { createWriteStream, WriteStream } from "fs";
 import { join } from "path";
 import http from "http";
-import net from "net";
 
 const HEALTH_CHECK_INTERVAL_MS = 500;
 const HEALTH_CHECK_TIMEOUT_MS = 30_000;
@@ -47,39 +46,7 @@ function waitForHealth(port: number, timeoutMs: number): Promise<void> {
 }
 
 /**
- * arxiv-mcp（第三方 `arxiv-mcp-server` 包）没有独立 `/health` 端点，Docker 的
- * HEALTHCHECK 也是靠"能否建立 TCP 连接"判断（见 arxiv-mcp/Dockerfile），这里用同样的方式。
- */
-function waitForTcpOpen(port: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-
-  return new Promise((resolve, reject) => {
-    const attempt = () => {
-      const socket = net.createConnection({ host: "127.0.0.1", port, timeout: 2_000 }, () => {
-        socket.end();
-        resolve();
-      });
-      socket.on("error", () => {
-        socket.destroy();
-        retryOrFail();
-      });
-      socket.on("timeout", () => socket.destroy());
-    };
-
-    const retryOrFail = () => {
-      if (Date.now() >= deadline) {
-        reject(new Error(`端口 ${port} 在 ${timeoutMs}ms 内未能建立 TCP 连接`));
-        return;
-      }
-      setTimeout(attempt, HEALTH_CHECK_INTERVAL_MS);
-    };
-
-    attempt();
-  });
-}
-
-/**
- * cm-server / pi-runtime / arxiv-mcp 之间全部走 127.0.0.1 内部通信，绝不应该被用户机器上
+ * cm-server / pi-runtime 之间全部走 127.0.0.1 内部通信，绝不应该被用户机器上
  * 配置的系统级 HTTP/SOCKS 代理（常见于公司网络、部分开发者的 Clash/Surge 之类工具）截获。
  * 命中过的真实故障：macOS 系统代理面板里 127.0.0.1/localhost 已经在"例外列表"里，
  * curl 等遵循系统代理配置的工具能正确绕过，但 Python httpx（cm-server 用它连 MCP downstream）
@@ -109,10 +76,6 @@ export interface StartCmServerOptions {
   sandboxRoot: string;
   logDir: string;
   piRuntimeBaseUrl: string;
-  /** arxiv-mcp 子进程的本机地址（见 startArxivMcp），用于刷新内置系统 MCP 的 url */
-  arxivMcpUrl: string;
-  /** nature-mcp 子进程的本机地址（见 startNatureMcp） */
-  natureMcpUrl: string;
 }
 
 export async function startCmServer(options: StartCmServerOptions): Promise<ManagedProcess> {
@@ -126,8 +89,6 @@ export async function startCmServer(options: StartCmServerOptions): Promise<Mana
       SANDBOX_ROOT: options.sandboxRoot,
       LOG_DIR: options.logDir,
       PI_RUNTIME_BASE_URL: options.piRuntimeBaseUrl,
-      ARXIV_MCP_URL: options.arxivMcpUrl,
-      NATURE_MCP_URL: options.natureMcpUrl,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "pi-agent-internal",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -136,75 +97,6 @@ export async function startCmServer(options: StartCmServerOptions): Promise<Mana
 
   await waitForHealth(options.port, HEALTH_CHECK_TIMEOUT_MS);
   return { name: "cm-server", process: child };
-}
-
-export interface StartArxivMcpOptions {
-  executablePath: string;
-  port: number;
-  storagePath: string;
-  logDir: string;
-}
-
-/**
- * arxiv-mcp 是平台内置工具，不是用户配置项，因此和 cm-server / pi-runtime 一样由
- * Electron 主进程直接拉起（而不是要求用户自己起一个远程 MCP 服务）。
- * ALLOWED_HOSTS 必须显式包含本次分配到的 "127.0.0.1:<port>"，否则 MCP SDK 的
- * DNS rebinding 防护会直接拒绝 cm-server 发来的请求（见 arxiv-mcp/Dockerfile 里
- * 容器场景下同样要把 "arxiv-mcp:8081" 加进白名单）。
- */
-export async function startArxivMcp(options: StartArxivMcpOptions): Promise<ManagedProcess> {
-  const child = spawn(
-    options.executablePath,
-    ["--storage-path", options.storagePath],
-    {
-      env: {
-        ...process.env,
-        TRANSPORT: "http",
-        HOST: "127.0.0.1",
-        PORT: String(options.port),
-        ALLOWED_HOSTS: `127.0.0.1,127.0.0.1:${options.port},localhost,localhost:${options.port}`,
-        LOG_DIR: options.logDir,
-        LOG_LEVEL: "INFO",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-  pipeToLogFile(child, join(options.logDir, "arxiv-mcp.stdout.log"));
-
-  await waitForTcpOpen(options.port, HEALTH_CHECK_TIMEOUT_MS);
-  return { name: "arxiv-mcp", process: child };
-}
-
-export interface StartNatureMcpOptions {
-  executablePath: string;
-  port: number;
-  logDir: string;
-}
-
-/**
- * nature-mcp 与 arxiv-mcp 一样由 Electron 主进程拉起；ALLOWED_HOSTS 必须包含本次
- * 分配到的 "127.0.0.1:<port>"，否则 DNS rebinding 防护会拒绝 cm-server 请求。
- */
-export async function startNatureMcp(options: StartNatureMcpOptions): Promise<ManagedProcess> {
-  const child = spawn(options.executablePath, [], {
-    env: {
-      ...process.env,
-      TRANSPORT: "streamable-http",
-      HOST: "127.0.0.1",
-      PORT: String(options.port),
-      ALLOWED_HOSTS: `127.0.0.1,127.0.0.1:${options.port},localhost,localhost:${options.port}`,
-      LOG_DIR: options.logDir,
-      LOG_LEVEL: "INFO",
-      OPENALEX_EMAIL: process.env.OPENALEX_EMAIL ?? "nature-mcp@localhost",
-      UNPAYWALL_EMAIL: process.env.UNPAYWALL_EMAIL ?? "nature-mcp@localhost",
-      S2_API_KEY: process.env.S2_API_KEY ?? "",
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  pipeToLogFile(child, join(options.logDir, "nature-mcp.stdout.log"));
-
-  await waitForTcpOpen(options.port, HEALTH_CHECK_TIMEOUT_MS);
-  return { name: "nature-mcp", process: child };
 }
 
 export interface StartPiRuntimeOptions {

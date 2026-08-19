@@ -7,7 +7,7 @@
 需要跨进程的 HTTP 中转。
 
 模块边界通过 Python 包名保留：每个原服务的 routes/services/models 分别位于
-`cm_server.<service>.*` 下，互不覆盖；启动生命周期（db 连接、admin 内置 MCP 登记、
+`cm_server.<service>.*` 下，互不覆盖；启动生命周期（db 连接、清掉已下放工具市场的系统 MCP、
 llm-proxy 内存配置预热、mcp-proxy 工具缓存预热）在本文件的 lifespan 里按原有顺序依次执行。
 """
 import asyncio
@@ -37,7 +37,7 @@ from cm_server.admin.routes import skill_creator as admin_skill_creator
 from cm_server.admin.routes import skills as admin_skills
 from cm_server.admin.routes import wiki as admin_wiki
 from cm_server.admin.routes import workspace as admin_workspace
-from cm_server.admin.services.mcp_server_store import ensure_builtin_system_servers
+from cm_server.admin.services.mcp_server_store import retire_builtin_system_servers
 
 from cm_server.llm_proxy.routes import llm_config as llm_proxy_config
 from cm_server.llm_proxy.routes import proxy as llm_proxy_proxy
@@ -68,25 +68,18 @@ async def lifespan(app: FastAPI):
     logger.info("cm-server 启动中...")
     await shared_db.connect()
 
-    # 原 admin/services/db.py connect() 里内嵌的一次性登记，改到启动流程里显式调用
-    await ensure_builtin_system_servers()
+    # arxiv/nature 已下放到工具市场，清掉旧库里残留的系统级记录，避免连死地址
+    await retire_builtin_system_servers()
 
     # 原 llm-proxy 启动步骤：把激活的 LLM profile 载入内存，之后 proxy 直接读内存
     await load_llm_config_from_db()
 
     # 原 mcp-proxy 启动步骤：同步预热系统级 MCP（阻塞，确保就绪）+ 后台预热用户 MCP。
-    #
-    # 拆分成 5 个服务时，docker-compose 的 depends_on 顺序保证 admin（负责注册内置
-    # 系统 MCP，如 arxiv）总是在 mcp-proxy 之后启动——mcp-proxy 自己启动时数据库里
-    # 还没有内置 MCP 记录，force_refresh(None) 无东西可刷，天然不会失败。合并成单进程
-    # 后两步在同一个 lifespan 里顺序执行，"注册" 和 "预热" 之间的时间窗口消失，
-    # force_refresh(None) 会真正尝试连接刚注册的 Server；若该 Server 一时不可达
-    # （MCP SDK 的 streamable-http 传输在 anyio TaskGroup 内失败时会以
-    # CancelledError 形式冒泡，绕过 _do_refresh 内部的 `except Exception`），
-    # 异常会一直冒泡到这里并让整个进程启动失败——这在桌面单机场景是不可接受的：
-    # 一个内置工具服务没起来，不该导致整个 CM Server 无法启动。因此预热失败只记录
-    # 日志，不阻塞启动；失败的 Server 会在 `needs_refresh()` 的失败重试间隔后，
-    # 由后续请求触发的 `refresh_if_stale()` 自动重试。
+    # 预热失败只记录日志，不阻塞启动：用户自配的远程 MCP 一时不可达，不该拖垮整个进程。
+    # 失败的 Server 会在 `needs_refresh()` 的失败重试间隔后，由后续请求触发的
+    # `refresh_if_stale()` 自动重试。
+    # MCP SDK 的 streamable-http 传输在 anyio TaskGroup 内失败时，可能以
+    # CancelledError 冒泡，绕过 `_do_refresh` 内部的 `except Exception`。
     try:
         await mcp_manager.force_refresh(None)
     except (Exception, asyncio.CancelledError):

@@ -28,15 +28,11 @@ export async function allocateAppPorts(): Promise<{
   cmServerPort: number;
   piRuntimePort: number;
   staticServerPort: number;
-  arxivMcpPort: number;
-  natureMcpPort: number;
 }> {
-  const [cmServerPort, piRuntimePort, staticServerPort, arxivMcpPort, natureMcpPort] = await Promise.all([
-    allocateFreeLoopbackPort(),
-    allocateFreeLoopbackPort(),
+  const [cmServerPort, piRuntimePort, staticServerPort] = await Promise.all([
     allocateFreeLoopbackPort(),
     allocateFreeLoopbackPort(),
     allocateFreeLoopbackPort(),
   ]);
-  return { cmServerPort, piRuntimePort, staticServerPort, arxivMcpPort, natureMcpPort };
+  return { cmServerPort, piRuntimePort, staticServerPort };
 }

@@ -119,7 +119,7 @@ do_package() {
 
 # ── 等待健康检查 ─────────────────────────────────────────────────────────────────
 wait_healthy() {
-  local services=("arxiv-mcp" "nature-mcp" "cm-server" "pi-runtime" "frontend")
+  local services=("cm-server" "pi-runtime" "frontend")
   local timeout=120
   local interval=5
 

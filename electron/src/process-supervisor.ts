@@ -7,11 +7,7 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 /** 进程持续健康超过该时间后，再次崩溃时重置连续失败计数 */
 const STABLE_RESET_MS = 60_000;
 
-export type SupervisedProcessName =
-  | "arxiv-mcp"
-  | "nature-mcp"
-  | "cm-server"
-  | "pi-runtime";
+export type SupervisedProcessName = "cm-server" | "pi-runtime";
 
 type ProcessFactory = () => Promise<ManagedProcess>;
 
@@ -31,7 +27,7 @@ export interface ProcessSupervisorOptions {
 }
 
 /**
- * 监督 cm-server / pi-runtime / 内置 MCP 子进程：意外退出后指数退避重启；
+ * 监督 cm-server / pi-runtime 子进程：意外退出后指数退避重启；
  * 应用关机（stopAll）期间不重启。端口在应用生命周期内固定，重启后下游可按原地址恢复。
  */
 export class ProcessSupervisor {

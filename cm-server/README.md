@@ -55,7 +55,7 @@ cm_server/
 `startup`/`connect()` 里）：
 
 1. 连接共享 SQLite（唯一一次，原 5 份连接合并为 1 份）
-2. 登记内置系统 MCP Server（原 admin 的 `ensure_builtin_system_servers`）
+2. 清掉已下放到工具市场的系统 MCP 残留记录（原 admin 的 `retire_builtin_system_servers`）
 3. 从数据库加载 LLM 配置到内存（原 llm-proxy 的 `load_from_db`）
 4. 同步预热系统级 MCP 工具缓存（原 mcp-proxy 的 `force_refresh(None)`）——**失败不阻塞启动**，
    见下方说明
@@ -63,16 +63,12 @@ cm_server/
 
 ### 为什么第 4 步要显式捕获异常
 
-拆成 5 个服务时，docker-compose 的 `depends_on` 顺序保证 admin（登记内置 MCP）总在
-mcp-proxy（预热 MCP）之后启动：mcp-proxy 启动时数据库里还没有内置 MCP 记录，预热无东西
-可刷，天然不会失败。合并成单进程后「登记」和「预热」在同一个 lifespan 里顺序执行，这个
-时间窗口消失了——预热会真正尝试连接刚登记的 Server；若该 Server 一时不可达，MCP SDK 的
-streamable-http 传输在 anyio TaskGroup 内部失败时会以 `CancelledError`（而不是普通
-`Exception`）冒泡，绕过 `_do_refresh` 内部原有的 `except Exception`，一直冒泡到 `main.py`
-让整个进程启动失败。这在桌面单机场景不可接受——一个内置工具服务没起来，不该导致整个
-CM Server 无法启动，因此在 `main.py` 里改为记录日志、不阻塞启动；失败的 Server 会在
-`needs_refresh()` 的失败重试间隔（10s）之后，由下一次真实请求触发的 `refresh_if_stale()`
-自动重连。
+用户自配的远程 MCP 一时不可达时，MCP SDK 的 streamable-http 传输在 anyio TaskGroup 内部失败
+时会以 `CancelledError`（而不是普通 `Exception`）冒泡，绕过 `_do_refresh` 内部原有的
+`except Exception`，一直冒泡到 `main.py` 让整个进程启动失败。这在桌面单机场景不可接受——
+一个工具服务没起来，不该导致整个 CM Server 无法启动，因此在 `main.py` 里改为记录日志、
+不阻塞启动；失败的 Server 会在 `needs_refresh()` 的失败重试间隔（10s）之后，由下一次真实
+请求触发的 `refresh_if_stale()` 自动重连。
 
 ## 配置
 

@@ -1,9 +1,6 @@
-import logging
-
 from fastapi import APIRouter, HTTPException, status
 
 from cm_server.llm_proxy.models.config import (
-    IntentLlmConfig,
     LlmConfig,
     LlmProfile,
     LlmProfileCreate,
@@ -11,11 +8,9 @@ from cm_server.llm_proxy.models.config import (
     LlmProfileUpdate,
     ServiceTestResult,
 )
-from cm_server.llm_proxy.services import intent_llm_store, llm_profile_store
+from cm_server.llm_proxy.services import llm_profile_store
 from cm_server.llm_proxy.services.llm_config_store import activate_profile, get_effective_config
 from cm_server.llm_proxy.services.llm_probe import probe_llm_profile
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -62,28 +57,6 @@ async def delete_llm_profile(profile_id: str) -> None:
         remaining = [p for p in items if p.id != profile_id]
         if remaining:
             await activate_profile(remaining[0].id)
-
-
-@router.get("/llm/intent", response_model=IntentLlmConfig)
-async def get_intent_llm_config() -> IntentLlmConfig:
-    return await intent_llm_store.get_intent_llm_config()
-
-
-@router.put("/llm/intent", response_model=IntentLlmConfig)
-async def save_intent_llm_config(body: IntentLlmConfig) -> IntentLlmConfig:
-    try:
-        return await intent_llm_store.save_intent_llm_config(body)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-
-@router.post("/llm/intent/test", response_model=ServiceTestResult)
-async def test_intent_llm_config(body: IntentLlmConfig) -> ServiceTestResult:
-    if not body.configured:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先填写意图识别小模型")
-    return await probe_llm_profile(
-        LlmProfile(id="intent", name="意图识别小模型", **body.model_dump()),
-    )
 
 
 @router.put("/llm/profiles/{profile_id}/activate", response_model=LlmConfig)

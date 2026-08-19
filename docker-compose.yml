@@ -27,11 +27,6 @@ services:
       - sqlite_data:/data
     networks:
       - pi_net
-    depends_on:
-      arxiv-mcp:
-        condition: service_healthy
-      nature-mcp:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
       interval: 10s
@@ -105,52 +100,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # 平台内置 arXiv MCP（Streamable HTTP）；经 cm-server 内的 mcp-proxy 模块聚合，不进沙盒
-  arxiv-mcp:
-    build:
-      context: .
-      dockerfile: arxiv-mcp/Dockerfile
-    restart: unless-stopped
-    environment:
-      TRANSPORT: "http"
-      HOST: "0.0.0.0"
-      PORT: "8081"
-      ALLOWED_HOSTS: "arxiv-mcp,arxiv-mcp:8081,localhost,localhost:8081,127.0.0.1,127.0.0.1:8081"
-      REQUEST_TIMEOUT: "120"
-      LOG_DIR: "/app/logs"
-      LOG_LEVEL: "INFO"
-      TZ: "Asia/Shanghai"
-    volumes:
-      - arxiv_papers:/data/arxiv-papers
-      - ./logs/arxiv-mcp:/app/logs
-    networks:
-      - pi_net
-
-  # 平台内置 Nature/Science 学术检索 MCP（OpenAlex/S2/Crossref/Unpaywall；仅元数据+合法 OA）
-  nature-mcp:
-    build:
-      context: .
-      dockerfile: nature-mcp/Dockerfile
-    restart: unless-stopped
-    environment:
-      TRANSPORT: "streamable-http"
-      HOST: "0.0.0.0"
-      PORT: "8082"
-      ALLOWED_HOSTS: "nature-mcp,nature-mcp:8082,localhost,localhost:8082,127.0.0.1,127.0.0.1:8082"
-      REQUEST_TIMEOUT: "60"
-      LOG_DIR: "/app/logs"
-      LOG_LEVEL: "INFO"
-      TZ: "Asia/Shanghai"
-      OPENALEX_EMAIL: "${OPENALEX_EMAIL:-nature-mcp@localhost}"
-      UNPAYWALL_EMAIL: "${UNPAYWALL_EMAIL:-nature-mcp@localhost}"
-      S2_API_KEY: "${S2_API_KEY:-}"
-    volumes:
-      - ./logs/nature-mcp:/app/logs
-    networks:
-      - pi_net
-
 volumes:
-  arxiv_papers:
   sandbox_workspaces:
   # 本地 SQLite 单文件库：cm-server 内合并的 gateway/gateway-sse/admin/llm-proxy/mcp-proxy
   # 五个模块共享同一份文件（同一份 SCHEMA_SQL，单进程单连接，见 cm-server/README.md）

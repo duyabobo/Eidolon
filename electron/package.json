@@ -53,20 +53,6 @@
         ]
       },
       {
-        "from": "../build/arxiv-mcp",
-        "to": "arxiv-mcp",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "../build/nature-mcp",
-        "to": "nature-mcp",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
         "from": "../build/frontend",
         "to": "frontend",
         "filter": [

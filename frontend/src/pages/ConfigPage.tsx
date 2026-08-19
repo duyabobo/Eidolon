@@ -1,15 +1,13 @@
 import { useState } from "react";
 import LlmConfigPanel from "../components/LlmConfigPanel";
-import PipelineConfigPanel from "../components/PipelineConfigPanel";
 import UserMemoryPanel from "../components/UserMemoryPanel";
 import ManagePageLayout from "../components/layout/ManagePageLayout";
 import { ConfigPrimaryBtn } from "../components/config/ConfigActionBtn";
 
-type ConfigTab = "llm" | "pipeline" | "user";
+type ConfigTab = "llm" | "user";
 
 const TABS: { id: ConfigTab; label: string }[] = [
   { id: "llm", label: "大模型" },
-  { id: "pipeline", label: "小模型" },
   { id: "user", label: "用户记忆" },
 ];
 
@@ -57,7 +55,6 @@ export default function ConfigPage() {
         {tab === "llm" && (
           <LlmConfigPanel hideToolbarAdd createRequestId={llmCreateRequestId} />
         )}
-        {tab === "pipeline" && <PipelineConfigPanel />}
         {tab === "user" && <UserMemoryPanel />}
       </div>
     </ManagePageLayout>

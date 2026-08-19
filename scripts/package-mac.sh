@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 一键打包 mac arm64 桌面安装包（.dmg）：依次构建 frontend / pi-runtime / pi-cli /
-# cm-server / arxiv-mcp / nature-mcp 产物到 build/，再用 electron-builder 打成可拖到 Applications 的 dmg。
+# cm-server 产物到 build/，再用 electron-builder 打成可拖到 Applications 的 dmg。
 # 必须在 arm64 Mac 上运行（PyInstaller 不支持交叉编译）。
 #
 # 用法：bash scripts/package-mac.sh
@@ -19,42 +19,32 @@ export ELECTRON_BUILDER_BINARIES_MIRROR="${ELECTRON_BUILDER_BINARIES_MIRROR:-htt
 export NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
 
 echo "════════════════════════════════════════"
-echo " [1/8] 构建前端"
+echo " [1/6] 构建前端"
 echo "════════════════════════════════════════"
 bash "$ROOT_DIR/scripts/build-frontend.sh"
 
 echo "════════════════════════════════════════"
-echo " [2/8] 构建 pi-runtime"
+echo " [2/6] 构建 pi-runtime"
 echo "════════════════════════════════════════"
 bash "$ROOT_DIR/scripts/build-pi-runtime.sh"
 
 echo "════════════════════════════════════════"
-echo " [3/8] 构建 pi CLI + 扩展（打入安装包，不再依赖本机全局 pi）"
+echo " [3/6] 构建 pi CLI + 扩展（打入安装包，不再依赖本机全局 pi）"
 echo "════════════════════════════════════════"
 bash "$ROOT_DIR/scripts/build-pi-cli.sh"
 
 echo "════════════════════════════════════════"
-echo " [4/8] 构建沙盒内置 Python + 科学栈（体积会明显增加）"
+echo " [4/6] 构建沙盒内置 Python + 科学栈（体积会明显增加）"
 echo "════════════════════════════════════════"
 bash "$ROOT_DIR/scripts/build-sandbox-python.sh"
 
 echo "════════════════════════════════════════"
-echo " [5/8] 构建 cm-server（PyInstaller）"
+echo " [5/6] 构建 cm-server（PyInstaller）"
 echo "════════════════════════════════════════"
 bash "$ROOT_DIR/scripts/build-cm-server.sh"
 
 echo "════════════════════════════════════════"
-echo " [6/8] 构建 arxiv-mcp（PyInstaller，打入安装包，不再依赖容器内 arxiv-mcp 主机名）"
-echo "════════════════════════════════════════"
-bash "$ROOT_DIR/scripts/build-arxiv-mcp.sh"
-
-echo "════════════════════════════════════════"
-echo " [7/8] 构建 nature-mcp（PyInstaller）"
-echo "════════════════════════════════════════"
-bash "$ROOT_DIR/scripts/build-nature-mcp.sh"
-
-echo "════════════════════════════════════════"
-echo " [8/8] electron-builder 打包 mac arm64 .dmg"
+echo " [6/6] electron-builder 打包 mac arm64 .dmg"
 echo "════════════════════════════════════════"
 cd "$ROOT_DIR/electron"
 npm install

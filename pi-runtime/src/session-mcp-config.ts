@@ -14,7 +14,7 @@ import { join } from "path";
 const MCP_PROXY_SERVER_NAME = "mcp-proxy";
 /** 沙盒内 bridge.js 桥接端口默认值，与 extensions/sandbox-init/bridge.js 保持一致 */
 const DEFAULT_MCP_BRIDGE_PORT = 8080;
-/** pi-mcp-adapter 调 mcp-proxy 的 tools/call 超时；默认 SDK 约 60s，arxiv 外网常不够 */
+/** pi-mcp-adapter 调 mcp-proxy 的 tools/call 超时；默认 SDK 约 60s，外网工具常不够 */
 const MCP_PROXY_REQUEST_TIMEOUT_MS = 180_000;
 const CACHE_VERSION = 1;
 
