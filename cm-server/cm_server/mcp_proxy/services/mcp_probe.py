@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 
 from cm_server.mcp_proxy.services.mcp_connection import open_mcp_session
 from cm_server.mcp_proxy.services.mcp_server_store import McpServerEntry
+from cm_server.mcp_proxy.services.mcp_tool_catalog import save_tool_schemas, tools_to_payload
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,11 @@ async def probe_mcp_server(server: McpServerEntry) -> McpServerProbeResult:
             )
             tools_result = await session.list_tools()
             tool_names = [tool.name for tool in tools_result.tools]
+            await save_tool_schemas(
+                server.name,
+                server.user_id,
+                tools_to_payload(list(tools_result.tools)),
+            )
             latency_ms = int((time.monotonic() - started) * 1000)
             return McpServerProbeResult(
                 name=server.name,

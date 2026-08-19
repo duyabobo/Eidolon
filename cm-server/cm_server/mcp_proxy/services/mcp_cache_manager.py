@@ -5,11 +5,9 @@ McpServerCacheManager：全局唯一的 MCP Server 缓存管理器。
   - 系统级 Server（user_id 为空）→ 缓存键 ("__system__", name)，所有用户共享同一份连接
   - 用户级 Server        → 缓存键 (user_id, name)，仅该用户可见
 
-请求侧的白名单是**工具粒度**，不是 Server 粒度：get_tools 总是加载该用户全部已启用
-的 Server（反正已经全局预热好了，命中缓存几乎零开销），合并成完整工具视图后，
-再按 tool_names 过滤出请求方声明的具体工具。这样"该连哪些 Server"和"该给哪些工具"
-两件事解耦：缓存层永远按真实 Server 组织（同一个 Server 无论被多少种工具白名单引用，
-只连接、只缓存一次），过滤层按工具名做一次性、无网络开销的内存过滤。
+请求侧的白名单是**工具粒度**，不是 Server 粒度：get_tools 合并该用户已启用
+Server 的工具清单后，再按 tool_names 内存过滤。本机 stdio 用已落库清单，不预热进程；
+远程 http 仍按 TTL 保活。
 """
 import asyncio
 import logging
@@ -54,10 +52,13 @@ class McpToolsView:
                 self._owner_by_tool[name] = cache
 
     def list_tools(self) -> list[dict[str, Any]]:
-        return [
-            cache.get_tool(name).model_dump(by_alias=True, exclude_none=True)
-            for name, cache in self._owner_by_tool.items()
-        ]
+        listed: list[dict[str, Any]] = []
+        for name, cache in self._owner_by_tool.items():
+            tool = cache.get_tool(name)
+            if tool is None:
+                continue
+            listed.append(tool.model_dump(by_alias=True, exclude_none=True))
+        return listed
 
     async def call_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         cache = self._owner_by_tool.get(name)
@@ -68,8 +69,15 @@ class McpToolsView:
 
 
 class McpServerCacheManager:
-    def __init__(self, refresh_interval_s: float) -> None:
+    def __init__(
+        self,
+        refresh_interval_s: float,
+        stdio_idle_timeout_s: float = 120.0,
+        stdio_idle_sweep_interval_s: float = 15.0,
+    ) -> None:
         self._refresh_interval_s = refresh_interval_s
+        self._stdio_idle_timeout_s = stdio_idle_timeout_s
+        self._stdio_idle_sweep_interval_s = stdio_idle_sweep_interval_s
         self._caches: dict[tuple[str, str], McpServerCache] = {}
 
     def _get_or_create(self, user_id: str | None, entry: McpServerEntry) -> McpServerCache:
@@ -78,6 +86,8 @@ class McpServerCacheManager:
         if cache is None:
             cache = McpServerCache(entry, self._refresh_interval_s)
             self._caches[key] = cache
+        else:
+            cache.replace_entry(entry)
         return cache
 
     async def get_tools(self, user_id: str | None, tool_names: list[str] | None = None) -> McpToolsView:
@@ -85,41 +95,60 @@ class McpServerCacheManager:
         读取指定用户在给定工具白名单下可用的工具视图。
         tool_names is None 表示不过滤；[] 表示明确 0 个工具。
 
-        始终加载该用户全部已启用 Server（不按 tool_names 反查该连哪个 Server），
-        因为这些 Server 早已被全局预热覆盖，命中缓存的合并开销可忽略；
-        真正的过滤发生在 McpToolsView 按工具名做的内存过滤这一步。
+        本机 stdio：有落库清单则不拉起进程；没有清单才快照一次并立刻退出。
+        远程 http：按 TTL 刷新保活连接。
         """
         entries = await read_mcp_servers(user_id)
         caches = [self._get_or_create(user_id, entry) for entry in entries]
         await asyncio.gather(*(cache.refresh_if_stale() for cache in caches))
         allowed = None if tool_names is None else set(tool_names)
         view = McpToolsView(caches, allowed_tool_names=allowed)
-        # 明确 0 工具（*none*）不重试；缓存失败导致空列表则立刻再拉一次
-        if (
-            entries
-            and tool_names != []
-            and not view.list_tools()
-            and any(cache.last_refresh_failed() for cache in caches)
-        ):
+        retry = [
+            cache for cache in caches
+            if cache.last_refresh_failed() and not cache.has_tool_catalog()
+        ]
+        if entries and tool_names != [] and not view.list_tools() and retry:
             logger.warning(
                 "MCP 工具视图为空且缓存失败，强制刷新 user=%s servers=%s",
                 user_id or "-",
-                ",".join(entry.name for entry in entries),
+                ",".join(cache.entry.name for cache in retry),
             )
-            await asyncio.gather(*(cache.force_refresh() for cache in caches))
+            await asyncio.gather(*(cache.force_refresh() for cache in retry))
             view = McpToolsView(caches, allowed_tool_names=allowed)
         return view
 
     async def force_refresh(self, user_id: str | None) -> None:
-        """
-        预热指定用户视角下的全部 Server（用于系统启动预热）。
-        user_id=None 预热系统级 Server；否则仅预热该用户的个人 Server
-        （系统级 Server 已在 user_id=None 的预热中处理一次，此处跳过避免重复连接）。
-        """
+        """预热远程 http；本机 stdio 只水合清单，不拉起进程。"""
         entries = await read_mcp_servers(user_id)
         targets = entries if user_id is None else [e for e in entries if e.scope == "user"]
-        caches = [self._get_or_create(user_id, entry) for entry in targets]
+        remote = [entry for entry in targets if entry.transport != "stdio"]
+        for entry in targets:
+            if entry.transport == "stdio":
+                self._get_or_create(user_id, entry)
+        caches = [self._get_or_create(user_id, entry) for entry in remote]
         await asyncio.gather(*(cache.force_refresh() for cache in caches))
+
+    async def recycle_idle_stdio(self) -> None:
+        await asyncio.gather(
+            *(cache.release_if_idle(self._stdio_idle_timeout_s) for cache in self._caches.values())
+        )
+
+    def start_idle_reaper(self) -> asyncio.Task:
+        interval = self._stdio_idle_sweep_interval_s
+
+        async def _loop() -> None:
+            while True:
+                await asyncio.sleep(interval)
+                try:
+                    await self.recycle_idle_stdio()
+                except Exception:
+                    logger.exception("本机插件空闲回收失败")
+
+        logger.info(
+            "本机插件空闲回收已启动 idle=%.0fs sweep=%.0fs",
+            self._stdio_idle_timeout_s, interval,
+        )
+        return asyncio.create_task(_loop(), name="mcp-stdio-idle-reaper")
 
     def invalidate_server(self, user_id: str | None, server_name: str) -> None:
         """标记单个 Server 缓存失效：add/delete/test 后调用，下次请求时触发重建。"""

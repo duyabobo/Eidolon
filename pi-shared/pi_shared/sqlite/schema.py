@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
     command TEXT NOT NULL DEFAULT '',
     args TEXT NOT NULL DEFAULT '[]',
     cwd TEXT NOT NULL DEFAULT '',
+    tool_schemas TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (name, user_id)

@@ -57,9 +57,8 @@ cm_server/
 1. 连接共享 SQLite（唯一一次，原 5 份连接合并为 1 份）
 2. 清掉已下放到工具市场的系统 MCP 残留记录（原 admin 的 `retire_builtin_system_servers`）
 3. 从数据库加载 LLM 配置到内存（原 llm-proxy 的 `load_from_db`）
-4. 同步预热系统级 MCP 工具缓存（原 mcp-proxy 的 `force_refresh(None)`）——**失败不阻塞启动**，
-   见下方说明
-5. 后台并行预热所有用户的 MCP 工具缓存（不阻塞启动）
+4. 同步预热系统级**远程** MCP（本机 stdio 不拉起）——**失败不阻塞启动**
+5. 后台预热用户远程 MCP；启动本机插件空闲回收（默认 120s 无调用则退出进程）
 
 ### 为什么第 4 步要显式捕获异常
 

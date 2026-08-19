@@ -8,7 +8,7 @@
 
 模块边界通过 Python 包名保留：每个原服务的 routes/services/models 分别位于
 `cm_server.<service>.*` 下，互不覆盖；启动生命周期（db 连接、清掉已下放工具市场的系统 MCP、
-llm-proxy 内存配置预热、mcp-proxy 工具缓存预热）在本文件的 lifespan 里按原有顺序依次执行。
+llm-proxy 内存配置预热、远程 MCP 预热、本机插件空闲回收）在本文件的 lifespan 里按顺序执行。
 """
 import asyncio
 import logging
@@ -55,13 +55,13 @@ logger = logging.getLogger(__name__)
 
 
 async def _preload_local_mcp_background() -> None:
-    """后台预热本机 MCP 工具列表缓存，不阻塞启动。"""
+    """后台预热远程个人 MCP；本机 stdio 只水合清单，不拉起进程。"""
     try:
         uid = await current_user_id()
         await mcp_manager.force_refresh(uid)
-        logger.info("本机 MCP 预热完毕 user=%s", uid)
+        logger.info("远程 MCP 预热完毕 user=%s", uid)
     except Exception:
-        logger.exception("本机 MCP 预热失败")
+        logger.exception("远程 MCP 预热失败")
 
 
 @asynccontextmanager
@@ -75,27 +75,20 @@ async def lifespan(app: FastAPI):
     # 原 llm-proxy 启动步骤：把激活的 LLM profile 载入内存，之后 proxy 直接读内存
     await load_llm_config_from_db()
 
-    # 原 mcp-proxy 启动步骤：同步预热系统级 MCP（阻塞，确保就绪）+ 后台预热用户 MCP。
-    # 预热失败只记录日志，不阻塞启动：用户自配的远程 MCP 一时不可达，不该拖垮整个进程。
-    # 失败的 Server 会在 `needs_refresh()` 的失败重试间隔后，由后续请求触发的
-    # `refresh_if_stale()` 自动重试。
-    # MCP SDK 的 streamable-http 传输在 anyio TaskGroup 内失败时，可能以
-    # CancelledError 冒泡，绕过 `_do_refresh` 内部的 `except Exception`。
+    # 远程 http 系统 MCP 同步预热；本机 stdio 不在启动时拉起。
+    # 预热失败只记日志，不阻塞启动。
     try:
         await mcp_manager.force_refresh(None)
     except (Exception, asyncio.CancelledError):
-        # 这里特意把 asyncio.CancelledError（Python 3.8+ 继承自 BaseException，
-        # 普通 except Exception 捕不到）也一并按"预热失败"处理：验证过实际触发
-        # 场景是 MCP SDK 的 streamable-http 传输在 anyio TaskGroup 内部失败时，
-        # 会把真实错误包进 CancelledError 冒泡出来，不是本协程真的被取消，
-        # 不代表进程正在关闭，因此在这个启动阶段吞掉它是安全的。
-        logger.exception("系统级 MCP 预热失败，将在后续请求时按失败重试间隔自动重连")
+        logger.exception("系统级远程 MCP 预热失败，将在后续请求时按失败重试间隔自动重连")
     asyncio.create_task(_preload_local_mcp_background())
+    idle_reaper = mcp_manager.start_idle_reaper()
 
     logger.info("cm-server 启动完成，监听 %s:%d", settings.cm_server_host, settings.cm_server_port)
     yield
 
     logger.info("cm-server 关闭中...")
+    idle_reaper.cancel()
     await mcp_manager.close_all()
     await shared_db.disconnect()
 

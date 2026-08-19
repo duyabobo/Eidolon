@@ -27,6 +27,7 @@ _MCP_SERVERS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("command", "TEXT NOT NULL DEFAULT ''"),
     ("args", "TEXT NOT NULL DEFAULT '[]'"),
     ("cwd", "TEXT NOT NULL DEFAULT ''"),
+    ("tool_schemas", "TEXT NOT NULL DEFAULT '[]'"),
 )
 
 

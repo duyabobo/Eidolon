@@ -2,25 +2,17 @@
 单个真实 MCP Server 的连接、工具表与刷新状态。
 
 一个真实的 MCP Server（系统级或某用户个人配置）只对应一个 McpServerCache 实例，
-由 McpServerCacheManager 按 (owner, server_name) 缓存。无论请求方声明了怎样的
-skill 白名单组合，都只从这里读取工具，不再按"用户 + 白名单组合"重复建立连接、
-重复缓存整套工具列表——避免组合爆炸，也避免同一 Server 因为白名单组合不同而被
-反复重新连接。
+由 McpServerCacheManager 按 (owner, server_name) 缓存。
 
-刷新触发条件（满足任一即触发）：
-  1. 距上次刷新超过成功 TTL（默认 300s）
-  2. 被显式标记失效（add / delete / test 后调用 invalidate）
-  3. 上次连接失败，且已超过失败重试间隔（远小于成功 TTL）
-
-失败与成功分开计时的原因：
-  连接失败（远程 Server 瞬时不可用）若与成功一样按 300s TTL 缓存，会把"暂时没有
-  工具"当成"确认没有工具"缓存 5 分钟，期间所有请求都拿到空列表却不再重试。
+本机 stdio 插件：
+  - 工具清单可从 DB 水合，列工具不拉起进程
+  - 第一次 call_tool 才 spawn，空闲超时后退出并保留清单
+远程 http：仍按 TTL 保活刷新。
 """
 import asyncio
 import logging
 import time
 from contextlib import AsyncExitStack
-from dataclasses import dataclass
 from typing import Any
 
 from mcp import ClientSession
@@ -28,38 +20,58 @@ from mcp.types import Tool
 
 from cm_server.mcp_proxy.services.mcp_connection import open_mcp_session
 from cm_server.mcp_proxy.services.mcp_server_store import McpServerEntry
+from cm_server.mcp_proxy.services.mcp_tool_catalog import (
+    save_tool_schemas,
+    tools_from_payload,
+    tools_to_payload,
+)
 from cm_server.mcp_proxy.services.request_user import OutboundUserIdSlot, get_request_user_id
 from cm_server.mcp_proxy.services.tool_args import normalize_tool_arguments
 
 logger = logging.getLogger(__name__)
 
-# 连接失败后的重试间隔（秒），远小于成功 TTL，避免瞬时故障被缓存 5 分钟
 _FAILURE_RETRY_INTERVAL_S = 10.0
 
 
-@dataclass
-class _ToolRecord:
-    tool: Tool
-    session: ClientSession
-
-
 class McpServerCache:
-    """缓存单个真实 MCP Server 的连接会话与工具列表。"""
+    """缓存单个真实 MCP Server 的工具清单；stdio 会话按需保活。"""
 
     def __init__(self, entry: McpServerEntry, refresh_interval_s: float) -> None:
         self.entry = entry
         self._refresh_interval_s = refresh_interval_s
-        self._tools: dict[str, _ToolRecord] = {}
+        self._tools: dict[str, Tool] = tools_from_payload(entry.tool_schemas)
+        self._session: ClientSession | None = None
         self._exit_stack: AsyncExitStack = AsyncExitStack()
         self._last_refresh_at: float = 0.0
+        self._last_used_at: float = 0.0
         self._invalidated: bool = False
         self._failed_at: float | None = None
+        self._in_flight = 0
         self._lock: asyncio.Lock = asyncio.Lock()
-        # SSE post_writer 跨 task：call_tool 写入，httpx hook 读取；与 _call_lock 一起防串用户
         self._outbound_user = OutboundUserIdSlot()
         self._call_lock: asyncio.Lock = asyncio.Lock()
 
+    @property
+    def is_local_stdio(self) -> bool:
+        return self.entry.transport == "stdio"
+
+    def has_tool_catalog(self) -> bool:
+        return bool(self._tools)
+
+    def replace_entry(self, entry: McpServerEntry) -> None:
+        self.entry = entry
+        if self._session is None and entry.tool_schemas:
+            hydrated = tools_from_payload(entry.tool_schemas)
+            if hydrated:
+                self._tools = hydrated
+
     def needs_refresh(self) -> bool:
+        if self.is_local_stdio:
+            if self._tools and not self._invalidated:
+                return False
+            if self._failed_at is not None and time.monotonic() - self._failed_at < _FAILURE_RETRY_INTERVAL_S:
+                return False
+            return self._invalidated or not self._tools
         if self._invalidated:
             return True
         now = time.monotonic()
@@ -68,26 +80,28 @@ class McpServerCache:
         return self._failed_at is not None and now - self._failed_at >= _FAILURE_RETRY_INTERVAL_S
 
     def invalidate(self) -> None:
-        """标记失效：下次请求（refresh_if_stale）时触发重建。"""
         self._invalidated = True
+
+    def _touch(self) -> None:
+        self._last_used_at = time.monotonic()
 
     async def refresh_if_stale(self) -> None:
         if not self.needs_refresh():
             return
         async with self._lock:
-            if not self.needs_refresh():  # 获锁后再次检查，避免并发重复刷新
+            if not self.needs_refresh():
                 return
-            await self._do_refresh()
+            if self.is_local_stdio:
+                await self._connect_locked(keep_alive=False)
+                return
+            await self._connect_locked(keep_alive=True)
 
     async def force_refresh(self) -> None:
-        """忽略 TTL，立即重建（用于启动预热）。"""
         async with self._lock:
-            await self._do_refresh()
+            await self._connect_locked(keep_alive=not self.is_local_stdio)
 
-    async def _do_refresh(self) -> None:
+    async def _connect_locked(self, *, keep_alive: bool) -> None:
         new_stack = AsyncExitStack()
-        new_tools: dict[str, _ToolRecord] = {}
-
         try:
             session = await open_mcp_session(
                 new_stack,
@@ -99,29 +113,71 @@ class McpServerCache:
                 args=self.entry.args,
                 cwd=self.entry.cwd,
             )
-            tools_result = await session.list_tools()
-            for tool in tools_result.tools:
-                new_tools[tool.name] = _ToolRecord(tool=tool, session=session)
-        except Exception as e:
-            # 失败：丢弃本次新建的连接，保留上一轮可用的连接与工具列表，
-            # 避免瞬时故障把"暂时没有工具"缓存成"确认没有工具"。
+            listed = await session.list_tools()
+            tools = list(listed.tools)
+            self._tools = {tool.name: tool for tool in tools}
+            try:
+                await save_tool_schemas(
+                    self.entry.name,
+                    self.entry.user_id,
+                    tools_to_payload(tools),
+                )
+            except Exception:
+                logger.exception("落库工具清单失败 name=%s", self.entry.name)
+            old_stack = self._exit_stack
+            if keep_alive:
+                self._exit_stack = new_stack
+                self._session = session
+                self._touch()
+                await self._close_stack_ignoring_cross_task_errors(old_stack)
+                logger.info(
+                    "MCP 已连接 name=%s transport=%s tools=%d",
+                    self.entry.name, self.entry.transport, len(self._tools),
+                )
+            else:
+                self._session = None
+                await self._close_stack_ignoring_cross_task_errors(new_stack)
+                await self._close_stack_ignoring_cross_task_errors(old_stack)
+                self._exit_stack = AsyncExitStack()
+                logger.info(
+                    "本机插件已快照工具清单并退出 name=%s tools=%d",
+                    self.entry.name, len(self._tools),
+                )
+            self._failed_at = None
+            self._invalidated = False
+        except Exception as exc:
             await self._close_stack_ignoring_cross_task_errors(new_stack)
             self._failed_at = time.monotonic()
             logger.error(
-                "连接 MCP server 失败: name=%s url=%s err=%s，%.0fs 后重试（沿用上次工具列表）",
-                self.entry.name, self.entry.url, e, _FAILURE_RETRY_INTERVAL_S,
+                "连接 MCP 失败: name=%s transport=%s err=%s，%.0fs 后重试",
+                self.entry.name, self.entry.transport, exc, _FAILURE_RETRY_INTERVAL_S,
             )
-        else:
-            # 成功：原子替换工具表与会话栈，再关闭上一轮连接
-            old_stack = self._exit_stack
-            self._exit_stack = new_stack
-            self._tools = new_tools
-            self._failed_at = None
-            self._invalidated = False
-            await self._close_stack_ignoring_cross_task_errors(old_stack)
-            logger.info("server=%s: 加载 %d 个工具", self.entry.name, len(self._tools))
         finally:
             self._last_refresh_at = time.monotonic()
+
+    async def _ensure_session_locked(self) -> None:
+        if self._session is not None and not self._invalidated:
+            return
+        await self._connect_locked(keep_alive=True)
+
+    async def _disconnect_locked(self) -> None:
+        if self._session is None:
+            return
+        old_stack = self._exit_stack
+        self._session = None
+        self._exit_stack = AsyncExitStack()
+        await self._close_stack_ignoring_cross_task_errors(old_stack)
+        logger.info("本机插件空闲已退出 name=%s", self.entry.name)
+
+    async def release_if_idle(self, idle_timeout_s: float) -> None:
+        if not self.is_local_stdio or idle_timeout_s <= 0:
+            return
+        async with self._lock:
+            if self._session is None or self._in_flight > 0:
+                return
+            if time.monotonic() - self._last_used_at < idle_timeout_s:
+                return
+            await self._disconnect_locked()
 
     def last_refresh_failed(self) -> bool:
         return self._failed_at is not None
@@ -130,40 +186,63 @@ class McpServerCache:
         return list(self._tools.keys())
 
     def get_tool(self, name: str) -> Tool | None:
-        record = self._tools.get(name)
-        return record.tool if record else None
+        return self._tools.get(name)
 
     async def call_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
-        record = self._tools.get(name)
-        if record is None:
+        if name not in self._tools:
+            async with self._lock:
+                await self._ensure_session_locked()
+        if name not in self._tools:
             raise ValueError(f"工具未找到: {name}")
         user_id = get_request_user_id()
         normalized_args = normalize_tool_arguments(name, args, trusted_user_id=user_id)
-        # 串行化 + 槽位：保证 SSE post_writer 读到的 X-User-Id 与本次 call 一致
         async with self._call_lock:
+            async with self._lock:
+                await self._ensure_session_locked()
+                if self._session is None:
+                    raise RuntimeError(f"插件未能启动: {self.entry.name}")
+                session = self._session
+                self._in_flight += 1
+                self._touch()
             self._outbound_user.set(user_id)
             try:
-                result = await record.session.call_tool(name, arguments=normalized_args)
+                result = await self._invoke_with_stdio_retry(session, name, normalized_args)
             finally:
                 self._outbound_user.clear()
+                async with self._lock:
+                    self._in_flight = max(0, self._in_flight - 1)
+                    self._touch()
         return result.model_dump(by_alias=True, exclude_none=True)
 
+    async def _invoke_with_stdio_retry(
+        self,
+        session: ClientSession,
+        name: str,
+        arguments: dict[str, Any],
+    ):
+        try:
+            return await session.call_tool(name, arguments=arguments)
+        except Exception:
+            if not self.is_local_stdio:
+                raise
+            logger.warning("本机插件调用失败，重连后重试 name=%s tool=%s", self.entry.name, name)
+            async with self._lock:
+                await self._connect_locked(keep_alive=True)
+                if self._session is None:
+                    raise
+                session = self._session
+                self._touch()
+            return await session.call_tool(name, arguments=arguments)
+
     async def close(self) -> None:
-        await self._close_stack_ignoring_cross_task_errors(self._exit_stack)
+        async with self._lock:
+            await self._disconnect_locked()
 
     async def _close_stack_ignoring_cross_task_errors(self, stack: AsyncExitStack) -> None:
-        """
-        关闭上一轮连接的 AsyncExitStack。
-
-        每次刷新都由调用方所在的 asyncio task 驱动（HTTP 请求 task 或预热 task），
-        而上一轮连接是在另一个（可能早已结束的）task 中打开的。MCP SDK 的
-        streamable-http 传输内部用 anyio 任务组管理请求生命周期，其取消范围要求
-        __aenter__/__aexit__ 发生在同一个 task，跨 task 关闭会抛
-        RuntimeError("Attempted to exit cancel scope in a different task ...")。
-        这里只是关闭一个即将丢弃的旧连接，关闭失败不影响新连接是否成功，因此
-        仅记录日志、不向上抛出，避免这个已知的库限制拖垮正常的刷新流程。
-        """
         try:
             await stack.aclose()
-        except Exception as e:
-            logger.debug("关闭旧 MCP 连接时出现异常（忽略，不影响新连接）: server=%s err=%s", self.entry.name, e)
+        except Exception as exc:
+            logger.debug(
+                "关闭旧 MCP 连接时出现异常（忽略）: server=%s err=%s",
+                self.entry.name, exc,
+            )

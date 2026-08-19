@@ -7,4 +7,8 @@ McpServerCacheManager 单例。
 from cm_server.mcp_proxy.config import settings
 from cm_server.mcp_proxy.services.mcp_cache_manager import McpServerCacheManager
 
-manager = McpServerCacheManager(refresh_interval_s=settings.tool_refresh_interval_s)
+manager = McpServerCacheManager(
+    refresh_interval_s=settings.tool_refresh_interval_s,
+    stdio_idle_timeout_s=settings.mcp_stdio_idle_timeout_s,
+    stdio_idle_sweep_interval_s=settings.mcp_stdio_idle_sweep_interval_s,
+)

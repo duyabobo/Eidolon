@@ -48,6 +48,9 @@ class Settings(BaseSettings):
 
     # ===== mcp-proxy =====
     tool_refresh_interval_s: int = 300
+    # 本机 stdio 插件：调用后空闲超过该秒数则退出进程；列工具只读已落库清单
+    mcp_stdio_idle_timeout_s: float = 120.0
+    mcp_stdio_idle_sweep_interval_s: float = 15.0
     mcp_downstream_connect_timeout_s: float = 30.0
     mcp_downstream_read_timeout_s: float = 180.0
 

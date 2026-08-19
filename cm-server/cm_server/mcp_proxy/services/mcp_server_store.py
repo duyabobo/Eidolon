@@ -20,21 +20,28 @@ class McpServerEntry:
     command: str = ""
     args: list[str] = field(default_factory=list)
     cwd: str = ""
+    user_id: str | None = None
+    tool_schemas: list[dict] = field(default_factory=list)
 
 
 def _row_to_entry(row: dict) -> McpServerEntry:
     raw_args = loads(row.get("args"), [])
     args = [str(item) for item in raw_args] if isinstance(raw_args, list) else []
+    raw_schemas = loads(row.get("tool_schemas"), [])
+    schemas = [item for item in raw_schemas] if isinstance(raw_schemas, list) else []
+    user_id = str(row["user_id"]) if row.get("user_id") else None
     return McpServerEntry(
         name=str(row["name"]),
         url=str(row.get("url") or ""),
         api_key=str(row.get("api_key") or ""),
-        scope="user" if row.get("user_id") else "system",
+        scope="user" if user_id else "system",
         enabled=bool(row.get("enabled", 1)),
         transport=str(row.get("transport") or "http"),
         command=str(row.get("command") or ""),
         args=args,
         cwd=str(row.get("cwd") or ""),
+        user_id=user_id,
+        tool_schemas=[item for item in schemas if isinstance(item, dict)],
     )
 
 
