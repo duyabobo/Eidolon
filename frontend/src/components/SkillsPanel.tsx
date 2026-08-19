@@ -13,6 +13,7 @@ import {
   type MineMarketTab,
 } from "./config/MineMarketTabs";
 import { CONFIG_PAGE_SIZE, useClientPagination } from "./config/useClientPagination";
+import GitSkillImportModal from "./GitSkillImportModal";
 import SkillBrowserModal from "./SkillBrowserModal";
 import SkillCreatorChat from "./SkillCreatorChat";
 
@@ -29,6 +30,7 @@ export default function SkillsPanel({ onSkillsChanged }: Props) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreator, setShowCreator] = useState(false);
+  const [showGitImport, setShowGitImport] = useState(false);
   const [editSkillName, setEditSkillName] = useState<string | undefined>(undefined);
   const [browseSkill, setBrowseSkill] = useState<Skill | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
@@ -69,8 +71,21 @@ export default function SkillsPanel({ onSkillsChanged }: Props) {
         <MineMarketToolbar
           tab={tab}
           onTabChange={setTab}
-          onAdd={() => openCreator()}
-          addDisabled={showCreator}
+          addDisabled={showCreator || showGitImport}
+          addItems={[
+            {
+              id: "chat",
+              label: "对话创建",
+              hint: "结合办事流程和已装插件写成经验",
+              onClick: () => openCreator(),
+            },
+            {
+              id: "git",
+              label: "从 Git 导入",
+              hint: "填写含 SKILL.md 的仓库地址",
+              onClick: () => setShowGitImport(true),
+            },
+          ]}
         />
       )}
       pagination={tab === "mine" ? (
@@ -85,7 +100,7 @@ export default function SkillsPanel({ onSkillsChanged }: Props) {
       {tab === "market" ? (
         <MarketComingSoon subtitle="经验市场正在规划中，敬请期待" />
       ) : skills.length === 0 ? (
-        <ConfigEmptyState message="暂无经验。添加时会结合你的办事流程和已安装插件写成 Skill。" />
+        <ConfigEmptyState message="暂无经验。可对话写成 Skill，或从 Git 地址导入。" />
       ) : (
         <div className="space-y-2">
           {pagination.slice.map((s) => {
@@ -162,6 +177,29 @@ export default function SkillsPanel({ onSkillsChanged }: Props) {
             });
             setShowCreator(false);
             setEditSkillName(undefined);
+            onSkillsChanged?.();
+          }}
+        />
+      )}
+
+      {showGitImport && (
+        <GitSkillImportModal
+          onClose={() => setShowGitImport(false)}
+          onImported={(skill) => {
+            const next: Skill = {
+              name: skill.name,
+              description: skill.description,
+              scope: "user",
+              source: "github",
+              tags: skill.tags,
+            };
+            setSkills((prev) => {
+              const idx = prev.findIndex((s) => s.name === next.name && s.scope === "user");
+              return idx >= 0
+                ? prev.map((s, i) => (i === idx ? { ...s, ...next } : s))
+                : [...prev, next];
+            });
+            setShowGitImport(false);
             onSkillsChanged?.();
           }}
         />

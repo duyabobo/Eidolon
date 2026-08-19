@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AddMenuButton, type AddMenuItem } from "./AddMenuButton";
 import { ConfigPrimaryBtn } from "./ConfigActionBtn";
 
 export type MineMarketTab = "mine" | "market";
@@ -11,7 +12,8 @@ const TABS: { id: MineMarketTab; label: string }[] = [
 interface ToolbarProps {
   tab: MineMarketTab;
   onTabChange: (tab: MineMarketTab) => void;
-  onAdd: () => void;
+  onAdd?: () => void;
+  addItems?: AddMenuItem[];
   addDisabled?: boolean;
   /** 工具栏右侧附加操作（可选） */
   extraActions?: ReactNode;
@@ -22,6 +24,7 @@ export function MineMarketToolbar({
   tab,
   onTabChange,
   onAdd,
+  addItems,
   addDisabled,
   extraActions,
 }: ToolbarProps) {
@@ -49,7 +52,10 @@ export function MineMarketToolbar({
       {(extraActions || tab === "mine") && (
         <div className="flex items-center gap-2 shrink-0">
           {extraActions}
-          {tab === "mine" && (
+          {tab === "mine" && addItems && addItems.length > 0 && (
+            <AddMenuButton items={addItems} disabled={addDisabled} />
+          )}
+          {tab === "mine" && (!addItems || addItems.length === 0) && onAdd && (
             <ConfigPrimaryBtn disabled={addDisabled} onClick={onAdd}>
               添加
             </ConfigPrimaryBtn>

@@ -18,10 +18,19 @@ import PluginCreatorChat from "./PluginCreatorChat";
 import { isLocalPlugin, serverStatusKey } from "./mcpManagerUtils";
 import { useMcpManager } from "./useMcpManager";
 
+const EMPTY_REMOTE: McpServerConfig = {
+  url: "",
+  description: "",
+  enabled: true,
+  api_key: "",
+  transport: "http",
+};
+
 type EditState = {
   scope: "system" | "user";
   name: string;
   config: McpServerConfig;
+  isNew: boolean;
 };
 
 export default function McpConfigPanel() {
@@ -68,7 +77,7 @@ export default function McpConfigPanel() {
       transport: "http",
     };
     if (server.scope !== "system") {
-      setEdit({ scope: "user", name: server.name, config: fallback });
+      setEdit({ scope: "user", name: server.name, config: fallback, isNew: false });
       return;
     }
     try {
@@ -78,9 +87,10 @@ export default function McpConfigPanel() {
         scope: "system",
         name: server.name,
         config: { ...cfg, api_key: cfg.api_key ?? "" },
+        isNew: false,
       });
     } catch {
-      setEdit({ scope: "system", name: server.name, config: fallback });
+      setEdit({ scope: "system", name: server.name, config: fallback, isNew: false });
     }
   };
 
@@ -128,8 +138,26 @@ export default function McpConfigPanel() {
         <MineMarketToolbar
           tab={tab}
           onTabChange={setTab}
-          onAdd={() => openCreator()}
           addDisabled={showCreator}
+          addItems={[
+            {
+              id: "chat",
+              label: "对话写代码",
+              hint: "Agent 在本机实现并安装",
+              onClick: () => openCreator(),
+            },
+            {
+              id: "remote",
+              label: "添加远程 MCP",
+              hint: "填写已有 MCP Server 地址",
+              onClick: () => setEdit({
+                scope: "user",
+                name: "",
+                config: { ...EMPTY_REMOTE },
+                isNew: true,
+              }),
+            },
+          ]}
         />
       )}
       pagination={tab === "mine" ? (
@@ -144,7 +172,7 @@ export default function McpConfigPanel() {
       {tab === "market" ? (
         <MarketComingSoon subtitle="插件市场正在规划中，敬请期待" />
       ) : servers.length === 0 ? (
-        <ConfigEmptyState message="暂无插件。添加时由 Agent 对话写代码，安装到本机并自动登记给 Agent 调用。" />
+        <ConfigEmptyState message="暂无插件。可对话写代码安装到本机，或添加远程 MCP Server。" />
       ) : (
         <div className="space-y-2">
           {pagination.slice.map((server) => {
@@ -188,12 +216,15 @@ export default function McpConfigPanel() {
       {edit && (
         <McpEditModal
           title={
-            edit.scope === "system"
-              ? `编辑系统插件 · ${edit.name}`
-              : `编辑远程插件 · ${edit.name}`
+            edit.isNew
+              ? "添加远程 MCP"
+              : edit.scope === "system"
+                ? `编辑系统插件 · ${edit.name}`
+                : `编辑远程插件 · ${edit.name}`
           }
           name={edit.name}
-          nameReadonly
+          nameReadonly={!edit.isNew}
+          onNameChange={(name) => setEdit({ ...edit, name })}
           config={edit.config}
           onChange={(patch) => setEdit({ ...edit, config: { ...edit.config, ...patch } })}
           onSave={() => void handleSaveEdit()}

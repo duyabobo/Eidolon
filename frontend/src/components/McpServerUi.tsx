@@ -280,7 +280,7 @@ export function McpEditModal({
             <input
               value={name}
               onChange={(e) => onNameChange?.(e.target.value)}
-              placeholder="server 名称"
+              placeholder="插件名称"
               className="ui-field w-full"
             />
           ) : name ? (
@@ -289,7 +289,7 @@ export function McpEditModal({
           <input
             value={config.url}
             onChange={(e) => onChange({ url: e.target.value })}
-            placeholder="URL"
+            placeholder="远程 MCP 地址，如 https://example.com/mcp"
             className="ui-field w-full"
           />
           <input

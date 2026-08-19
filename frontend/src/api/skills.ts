@@ -93,4 +93,10 @@ export const skillsApi = {
 
   delete: (name: string, scope?: SkillScope) =>
     request<void>(`/config/skills/${encodeURIComponent(name)}${skillQs(scope)}`, { method: "DELETE" }),
+
+  importFromGithub: (githubUrl: string, overwrite = false) =>
+    request<Skill>(
+      "/config/skills/import-from-github",
+      { method: "POST", body: JSON.stringify({ github_url: githubUrl, overwrite }) },
+    ),
 };
